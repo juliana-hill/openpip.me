@@ -1,2 +1,25 @@
 .env.local
 *access-keys*
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.pem
+*.key
+*.crt
+credentials.json
+token.json
+
+# Local tooling and generated state
+.firebase/
+.next/
+dist/
+build/
+node_modules/
+coverage/
+.DS_Store
+*.log

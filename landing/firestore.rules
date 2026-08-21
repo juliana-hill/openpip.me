@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /page_pings/{doc} {
+      allow create: if request.resource.data.keys().hasAll(['ts', 'ref', 'ua'])
+        && request.resource.data.ts is int
+        && request.resource.data.ref is string
+        && request.resource.data.ua is string;
+      allow read, update, delete: if false;
+    }
+    match /waitlist/{doc} {
+      allow create: if request.resource.data.keys().hasAll(['name', 'email'])
+        && request.resource.data.name is string
+        && request.resource.data.email is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.email.size() > 0;
+      allow read, update, delete: if false;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

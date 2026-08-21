@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — OpenPip</title>
+  <meta name="description" content="OpenPip privacy policy — how we handle your data." />
+  <meta name="theme-color" content="#fff5f3" />
+  <script>(function(){var m=localStorage.getItem('theme-mode')||'system';var a=localStorage.getItem('theme-accent')||'coral';var isDark=m==='system'?window.matchMedia('(prefers-color-scheme:dark)').matches:m==='dark';document.documentElement.setAttribute('data-theme',isDark?'dark':'light');document.documentElement.setAttribute('data-accent',a);document.querySelector('meta[name="theme-color"]').setAttribute('content',isDark?'#1a1816':'#fff5f3');}());</script>
+  <link rel="icon" type="image/png" href="assets/img/logo.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="assets/css/tokens.css" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <style>
+    .legal { max-width: 720px; margin: 0 auto; padding: 80px 24px 120px; }
+    .legal h1 { font-size: 2rem; font-weight: 900; letter-spacing: -.03em; margin: 0 0 8px; }
+    .legal .updated { color: var(--color-text-muted); font-size: 0.85rem; margin: 0 0 40px; }
+    .legal h2 { font-size: 1.15rem; font-weight: 800; margin: 36px 0 12px; }
+    .legal p, .legal li { color: var(--color-text-muted); font-size: 0.95rem; line-height: 1.7; }
+    .legal ul { padding-left: 20px; }
+    .legal a { color: var(--color-accent); }
+    .back { display: inline-block; color: var(--color-accent); font-weight: 700; font-size: 0.85rem; margin-bottom: 24px; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main class="legal">
+    <a href="/" class="back">← Back to OpenPip</a>
+    <h1>Privacy Policy</h1>
+    <p class="updated">Effective Date: July 23, 2026</p>
+
+    <h2>Overview</h2>
+    <p>At OpenPip, we collect and manage user data according to this Privacy Policy. By using our website and services, you agree to the practices described here.</p>
+
+    <h2>Data Collected</h2>
+    <p>We collect information you provide directly to us — for example, when you create an account, subscribe to updates, fill out a form, or otherwise communicate with us. This may include your name, email address, and any other information you choose to provide.</p>
+    <p>We also collect anonymous data from every visitor to monitor traffic and fix bugs, such as web requests, response data, IP address, browser type/language, and timestamps.</p>
+    <p>When you self-host OpenPip, your application data stays entirely on your infrastructure. We do not operate a hosted service that collects or stores your application data.</p>
+
+    <h2>Use of the Data</h2>
+    <p>We use your personal information to provide OpenPip services and to communicate with you about the website or our services. We employ industry-standard techniques to help protect stored data against unauthorized access.</p>
+    <p>We do not share personal information without your consent, unless:</p>
+    <ul>
+      <li>It is necessary to carry out your request;</li>
+      <li>Required to enforce our legal agreements or by law;</li>
+      <li>Needed to detect, prevent, or address fraud, security, or technical issues.</li>
+    </ul>
+
+    <h2>No AI/ML Training</h2>
+    <p>We do not use your data for AI or machine learning model training. Your conversations, emails, career data, and any other information processed by OpenPip are never used to train models. When using local Claude mode, no data leaves your machine. When using API mode, data sent to third-party LLM providers is subject to their own policies — but OpenPip itself never collects or uses your data for training purposes.</p>
+
+    <h2>Sharing of Data</h2>
+    <p>We don't sell or share your personal information with third parties for their own marketing. From time to time, aggregated and anonymized data may be transmitted to external services to help improve our website.</p>
+    <p>We may allow third parties to provide analytics services. These parties may use cookies, web beacons, and similar technologies to collect information about your use of the website (e.g., IP address, browser, pages viewed, time on page, links clicked).</p>
+
+    <h2>Third-Party Services</h2>
+    <p>OpenPip integrates with services you choose to connect. Your use of these services is governed by their respective privacy policies:</p>
+    <ul>
+      <li><strong>Google (Calendar, Gmail, Drive)</strong> — OAuth-authenticated; data stays in your account</li>
+      <li><strong>Anthropic (Claude)</strong> — prompts sent to their API when using API mode</li>
+      <li><strong>AWS SES</strong> — for sending email through your own AWS credentials</li>
+      <li><strong>Linear, Motion</strong> — task integrations via your API keys</li>
+    </ul>
+
+    <h2>Data Retention</h2>
+    <p>We retain personal information only as long as necessary to provide our services, comply with legal obligations, resolve disputes, and enforce our agreements. When information is no longer needed, we securely delete or anonymize it.</p>
+
+    <h2 id="your-rights">Your Rights &amp; Do Not Sell</h2>
+    <p><strong>We do not sell or share your personal information.</strong> We do not sell, rent, or trade your data to third parties for monetary or other valuable consideration. This applies to all users regardless of location.</p>
+    <p>Since OpenPip is self-hosted, you have full control over your data at all times. You can:</p>
+    <ul>
+      <li>Delete all data by removing Docker volumes</li>
+      <li>Export your data from Google Drive at any time</li>
+      <li>Disconnect any integration from the Settings page</li>
+      <li>Delete your local data directory entirely</li>
+    </ul>
+    <p>Depending on your location, you may also have the right to access, correct, export, or request deletion of any personal information we hold about you. To exercise these rights, contact us at <a href="mailto:hello@openpip.com">hello@openpip.com</a>.</p>
+
+    <h2 id="cookies">Cookies</h2>
+    <p>The marketing site uses essential cookies only (theme preference). No tracking cookies are used. The application itself uses browser localStorage and IndexedDB for client-side state. We do not use cookies for advertising, retargeting, or cross-site tracking. You can clear all stored preferences by clearing your browser's local storage for this domain.</p>
+
+    <h2>Security</h2>
+    <p>We implement reasonable safeguards to protect personally identifiable information against loss, misuse, and unauthorized access, disclosure, alteration, or destruction. However, no Internet transmission or storage system is 100% secure.</p>
+
+    <h2>About Children</h2>
+    <p>OpenPip is not intended for children under 13. We do not knowingly collect personally identifiable information from children.</p>
+
+    <h2>Changes to this Policy</h2>
+    <p>We may update this Privacy Policy from time to time. Your continued use of the services after changes become effective signifies acceptance of the updated policy. If we make major changes, we will notify you by posting an announcement on the website.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about this Privacy Policy? Reach us at <a href="mailto:hello@openpip.com">hello@openpip.com</a>.</p>
+
+    <p style="margin-top: 48px; font-size: 0.8rem; color: var(--color-text-muted);">© 2026 OpenPip. All rights reserved. OpenPip is a product of <a href="https://juliluna.com">Juliluna</a>.</p>
+  </main>
+</body>
+</html>

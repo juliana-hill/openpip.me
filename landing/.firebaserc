@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "travel-agent-cam-julie"
+  },
+  "targets": {
+    "travel-agent-cam-julie": {
+      "hosting": {
+        "landing": ["openpip-landing"]
+      }
+    }
+  }
+}
