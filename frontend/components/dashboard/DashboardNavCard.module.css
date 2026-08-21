@@ -1,0 +1,9 @@
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-5); box-shadow: var(--shadow-md); color: var(--color-text); display: flex; flex-direction: column; gap: 8px; min-height: 180px; padding: 20px; text-decoration: none; transition: transform 150ms ease, box-shadow 150ms ease; }
+.card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); }
+.accent { background: var(--color-accent-light); border-color: color-mix(in srgb, var(--color-accent) 30%, var(--color-border)); }
+.header { align-items: center; display: flex; justify-content: space-between; }
+.icon { align-items: center; background: var(--color-bg); border-radius: 10px; color: var(--color-accent); display: flex; height: 34px; justify-content: center; width: 34px; }
+.arrow { color: var(--color-text-muted); font-size: var(--font-size-lg); }
+.title { font-size: var(--font-size-sm); font-weight: 800; margin: 8px 0 0; }
+.metric { font-size: 1.35rem; font-weight: 800; letter-spacing: -.03em; margin: 0; }
+.description { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.45; margin: 0; }

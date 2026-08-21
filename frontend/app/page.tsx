@@ -1,5 +1,8 @@
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CalendarDays, Inbox, ListChecks, Map, Plane, Settings } from "lucide-react";
+import { DailyBriefingCard } from "@/components/dashboard/DailyBriefingCard";
+import { DashboardNavCard } from "@/components/dashboard/DashboardNavCard";
+import { TodayAtAGlanceCard } from "@/components/dashboard/TodayAtAGlanceCard";
 
 export default function Home() {
   return (
@@ -12,27 +15,14 @@ export default function Home() {
         <Button variant="secondary">Settings</Button>
       </header>
 
-      <section className="hero-grid" aria-label="Daily briefing">
-        <Card accent>
-          <CardHeader>
-            <CardTitle>Today at a glance</CardTitle>
-            <CardDescription>Your agent scanned the work that changed overnight.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <p className="briefing-copy">Three items need your judgment. Nothing has been sent, scheduled, or changed.</p>
-            <Button>Open review queue</Button>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent status</CardTitle>
-            <CardDescription>Background monitoring is active.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="status-row"><span className="status-dot" /> Connected to demo workspace</div>
-            <div className="status-row muted">Last scan · 8 minutes ago</div>
-          </CardContent>
-        </Card>
+      <section className="dashboard-grid" aria-label="Daily briefing and workspace navigation">
+        <DailyBriefingCard briefing="Three items need your judgment. Nothing has been sent, scheduled, or changed." generatedAt="Generated just now" />
+        <TodayAtAGlanceCard events={4} tasks={7} />
+        <DashboardNavCard href="/review" title="Review queue" metric="3 items" description="Drafts and proposals waiting for your decision." icon={ListChecks} accent />
+        <DashboardNavCard href="/inbox" title="Inbox" metric="12 unread" description="Triage messages and prepare thoughtful replies." icon={Inbox} />
+        <DashboardNavCard href="/calendar" title="Calendar" metric="4 events" description="See today’s schedule and proposed changes." icon={CalendarDays} />
+        <DashboardNavCard href="/travel" title="Business travel" metric="Plan with your agent" description="Coordinate professional trips and prepare approval-gated travel actions." icon={Plane} />
+        <DashboardNavCard href="/settings" title="Connections" metric="1 workspace" description="Manage accounts, permissions, and agent preferences." icon={Settings} />
       </section>
     </main>
   );

@@ -20,6 +20,7 @@ token.json
 dist/
 build/
 node_modules/
+**/.venv/
 coverage/
 .DS_Store
 *.log

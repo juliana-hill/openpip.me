@@ -27,10 +27,11 @@ Narrow the surface area from the old multi-skill platform (travel planning, care
 3. Inbox triage agent — clears low-value mail automatically, drafts replies for anything that needs a response, creates tasks for action items.
 4. Proposal & Review pipeline — every autonomous action becomes a proposal with cited source (the email/event/task it's based on); nothing sends/books/schedules until approved in the Review queue.
 5. Minimal contact/relationship memory (lightweight CRM) built from who you actually email — powers "haven't followed up with X in 2 weeks" style proposals.
-6. CALL-E calling tool — a `propose_action`-compatible tool that places a real outbound phone call (via [CALL-E](https://github.com/CALLE-AI/call-e-integrations)'s SDK/MCP) to confirm or reschedule an appointment found on the calendar, or to follow up on a task that's better resolved by voice than email. Like every other action, a call is only ever a *proposal* until approved in the Review queue — approval is what actually triggers the CALL-E call. See [§9](#9-call-e-integration-dual-hackathon-submission) for how this doubles as the CALL-E hackathon submission.
+6. Business-trip planning — turns a professional travel request from email, calendar, or chat into a proposed itinerary, identifies scheduling conflicts, and prepares approval-gated coordination actions for flights, lodging, ground transportation, and meetings.
+7. CALL-E calling tool — a `propose_action`-compatible tool that places a real outbound phone call (via [CALL-E](https://github.com/CALLE-AI/call-e-integrations)'s SDK/MCP) to confirm or reschedule an appointment found on the calendar, or to follow up on a task that's better resolved by voice than email. Like every other action, a call is only ever a *proposal* until approved in the Review queue — approval is what actually triggers the CALL-E call. See [§9](#9-call-e-integration-dual-hackathon-submission) for how this doubles as the CALL-E hackathon submission.
 
 **Explicitly out of scope for the hackathon submission** (roadmap-only, mention briefly in README as "what's next"):
-- Travel planning / route comparison
+- Personal/leisure travel planning and broad consumer route comparison
 - Career/job-search campaigns
 - Executive-coaching persona and homework tracking
 
