@@ -67,6 +67,32 @@ def test_assistant_identity_and_appearance_are_persisted_separately() -> None:
     assert client.get("/api/settings/working-context").json()["content"] == ""
 
 
+def test_sanitized_demo_briefing_is_available_without_external_credentials() -> None:
+    client = TestClient(app)
+    response = client.post("/api/demo/briefing")
+
+    assert response.status_code == 200
+    assert response.json()["generated_by"] in {"demo-fallback", "strands"}
+    assert response.json()["proposals_created"] == 1
+    assert client.get("/api/proposals?status=pending").json()["items"][0]["source"]["id"] == "message-client-followup"
+
+
+def test_connector_status_never_exposes_credentials() -> None:
+    client = TestClient(app)
+    response = client.get("/api/connectors")
+
+    assert response.status_code == 200
+    assert {item["name"] for item in response.json()["items"]} == {"gmail", "calendar", "tasks", "drive"}
+    assert all(item["mode"] == "mock" and "token" not in item for item in response.json()["items"])
+
+
+def test_demo_contacts_are_sanitized_and_queryable() -> None:
+    client = TestClient(app)
+    response = client.get("/api/demo/contacts")
+    assert response.status_code == 200
+    assert response.json()["items"][0]["email"] == "client@example.test"
+
+
 def test_unapproved_proposal_cannot_execute() -> None:
     client = TestClient(app)
     client.post("/api/briefing", json={"messages": [{"id": "message-3", "subject": "Do not send"}]})

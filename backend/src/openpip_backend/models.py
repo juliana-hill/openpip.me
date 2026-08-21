@@ -80,3 +80,12 @@ class UserPreferences(BaseModel):
     theme: str = Field(default="system", pattern="^(light|dark|system)$")
     accent: str = Field(default="coral", pattern="^(coral|blue|green|red|lilac)$")
     updated_at: datetime = Field(default_factory=now)
+
+
+class Contact(BaseModel):
+    id: str
+    name: str
+    email: str
+    last_interaction: str
+    interaction_count: int = 0
+    relationship_note: str = ""

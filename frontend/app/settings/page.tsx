@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AssistantPreferencesForm } from "@/components/settings/AssistantPreferencesForm";
+import { ConnectorStatus } from "@/components/settings/ConnectorStatus";
 import { WorkingContextForm } from "@/components/settings/WorkingContextForm";
 
 export default function SettingsPage() {
@@ -11,6 +12,7 @@ export default function SettingsPage() {
         <h1>Make OpenPip feel like your assistant.</h1>
       </header>
       <AssistantPreferencesForm />
+      <ConnectorStatus />
       <WorkingContextForm />
     </main>
   );

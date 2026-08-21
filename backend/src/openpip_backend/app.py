@@ -1,13 +1,23 @@
 import os
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from .agent import create_briefing
 from .executor import ActionExecutor, MockActionExecutor
+from .demo_data import demo_contacts, demo_request
 from .models import BriefingRequest, BriefingResponse, ProposalDecision, ProposalStatus, UserContext, UserPreferences
+from .providers import connector_statuses
 from .store import ProposalStore
 
 app = FastAPI(title="OpenPip API", version="0.1.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[origin.strip() for origin in os.getenv("OPENPIP_CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",") if origin.strip()],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 store = ProposalStore(os.getenv("OPENPIP_DATABASE_PATH", "./data/openpip.sqlite3"))
 executor: ActionExecutor = MockActionExecutor()
 
@@ -19,6 +29,14 @@ def health() -> dict[str, str]:
 
 @app.post("/api/briefing", response_model=BriefingResponse)
 def briefing(request: BriefingRequest) -> BriefingResponse:
+    text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
+    return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
+
+
+@app.post("/api/demo/briefing", response_model=BriefingResponse)
+def demo_briefing() -> BriefingResponse:
+    """Run the complete local loop with sanitized fixture data."""
+    request = demo_request()
     text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
     return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
 
@@ -50,6 +68,22 @@ def get_preferences() -> UserPreferences:
 def save_preferences(preferences: UserPreferences) -> UserPreferences:
     """Persist assistant name/icon and visual preferences, never system instructions."""
     return store.save_preferences(preferences)
+
+
+@app.get("/api/connectors")
+def connectors():
+    """Expose connector readiness without exposing OAuth credentials or tokens."""
+    return {"items": [status.__dict__ for status in connector_statuses()]}
+
+
+@app.get("/api/demo/contacts")
+def demo_contacts_endpoint():
+    return {"items": demo_contacts()}
+
+
+@app.get("/api/demo/workspace")
+def demo_workspace():
+    return demo_request().model_dump()
 
 
 @app.get("/api/proposals/{proposal_id}/audit")
