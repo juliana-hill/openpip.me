@@ -21,6 +21,9 @@ dist/
 build/
 node_modules/
 **/.venv/
+**/__pycache__/
+*.pyc
+**/*.egg-info/
 coverage/
 .DS_Store
 *.log
