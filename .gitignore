@@ -25,5 +25,7 @@ node_modules/
 *.pyc
 **/*.egg-info/
 coverage/
+*.tsbuildinfo
+backend/data/
 .DS_Store
 *.log

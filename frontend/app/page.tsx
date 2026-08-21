@@ -1,5 +1,6 @@
-import { Button } from "@/components/ui/button";
-import { CalendarDays, Inbox, ListChecks, Map, Plane, Settings } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, Inbox, ListChecks, Plane, Settings } from "lucide-react";
+import { AgentBrand } from "@/components/AgentBrand";
 import { DailyBriefingCard } from "@/components/dashboard/DailyBriefingCard";
 import { DashboardNavCard } from "@/components/dashboard/DashboardNavCard";
 import { TodayAtAGlanceCard } from "@/components/dashboard/TodayAtAGlanceCard";
@@ -9,10 +10,10 @@ export default function Home() {
     <main className="app-shell">
       <header className="app-header">
         <div>
-          <p className="eyebrow">Open Performance Improvement Plan</p>
+          <AgentBrand />
           <h1>Good morning, Juliana.</h1>
         </div>
-        <Button variant="secondary">Settings</Button>
+        <Link href="/settings" className="settings-link">Settings</Link>
       </header>
 
       <section className="dashboard-grid" aria-label="Daily briefing and workspace navigation">

@@ -1,6 +1,6 @@
 .card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-5); box-shadow: var(--shadow-md); display: flex; flex-direction: column; gap: 18px; grid-column: span 8; overflow: hidden; padding: 24px 28px; position: relative; }
 .accentBar { background: linear-gradient(90deg, var(--color-accent), #f59e0b); height: 3px; left: 0; position: absolute; right: 0; top: 0; }
-.header { align-items: center; display: flex; gap: 12px; }
+.header { align-items: center; display: flex; gap: 12px; }.header > :last-child { margin-left: auto; }
 .icon { align-items: center; background: var(--color-accent-light); border-radius: 12px; color: var(--color-accent); display: flex; height: 40px; justify-content: center; width: 40px; }
 .title { font-size: var(--font-size-lg); margin: 0; }
 .subtitle { color: var(--color-text-muted); font-size: var(--font-size-xs); margin: 3px 0 0; }
