@@ -1,0 +1,6 @@
+.badge { display: inline-flex; align-items: center; font-size: var(--font-size-xs); font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.accent  { background: var(--color-accent); color: #fff; }
+.muted   { background: var(--color-accent-light); color: var(--color-accent); }
+.success { background: #eaf3ea; color: #4e7a4e; }
+.warning { background: #fef3e0; color: #9a6000; }
+.danger  { background: #fde8e8; color: #c02e2e; }

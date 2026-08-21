@@ -1,0 +1,12 @@
+.bar {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 8px 20px;
+}
+.link {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-accent);
+  text-decoration: none;
+}
+.link:hover { opacity: 0.75; }

@@ -1,0 +1,112 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.4);
+  animation: fadeIn 200ms ease-out both;
+}
+
+.panel {
+  position: fixed;
+  z-index: 51;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right {
+  top: 0; right: 0; bottom: 0;
+  width: min(75%, 400px);
+  border-left: 1px solid var(--color-border);
+  animation: slideInRight 280ms ease-out both;
+}
+
+.left {
+  top: 0; left: 0; bottom: 0;
+  width: min(75%, 400px);
+  border-right: 1px solid var(--color-border);
+  animation: slideInLeft 280ms ease-out both;
+}
+
+.bottom {
+  bottom: 0; left: 0; right: 0;
+  max-height: 85vh;
+  border-top: 1px solid var(--color-border);
+  border-radius: 20px 20px 0 0;
+  animation: slideUp 280ms ease-out both;
+}
+
+.top {
+  top: 0; left: 0; right: 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header {
+  padding: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.footer {
+  margin-top: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.title {
+  font-size: var(--font-size-base);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.closeBtn {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.closeBtn:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideInLeft {
+  from { opacity: 0; transform: translateX(-40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
