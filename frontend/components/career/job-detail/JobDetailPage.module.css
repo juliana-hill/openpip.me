@@ -1,0 +1,59 @@
+.page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  padding-top: 64px; /* AppHeader height */
+  padding-bottom: 32px;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.stickyTop {
+  position: sticky;
+  top: 64px; /* sits just below AppHeader */
+  z-index: 30;
+  background: var(--color-surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-family: var(--font-sans);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  padding: 16px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+.left {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.dangerZone {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

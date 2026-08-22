@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en" data-theme="system" data-accent="coral">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OpenPip</title>
+    <link rel="icon" type="image/png" href="/trippy-transparent.png" />
+    <link rel="apple-touch-icon" href="/trippy-transparent.png" />
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const media = window.matchMedia("(prefers-color-scheme: dark)");
+        const apply = () => {
+          const mode = localStorage.getItem("theme-mode");
+          const accent = localStorage.getItem("theme-accent") || "coral";
+          const isDark = mode === "dark" || (mode !== "light" && media.matches);
+          root.setAttribute("data-theme", isDark ? "dark" : "light");
+          root.setAttribute("data-accent", accent);
+          root.style.colorScheme = isDark ? "dark" : "light";
+        };
+        apply();
+        media.addEventListener("change", apply);
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles/tokens.css" />
+    <link rel="stylesheet" href="/styles/app-header.css" />
+    <link rel="stylesheet" href="/styles/page-shell.css" />
+    <link rel="stylesheet" href="/styles/card.css" />
+    <link rel="stylesheet" href="/styles/express-adapter.css" />
+  </head>
+  <body>
+    {{{body}}}
+  </body>
+</html>

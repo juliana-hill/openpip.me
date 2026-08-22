@@ -1,0 +1,326 @@
+.card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  padding: 20px 24px;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+.card:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+@media (min-width: 768px) {
+  .header { flex-direction: row; align-items: center; }
+}
+
+.nameGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.modeIcons {
+  display: flex;
+}
+
+.modeIcons > * + * {
+  margin-left: -8px;
+}
+
+.modeIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-accent-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-surface);
+  color: var(--color-accent);
+}
+
+.routeName {
+  font-weight: 700;
+  font-size: var(--font-size-lg);
+  line-height: 1;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.routeSubtitle {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin: 4px 0 0;
+}
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.dateBadge {
+  text-align: right;
+  border-radius: var(--radius-md);
+  border: 2px solid #f87171;
+  background: color-mix(in srgb, #f87171 12%, var(--color-bg));
+  padding: 4px 8px;
+}
+
+.dateBadgeLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #f87171;
+  margin: 0;
+}
+
+.dateBadgeValue {
+  font-weight: 700;
+  font-size: var(--font-size-sm);
+  color: #f87171;
+  margin: 0;
+}
+
+.stat { text-align: right; }
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.statValue {
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+}
+
+.priceValue {
+  font-weight: 700;
+  color: var(--color-accent);
+  font-size: var(--font-size-xl);
+  line-height: 1;
+  margin: 0;
+}
+
+.priceBreakdown {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  margin: 2px 0 0;
+}
+
+/* Animated collapse */
+.collapseGrid {
+  display: grid;
+  transition: grid-template-rows 300ms ease-in-out;
+}
+.collapseGrid.closed { grid-template-rows: 0fr; }
+.collapseGrid.open   { grid-template-rows: 1fr; }
+
+.collapseInner { overflow: hidden; }
+
+.collapseContent {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Timeline bar */
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar {
+  height: 6px;
+  flex-grow: 1;
+  border-radius: 999px;
+  background: var(--color-bg);
+  overflow: hidden;
+  display: flex;
+}
+
+.barSegmentPrimary { height: 100%; background: var(--color-accent); }
+.barSegmentTransit { height: 100%; background: var(--color-accent); opacity: 0.4; }
+
+.workBadge {
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.workBadgePositive { background: color-mix(in srgb, #34d399 15%, var(--color-bg)); color: #34d399; }
+.workBadgeNeutral  { background: var(--color-bg); color: var(--color-text-muted); }
+
+/* Calendar note */
+.calendarNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-radius: 8px;
+  background: color-mix(in srgb, #3b82f6 12%, var(--color-bg));
+  padding: 8px 12px;
+  font-size: var(--font-size-xs);
+  color: #3b82f6;
+}
+
+/* Leg steps */
+.legs { display: flex; flex-direction: column; }
+
+.legRow {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.legIconCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.legIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.legIconDefault { background: var(--color-bg); color: var(--color-text); opacity: 0.7; }
+.legIconLayover { background: color-mix(in srgb, #fbbf24 15%, var(--color-bg)); color: #fbbf24; }
+
+.legConnector {
+  width: 1px;
+  flex: 1;
+  margin: 4px 0;
+}
+.legConnectorDefault { background: var(--color-border); opacity: 0.4; }
+.legConnectorLayover { background: #fbbf24; opacity: 0.5; }
+
+.legContent {
+  flex: 1;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.legContentLast { margin-bottom: 0; }
+.legContentDefault { background: var(--color-bg); border: 1px solid var(--color-border); opacity: 0.9; }
+.legContentLayover { background: color-mix(in srgb, #fbbf24 10%, var(--color-bg)); border: 1px solid color-mix(in srgb, #fbbf24 30%, var(--color-border)); opacity: 0.9; }
+
+/* Within LegContent */
+.legHeader {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.legLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.legLabelLayover {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0;
+  color: #fbbf24;
+}
+
+.legDuration {
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.legDurationLayover {
+  font-size: 0.6875rem;
+  color: #fbbf24;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.legTimes {
+  margin: 4px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.legStops {
+  margin: 4px 0 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.legMeta {
+  margin: 2px 0 0;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+  opacity: 0.8;
+}
+
+.legLinks {
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.legLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-xs);
+  color: var(--color-accent);
+}
+.legLink:hover { text-decoration: underline; }
+
+.legAgencyLinks {
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.legAgencyLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+.legAgencyLink:hover { color: var(--color-accent); text-decoration: underline; }

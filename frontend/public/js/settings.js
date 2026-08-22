@@ -1,0 +1,3 @@
+import { loadView } from "./common.js";
+loadView("settings");
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJsb2FkVmlldyJdLCJzb3VyY2VzIjpbIi4uLy4uL2NsaWVudC1zcmMvc2V0dGluZ3MuanMiXSwic291cmNlc0NvbnRlbnQiOlsiaW1wb3J0IHsgbG9hZFZpZXcgfSBmcm9tIFwiLi9jb21tb24uanNcIjtcbmxvYWRWaWV3KFwic2V0dGluZ3NcIik7XG4iXSwibWFwcGluZ3MiOiJBQUFBLFNBQVNBLFFBQVEsUUFBUSxhQUFhO0FBQ3RDQSxRQUFRLENBQUMsVUFBVSxDQUFDIiwiaWdub3JlTGlzdCI6W119

@@ -1,0 +1,3 @@
+import { loadView } from "./common.js";
+loadView("career");
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJsb2FkVmlldyJdLCJzb3VyY2VzIjpbIi4uLy4uL2NsaWVudC1zcmMvY2FyZWVyLmpzIl0sInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IGxvYWRWaWV3IH0gZnJvbSBcIi4vY29tbW9uLmpzXCI7XG5sb2FkVmlldyhcImNhcmVlclwiKTtcbiJdLCJtYXBwaW5ncyI6IkFBQUEsU0FBU0EsUUFBUSxRQUFRLGFBQWE7QUFDdENBLFFBQVEsQ0FBQyxRQUFRLENBQUMiLCJpZ25vcmVMaXN0IjpbXX0=

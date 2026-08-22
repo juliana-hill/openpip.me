@@ -1,0 +1,125 @@
+.card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+  gap: 8px;
+}
+
+.entryTitle { font-size: var(--font-size-sm); font-weight: 700; color: var(--color-text); margin: 0 0 2px; }
+.entryOrg { font-size: var(--font-size-xs); color: var(--color-accent); font-weight: 600; margin: 0 0 2px; }
+.entryDates { font-size: var(--font-size-xs); color: var(--color-text-muted); margin: 0; }
+
+.typeBadge {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.bulletSection { margin-top: 10px; }
+
+.bulletLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin: 0 0 6px;
+}
+.bulletLabelAccent { color: var(--color-accent); }
+
+.bulletOld { font-size: var(--font-size-xs); color: var(--color-text-muted); line-height: 1.5; margin-bottom: 2px; }
+
+.bulletNew {
+  display: flex;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  line-height: 1.5;
+  margin-bottom: 3px;
+}
+.bulletDot { color: var(--color-accent); flex-shrink: 0; }
+
+.standoutNote {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  background: var(--color-accent-light);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-accent);
+}
+
+.actions { display: flex; gap: 8px; margin-top: 10px; }
+
+.acceptedBadge {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #4caf50;
+  background: rgba(76,175,80,0.1);
+  border: 1px solid rgba(76,175,80,0.25);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.dismissedBadge {
+  display: inline-block;
+  margin-top: 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: var(--color-border);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.headerEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.headerGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.headerInput {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+}
+.headerInput:focus { border-color: var(--color-accent); }
+.headerInput::placeholder { color: var(--color-text-muted); }

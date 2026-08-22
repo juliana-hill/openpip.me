@@ -1,0 +1,4 @@
+.unreadBadge {
+  background: var(--color-accent);
+  color: #fff;
+}

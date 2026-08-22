@@ -1,0 +1,139 @@
+.card {
+  background: var(--color-surface);
+  padding: 20px 24px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  min-width: 0;
+  overflow: hidden;
+  transition: background 150ms ease, transform 150ms ease;
+}
+.card:hover {
+  background: var(--color-accent-light);
+  transform: translateY(-1px);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.titleGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.avatar {
+  width: 40px;
+  height: 40px;
+  background: var(--color-bg);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.textStack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.name {
+  font-size: var(--font-size-base);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+  transition: color 150ms ease;
+}
+.card:hover .name {
+  color: var(--color-accent);
+}
+
+.meta {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin: 0;
+}
+
+.statusBadge {
+  padding: 4px 12px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.statusNotContacted         { background: var(--color-bg); color: var(--color-text-muted); }
+.statusConnectionRequested  { background: color-mix(in srgb, #a78bfa 15%, var(--color-bg)); color: #a78bfa; }
+.statusConnected            { background: color-mix(in srgb, #818cf8 15%, var(--color-bg)); color: #818cf8; }
+.statusMessaged             { background: color-mix(in srgb, #3b82f6 15%, var(--color-bg)); color: #3b82f6; }
+.statusReplied              { background: var(--color-accent-light); color: var(--color-accent); }
+.statusMeeting              { background: color-mix(in srgb, #34d399 15%, var(--color-bg)); color: #34d399; }
+.statusFollowedUp           { background: color-mix(in srgb, #f59e0b 15%, var(--color-bg)); color: #f59e0b; }
+
+.notes {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.footerMeta {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.linkedInLink {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+.linkedInLink:hover { color: var(--color-text); }

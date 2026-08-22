@@ -1,0 +1,212 @@
+.section {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 16px 24px 14px;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.backLink {
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  transition: color 150ms;
+}
+.backLink:hover { color: var(--color-accent); }
+
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.crumbLink {
+  color: var(--color-text-muted);
+  text-decoration: none;
+  transition: color 150ms;
+}
+.crumbLink:hover { color: var(--color-accent); }
+
+.crumbCurrent { color: var(--color-text); }
+
+.titleRow {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.titleLeft { flex: 1; min-width: 0; }
+
+.titleEdit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.titleInput {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  padding: 4px 10px;
+  outline: none;
+  font-family: var(--font-sans);
+  width: 100%;
+}
+.titleInput:focus { border-color: var(--color-accent); }
+
+.titleStatic {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--color-text);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.editBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 150ms;
+  opacity: 0;
+}
+.titleStatic:hover .editBtn { opacity: 1; }
+
+.iconBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  transition: color 150ms;
+}
+.iconBtn:hover { color: var(--color-text); }
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.company {
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.urlLink {
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  transition: color 150ms;
+}
+.urlLink:hover { color: var(--color-accent); }
+
+.badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.statusBadge {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+}
+
+.urlRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.urlText {
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--color-text-muted);
+}
+.urlText:hover { color: var(--color-accent); }
+.urlVerified { color: #4caf50 !important; }
+
+.urlNone {
+  font-size: var(--font-size-xs);
+  color: var(--color-border);
+  flex: 1;
+}
+
+.urlInput {
+  flex: 1;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-sans);
+  padding: 4px 8px;
+  outline: none;
+}
+.urlInput:focus { border-color: var(--color-accent); }
+
+.urlActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pillBtn {
+  background: var(--color-accent-light);
+  border: none;
+  border-radius: var(--radius-pill);
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  font-family: var(--font-sans);
+  padding: 4px 12px;
+  cursor: pointer;
+  transition: filter 150ms;
+  white-space: nowrap;
+}
+.pillBtn:hover { filter: brightness(0.95); }

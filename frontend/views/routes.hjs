@@ -1,0 +1,3 @@
+<div id="react-root" data-view="routes"><p>Loading connected workspace data…</p></div>
+<link rel="stylesheet" href="/react/routes.css" />
+<script type="module" src="/react/routes.js"></script>

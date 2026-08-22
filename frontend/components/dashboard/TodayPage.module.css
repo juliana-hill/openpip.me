@@ -1,0 +1,33 @@
+.shell { background: var(--color-bg); min-height: 100vh; padding-top: 64px; }
+.page { margin: 0 auto; max-width: 1000px; padding: 42px 28px 100px; }
+.heading { margin-bottom: 28px; }
+.eyebrow { color: var(--color-accent); font-size: var(--font-size-xs); font-weight: 800; letter-spacing: .09em; margin: 0 0 8px; text-transform: uppercase; }
+.heading h1 { color: var(--color-text); font-size: clamp(2rem, 5vw, 2.75rem); letter-spacing: -.04em; line-height: 1; margin: 0; }
+.heading > p:last-child { color: var(--color-text-muted); line-height: 1.55; margin: 14px 0 0; max-width: 620px; }
+.board { display: grid; gap: 16px; grid-template-columns: 1fr; }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 20px; box-shadow: var(--shadow-md); padding: 22px; }
+.schedule { background: var(--color-accent-light); }
+.cardHead { align-items: center; display: flex; gap: 12px; justify-content: space-between; margin-bottom: 12px; }
+.card h2 { color: var(--color-text); font-size: 1.05rem; margin: 0; }
+.cardHead a { color: var(--color-accent); font-size: var(--font-size-sm); font-weight: 800; text-decoration: none; }
+.row { align-items: center; border-top: 1px solid var(--color-border); display: flex; font-size: var(--font-size-sm); gap: 10px; padding: 13px 0; }
+.row span:nth-child(2) { color: var(--color-text); flex: 1; }
+.row time, .row b { color: var(--color-text-muted); font-size: var(--font-size-xs); font-weight: 600; }
+.dot { border-radius: 50%; height: 8px; width: 8px; }
+.checkbox { border: 2px solid var(--color-border); border-radius: 4px; height: 16px; width: 16px; }
+.highPriority { border-color: var(--color-accent); }
+.empty { color: var(--color-text-muted); font-size: var(--font-size-sm); margin: 0; }
+.context p { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.55; margin: 12px 0 20px; }
+.context button { background: var(--color-accent); border: 1px solid var(--color-accent); border-radius: 999px; color: white; cursor: pointer; font: inherit; font-size: var(--font-size-sm); font-weight: 800; min-height: 44px; padding: 10px 16px; }
+.loading { display: grid; gap: 16px; }
+.loading div { animation: shimmer 1.5s infinite; background: linear-gradient(90deg, var(--color-border) 0%, var(--color-bg) 50%, var(--color-border) 100%); background-size: 200% 100%; border-radius: 20px; height: 220px; }
+.error { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 18px; color: var(--color-text-muted); padding: 22px; }
+@keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+@media (min-width: 768px) { .board { grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); } .schedule { grid-row: span 2; min-height: 360px; } }
+@media (max-width: 767px) { .page { padding: 28px 16px 96px; } .card { padding: 18px; } }
+
+.inbox { text-decoration: none; cursor: pointer; transition: border-color 0.15s; }
+.inbox:hover { border-color: var(--color-accent); }
+.cardHead span { color: var(--color-accent); font-size: var(--font-size-sm); font-weight: 800; }
+.inboxMetric { color: var(--color-text); font-size: 1.25rem; font-weight: 800; letter-spacing: -.025em; margin: 0; }
+.inboxHint { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.45; margin: 4px 0 0; }

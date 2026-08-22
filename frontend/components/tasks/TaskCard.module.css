@@ -1,0 +1,126 @@
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0;
+}
+
+.row {
+  background: var(--color-surface);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.left {
+  flex: 1;
+  min-width: 0;
+}
+
+.topLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.sourceBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.source_google { background: color-mix(in srgb, #34d399 15%, var(--color-bg)); color: #34d399; }
+
+.identifier {
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.title {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bottomLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  flex-wrap: wrap;
+}
+
+.project {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.scheduled {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.status {
+  display: none;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 640px) {
+  .status { display: inline; }
+}
+
+.priorityBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.priority_ASAP { background: color-mix(in srgb, var(--priority-asap) 15%, var(--color-bg)); color: var(--priority-asap); }
+.priority_HIGH { background: color-mix(in srgb, var(--priority-high) 15%, var(--color-bg)); color: var(--priority-high); }
+.priority_MEDIUM { background: color-mix(in srgb, var(--priority-medium) 15%, var(--color-bg)); color: var(--priority-medium); }
+.priority_LOW { background: color-mix(in srgb, var(--priority-low) 15%, var(--color-bg)); color: var(--priority-low); }
+
+.empty {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 16px 0;
+}

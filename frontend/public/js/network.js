@@ -1,0 +1,3 @@
+import { loadView } from "./common.js";
+loadView("network");
+//# sourceMappingURL=data:application/json;charset=utf-8;base64,eyJ2ZXJzaW9uIjozLCJuYW1lcyI6WyJsb2FkVmlldyJdLCJzb3VyY2VzIjpbIi4uLy4uL2NsaWVudC1zcmMvbmV0d29yay5qcyJdLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyBsb2FkVmlldyB9IGZyb20gXCIuL2NvbW1vbi5qc1wiO1xubG9hZFZpZXcoXCJuZXR3b3JrXCIpO1xuIl0sIm1hcHBpbmdzIjoiQUFBQSxTQUFTQSxRQUFRLFFBQVEsYUFBYTtBQUN0Q0EsUUFBUSxDQUFDLFNBQVMsQ0FBQyIsImlnbm9yZUxpc3QiOltdfQ==

@@ -1,0 +1,971 @@
+.page {
+
+  background: var(--color-bg);
+}
+
+.content {
+  max-width: 1152px;
+  margin: 0 auto;
+  padding: 64px 20px 48px;
+}
+
+/* Page header */
+.header {
+  margin-bottom: 24px;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text);
+  margin: 0 0 4px;
+}
+
+.subtitle {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+/* Grid */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
+  gap: 16px;
+}
+
+/* Horizontal scroll row (pages + drive) */
+.scrollRow {
+  display: flex;
+  overflow-x: auto;
+  gap: 16px;
+  padding: 6px 0 8px;
+  scrollbar-width: none;
+}
+
+.scrollRow::-webkit-scrollbar {
+  display: none;
+}
+
+/* Section divider with centered label */
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 24px;
+}
+
+.dividerLine {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.dividerLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Drive file card */
+.driveCard {
+  position: relative;
+  flex-shrink: 0;
+  width: 240px;
+  height: 180px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-6);
+  box-shadow: var(--shadow-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+  overflow: hidden;
+}
+
+.driveCard:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--color-accent);
+}
+
+.driveCardIconBadge {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+}
+
+.driveIconBlue  { background: color-mix(in srgb, #3b82f6 15%, transparent); }
+.driveIconGreen { background: color-mix(in srgb, #22c55e 15%, transparent); }
+.driveIconRed   { background: color-mix(in srgb, #ef4444 15%, transparent); }
+.driveIconYellow { background: color-mix(in srgb, #eab308 15%, transparent); }
+
+.driveCardBottom {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.driveCardName {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.driveCardMeta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.driveCardLinkIcon {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.driveCard:hover .driveCardLinkIcon {
+  opacity: 1;
+}
+
+/* New Drive File dashed card — matches newPageCard but drive card dimensions */
+.newDriveFileCard {
+  flex-shrink: 0;
+  width: 240px;
+  height: 180px;
+  background: none;
+  border: 2px dashed color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-6);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+  color: var(--color-accent);
+  font-family: var(--font-sans);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.newDriveFileCard:hover {
+  background: var(--color-accent-light);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+
+/* New Drive File modal — file type picker */
+.driveFileTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.driveFileTypeBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.driveFileTypeBtn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.driveFileTypeBtnActive {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+
+.driveFileTypeIcon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+/* Folder path row */
+.driveFolderRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 8px 12px;
+  transition: border-color 150ms ease;
+}
+
+.driveFolderRow:focus-within {
+  border-color: var(--color-accent);
+}
+
+.driveFolderIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.driveFolderInput {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  outline: none;
+  min-width: 0;
+}
+
+.driveFolderInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Sections */
+.section {
+  margin-bottom: 32px;
+}
+
+.sectionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-muted);
+  margin: 0 0 12px;
+}
+
+/* Note card */
+.noteCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  width: 240px;
+  min-height: 320px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: none;
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-6);
+  box-shadow: var(--shadow-md);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 23px,
+    rgba(232, 228, 223, 0.5) 23px,
+    rgba(232, 228, 223, 0.5) 24px
+  );
+  text-align: left;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.noteCardKeep {
+  border-left-width: 4px;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      transparent,
+      transparent 23px,
+      rgba(232, 228, 223, 0.5) 23px,
+      rgba(232, 228, 223, 0.5) 24px
+    );
+}
+
+[data-theme="dark"] .noteCard,
+[data-theme="dark"] .noteCardKeep,
+[data-theme="dark"] .modalContent {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent,
+    transparent 23px,
+    rgba(232, 228, 223, 0.08) 23px,
+    rgba(232, 228, 223, 0.08) 24px
+  );
+}
+
+.keepBadge {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  width: fit-content;
+}
+
+.newPageCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-shrink: 0;
+  width: 240px;
+  min-height: 320px;
+  background: none;
+  border: 2px dashed color-mix(in srgb, var(--color-accent) 30%, transparent);
+  border-radius: var(--radius-6);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+  color: var(--color-accent);
+  font-family: var(--font-sans);
+}
+
+.newPageCard:hover {
+  background: var(--color-accent-light);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+}
+
+.newPageConfirm {
+  flex: 1;
+  background: var(--color-accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.newPageConfirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.newPageCancel {
+  flex: 1;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.newPageIcon {
+  font-size: 2rem;
+  line-height: 1;
+  font-weight: 300;
+}
+
+.newPageLabel {
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+}
+
+.noteCard:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+}
+
+.noteCard:focus {
+  outline: none;
+}
+
+.noteTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  color: var(--color-text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.noteBody {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+/* Task item list (card) */
+.itemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.itemWrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text);
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.dateChip {
+  display: inline-block;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: var(--color-accent-light);
+  border-radius: var(--radius-pill);
+  padding: 1px 8px;
+  margin-left: 22px;
+  width: fit-content;
+}
+
+.checkbox {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.doneCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  margin: auto 0 0;
+  font-style: italic;
+}
+
+/* Skeleton */
+.skeleton {
+  background: var(--color-surface);
+  border-left: 3px solid var(--color-border);
+  border-radius: var(--radius-6);
+  min-height: 320px;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Empty state */
+.empty {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 80px 20px;
+  color: var(--color-text-muted);
+}
+
+.emptyIcon {
+  font-size: 3rem;
+  opacity: 0.4;
+}
+
+.emptyTitle {
+  font-size: var(--font-size-lg);
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-text);
+}
+
+.emptySubtext {
+  font-size: var(--font-size-sm);
+  margin: 0;
+}
+
+/* Modal */
+.modalContent {
+  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  animation: slideUp 200ms ease;
+}
+
+.modalClose {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  line-height: 1;
+}
+
+.modalClose:hover {
+  background: var(--color-border);
+}
+
+.modalTitle {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--color-text);
+  padding-right: 32px;
+}
+
+.modalTextarea {
+  width: 100%;
+  min-height: 320px;
+  max-height: 60vh;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.7;
+  padding: 12px;
+  resize: vertical;
+  outline: none;
+}
+
+.modalTextarea:focus {
+  border-color: var(--color-accent);
+}
+
+.modalItemList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.modalItem {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  padding-left: 22px;
+  position: relative;
+  line-height: 1.5;
+}
+
+.modalItem::before {
+  content: "○";
+  position: absolute;
+  left: 0;
+  color: var(--color-accent);
+  font-size: 11px;
+  top: 3px;
+}
+
+.modalItemDone {
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.modalItemDone::before {
+  content: "●";
+  color: var(--color-text-muted);
+}
+
+.completedLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 20px 0 0;
+}
+
+.emptyNotes {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ---- Note Modal task list ---- */
+
+.noteModalTaskList {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.noteModalRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ---- Title line: checkbox + wrapping title ---- */
+
+.noteModalTitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+/* Matches /tasks page checkbox button style */
+.noteModalCheckbox {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--color-border);
+  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  margin-top: 2px;
+  transition: border-color 150ms ease;
+}
+
+.noteModalCheckbox:hover {
+  border-color: var(--color-accent);
+}
+
+.noteModalCheckmark {
+  font-size: 11px;
+  color: var(--color-accent);
+  line-height: 1;
+}
+
+.noteModalTitle {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  padding: 0;
+  outline: none;
+  min-width: 0;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.5;
+}
+
+.noteModalRowDone .noteModalTitle {
+  text-decoration: line-through;
+  color: var(--color-text-muted);
+}
+
+/* ---- Chips row: date, details, trash ---- */
+
+.noteModalChips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-left: 30px; /* indent past checkbox */
+  flex-wrap: wrap;
+}
+
+/* Date chip when a date is set: pill with label + × */
+.noteModalDateChip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  overflow: hidden;
+}
+
+.noteModalDateChipLabel {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.noteModalDateChipLabel:hover {
+  color: var(--color-accent);
+}
+
+.noteModalDateChipClear {
+  background: none;
+  border: none;
+  border-left: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 2px 5px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.noteModalDateChipClear:hover {
+  background: #fee2e2;
+  color: #ef4444;
+}
+
+/* Date chip when no date is set: ghost pill */
+.noteModalDateChipEmpty {
+  background: none;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-pill);
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  padding: 2px 8px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+
+.noteModalDateChipEmpty:hover {
+  border-style: solid;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Hidden date input — opened programmatically via showPicker() */
+.noteModalDateHidden {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+}
+
+.noteModalNotesToggle {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.noteModalNotesToggle:hover {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.noteModalNotesToggleActive {
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
+.noteModalDelete {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  padding: 2px 4px;
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  opacity: 0;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.noteModalRow:hover .noteModalDelete {
+  opacity: 1;
+}
+
+.noteModalDelete:hover {
+  background: #fee2e2;
+}
+
+.noteModalNotes {
+  width: calc(100% - 30px);
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--color-border) 30%, transparent);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+  padding: 6px 8px;
+  resize: none;
+  overflow: hidden;
+  outline: none;
+  margin-left: 30px;
+}
+
+.noteModalNotes:focus {
+  border-color: var(--color-accent);
+}
+
+.noteModalAddRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+}
+
+.noteModalAddBtn {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  padding: 4px 2px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.noteModalAddBtn:hover {
+  color: var(--color-accent);
+}
+
+/* ---- New Page Modal ---- */
+
+.newPageModalTitleInput {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.newPageModalTitleInput:focus {
+  border-color: var(--color-accent);
+}
+
+.newPageModalTitleInput::placeholder {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.newPageModalTaskSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.newPageModalTaskLabel {
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.newPageModalTaskList {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  min-height: 80px;
+}
+
+.newPageModalTaskRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.newPageModalCheckbox {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--color-accent);
+  cursor: default;
+  opacity: 0.5;
+}
+
+.newPageModalTaskInput {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-base);
+  line-height: 1.7;
+  padding: 2px 0;
+  outline: none;
+}
+
+.newPageModalTaskInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.newPageModalActions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 4px;
+}

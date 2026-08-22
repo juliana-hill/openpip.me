@@ -1,0 +1,55 @@
+.manageBtn {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.manageBtn:hover { text-decoration: underline; }
+
+.tagList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tagRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transition: background 150ms;
+  text-align: left;
+  color: var(--color-text);
+}
+.tagRow:hover { background: var(--color-bg); }
+.tagRow.active { background: var(--color-bg); font-weight: 700; }
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tagName {
+  flex: 1;
+  font-size: 0.82rem;
+}
+
+.count {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 1px 7px;
+}

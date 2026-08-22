@@ -1,0 +1,7 @@
+.sectionAsap   { background: #fde8e8; }
+.sectionToday  { background: #eaf3ea; }
+.sectionTomorrow { background: #fef3e0; }
+
+[data-theme="dark"] .sectionAsap    { background: #3d1212; }
+[data-theme="dark"] .sectionToday   { background: #122212; }
+[data-theme="dark"] .sectionTomorrow { background: #2e1f0a; }
