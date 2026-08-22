@@ -5,6 +5,10 @@
 **SDK:** Strands Agents SDK, deployed on Amazon Bedrock AgentCore
 **Track:** Professional Agents *(rationale below)*
 
+## Frontend source-of-truth rule (non-negotiable)
+
+The existing frontend and marketing landing page in the travel-agent source tree are the only UI source of truth. Copy those files verbatim; do not write a replacement frontend, navigation, view, or demo implementation. The actual `frontend/` application must never contain demo data, mock data, fixtures, seeded records, or fake API responses. All displayed application data must come from the connected backend/providers (or an explicitly empty state when no account is connected). Any demo recording uses a dedicated real account, not frontend fixtures.
+
 ---
 
 ## 1. Why Professional Agents (not Everyday or Good Neighbor)
@@ -45,7 +49,7 @@ Narrow the surface area from the old multi-skill platform (travel planning, care
 | `data/agent-memory-*.json`, `better-sqlite3` | AgentCore Memory for durable user/contact/preference memory; keep SQLite (or DynamoDB) only for the proposal/review queue if Memory doesn't fit that shape | AgentCore Memory replaces the flat-file "insights" store; still want a queryable proposal table. |
 | `services/proposal-pipeline.ts` + `services/review-workflow.ts` | Same lifecycle, reimplemented as a Strands tool-calling loop: agent emits a `propose_action` tool call with a source reference; nothing executes until a `/review/:id/approve` endpoint calls the actual side-effecting tool | This is the single most important mechanic for both the hackathon theme and the "genuine understanding of the problem space" creativity criterion — keep it front and center in the demo. |
 | `node-cron` scheduler | EventBridge Scheduler (or AgentCore Runtime's async/long-running session) triggering the Daily Briefing agent | Simple, visibly "runs in the background" for the demo. |
-| Express + Next.js frontend | Keep Next.js frontend, rebranded, talking to the Strands backend over HTTP | No need to rebuild the UI concept — Today / Review / Settings / Contacts pages already validated the product shape in the earlier build. |
+| Express + HJS frontend | Keep the validated Today / Review / Settings / Contacts UI shape while serving HJS views and per-view Babel outputs over HTTP | No client framework runtime, browser database, or service worker is required. |
 | Observability: `claude-host.log`, ad hoc | AgentCore Observability (OTEL traces) | Nice, free demo material — show the trace of a proposal being generated and approved. |
 | *(new)* | CALL-E MCP tool (`tools/calle-call.ts`) wrapping CALL-E's SDK/MCP for outbound calls | Net-new tool, not a port — gives the agent a "phone call" action alongside send-email/create-event/create-task, gated by the same proposal/review pipeline. Doubles as the CALL-E hackathon submission (see §9). |
 
@@ -66,7 +70,7 @@ openpip-agent/
 │   ├── tools/                 # MCP tool servers (calendar, tasks, drive, gmail, proposals, calle-call)
 │   ├── review/                # proposal + review-approval lifecycle
 │   └── agentcore/             # AgentCore Runtime deploy config, Identity provider config
-├── frontend/                  # Next.js app (Today, Review, Settings, Contacts)
+├── frontend/                  # Express + HJS app (Today, Review, Settings, Contacts)
 └── infra/                     # IaC (CDK) for AgentCore Runtime + EventBridge schedule
 ```
 
@@ -81,7 +85,7 @@ Deploy the frontend + API to the existing `openpip.me` domain (swap DNS/hosting 
 | 3 | Daily Briefing agent producing a real end-to-end summary from live data. Inbox triage agent drafting replies + creating tasks. |
 | 4 | Proposal → Review → Approve → Execute loop fully wired (the core theme mechanic). Contact memory / pseudo-CRM populated from real inbox activity. |
 | 5 | Frontend: Today, Review queue, Settings/Connectors, Contacts. Deploy backend to AgentCore Runtime with Observability on. Point openpip.me at the new deploy. |
-| 6 | Sanitized demo dataset, README + architecture diagram finalized, 5-minute demo video recorded, builder.aws.com bonus post drafted and published ("Agents for Humans" in the title), full submission checklist run. |
+| 6 | Dedicated demo account with live connected data, README + architecture diagram finalized, 5-minute demo video recorded, builder.aws.com bonus post drafted and published ("Agents for Humans" in the title), full submission checklist run. No frontend demo/mock dataset is permitted. |
 
 ## 7. Judging-criteria alignment
 

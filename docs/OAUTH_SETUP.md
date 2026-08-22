@@ -50,6 +50,28 @@ Migrate to Path A once the MVP loop is proven if time allows — it removes the 
 
 However the token is obtained, the pattern for Strands is the same: each MCP tool (calendar, gmail, tasks, drive) takes the current user's access token as a per-call parameter (or reads it from the AgentCore Identity context), calls the relevant Google API endpoint, and returns structured data to the agent. Keep tools read-first — any tool that would *change* something (send a reply, create a calendar event, modify a task) should write a **proposal** instead of executing directly; only the Review-queue "approve" action should call the real Google write endpoint. This is what makes the agent "surface only when there's a real decision to make" instead of acting silently.
 
+### Current OpenPip read adapters
+
+The FastAPI service exposes the first read-only provider routes used by the
+Express/HJS views:
+
+| View data | Route |
+|---|---|
+| Google Tasks | `GET /agent/google/tasks` |
+| Calendar events | `GET /agent/calendars?from=YYYY-MM-DD&days=7` |
+| Notebook pages (Google Tasks lists) | `GET /agent/notebook/pages` |
+| Recent Google Drive files | `GET /agent/drive/files?pageSize=50` |
+| Gmail inbox | `GET /agent/inbox/messages?source=gmail` |
+| Gmail unread count | `GET /agent/inbox/count` |
+
+These routes require a live Google access token in `x-google-token` (or an
+`Authorization: Bearer` header). The browser never stores or invents a token;
+without one the service returns `401 {"detail":"Google account is not connected"}`.
+The Express frontend sends all `/agent` and `/api` requests directly to this
+FastAPI service; the separate OAuth callback service is used only for `/auth`.
+The Python auth boundary is responsible for validating the session and
+injecting the per-user token before provider calls.
+
 ## 5. Environment variables (names only — never commit values)
 
 ```
@@ -65,4 +87,8 @@ Add all of the above to `.gitignore`'d `.env` files with a checked-in `.env.exam
 
 ## 6. Demo data safety
 
-Before recording the demo video or deploying a public live-demo link, connect a dedicated demo/seed Google account (not a personal inbox) so nothing in the video or the live deployment exposes real personal email, calendar, or contact data.
+Before recording the demo video or deploying a public live-demo link, connect a
+dedicated real Google account (not a personal inbox). Never implement a
+demo/seed account, mock provider, fixture, or fake API response in the actual
+`frontend/` directory; the app must display connected provider data or an
+explicit empty/error state.

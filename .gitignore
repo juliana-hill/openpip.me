@@ -27,5 +27,6 @@ node_modules/
 coverage/
 *.tsbuildinfo
 backend/data/
+/data/
 .DS_Store
 *.log

@@ -27,9 +27,15 @@ uvicorn openpip_backend.app:app --reload --app-dir src
 ```bash
 cd frontend
 npm install
-npm run lint
-npm run build
+npm run dev
 ```
+
+The frontend is an Express.js server using HJS view templates. It serves one
+compiled browser entry per view and sends `/api` plus application requests to
+the FastAPI + Strands backend on `localhost:8000`. The separate OAuth callback
+proxy is used only for `/auth`; `localhost:4000` is the travel-agent frontend
+and is never used as this app's API. There is no Next.js runtime, IndexedDB
+cache, or service worker.
 
 Use `.env.example` only as a names-only template. Never commit OAuth tokens,
 credentials, or real workspace data.

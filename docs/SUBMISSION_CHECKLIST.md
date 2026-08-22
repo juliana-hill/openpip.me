@@ -4,11 +4,17 @@ Source of truth: [`Hackathon-Guidelines-Rules.md`](Hackathon-Guidelines-Rules.md
 
 **Deadline: September 14, 2026, 5:00pm PDT**
 
+**Frontend integrity rule:** copy the existing travel-agent frontend and
+marketing landing page files verbatim. Never add demo data, mock data, fixtures,
+seeded records, or fake API responses to `frontend/`; the UI must use connected
+backend/provider data or an explicit empty state. Use a dedicated real account
+for any recorded walkthrough.
+
 ## The build itself
 
 - [ ] Public repo created (new, MIT or Apache-2.0 license, license visible in GitHub "About" section)
 - [ ] Google OAuth wired (Gmail, Calendar, Tasks, Drive) with minimal scopes, app in "Testing" mode with your own account(s) as test users
-- [ ] Daily Briefing agent working end-to-end on live (or sanitized demo) data
+- [ ] Daily Briefing agent working end-to-end on live data from a dedicated demo account
 - [ ] Inbox triage agent drafting replies + creating tasks
 - [ ] Proposal → Review → Approve → Execute pipeline fully wired, with source citation on every proposal
 - [ ] Contact/relationship memory populated from real inbox activity
@@ -16,7 +22,7 @@ Source of truth: [`Hackathon-Guidelines-Rules.md`](Hackathon-Guidelines-Rules.md
 - [ ] README (problem / audience / how it works / setup / demo link)
 - [ ] Architecture diagram
 - [ ] CI green (`tsc --noEmit` + build step) — avoid the old repo's build-failure history
-- [ ] Sanitized demo dataset — no real personal inbox/calendar content, no credentials or tokens committed
+- [ ] Dedicated demo account verified — no personal inbox/calendar content, credentials, tokens, demo fixtures, or mock data committed
 
 ## Devpost submission form
 

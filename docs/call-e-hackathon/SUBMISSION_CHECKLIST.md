@@ -4,6 +4,11 @@ Source of truth: [`guidelines-rules.md`](guidelines-rules.md). Devpost draft: `c
 
 **Deadline: September 14, 2026, 11:45am SGT** (note: earlier in the day, US-Pacific-time, than the AWS deadline — check your timezone conversion, don't rely on "same day" intuition)
 
+**Frontend integrity rule:** the existing travel-agent frontend and marketing
+landing page are copied verbatim. Never add demo data, mock data, fixtures,
+seeded records, or fake API responses to `frontend/`; recorded walkthroughs use
+a dedicated real account and connected data.
+
 ## The build itself
 
 - [ ] CALL-E account created (20 free calls included) via the [CALL-E Integrations](https://github.com/CALLE-AI/call-e-integrations) setup guide
