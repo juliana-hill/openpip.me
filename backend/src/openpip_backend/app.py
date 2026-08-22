@@ -1,14 +1,26 @@
 import os
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .agent import create_briefing
 from .executor import ActionExecutor, MockActionExecutor
 from .demo_data import demo_contacts, demo_request
-from .models import BriefingRequest, BriefingResponse, ProposalDecision, ProposalStatus, UserContext, UserPreferences
+from .models import BriefingRequest, BriefingResponse, Proposal, ProposalDecision, ProposalStatus, UserContext, UserPreferences
 from .providers import connector_statuses
 from .store import ProposalStore
+from .google_workspace import (
+    GoogleApiError,
+    fetch_gmail_messages,
+    fetch_google_calendars,
+    fetch_google_drive_files,
+    fetch_google_notebook_pages,
+    fetch_google_tasks,
+)
+from .google_drive_store import read_drive_app_data, write_drive_app_data
 
 app = FastAPI(title="OpenPip API", version="0.1.0")
 app.add_middleware(
@@ -27,6 +39,7 @@ def health() -> dict[str, str]:
     return {"status": "ok", "service": "openpip-backend"}
 
 
+@app.post("/agent/briefing", response_model=BriefingResponse)
 @app.post("/api/briefing", response_model=BriefingResponse)
 def briefing(request: BriefingRequest) -> BriefingResponse:
     text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
@@ -74,6 +87,339 @@ def save_preferences(preferences: UserPreferences) -> UserPreferences:
 def connectors():
     """Expose connector readiness without exposing OAuth credentials or tokens."""
     return {"items": [status.__dict__ for status in connector_statuses()]}
+
+
+@app.get("/agent/connectors/status")
+def agent_connectors_status():
+    """Compatibility shape for the active frontend, served by FastAPI only."""
+    return connectors()
+
+
+def _review_item(proposal: Proposal) -> dict[str, Any]:
+    status = proposal.status.value
+    return {
+        "id": proposal.id,
+        "kind": "proposal",
+        "category": "Agent proposal",
+        "title": proposal.title,
+        "subtitle": proposal.action,
+        "summary": proposal.rationale,
+        "createdAt": proposal.created_at.isoformat(),
+        "externalAction": {
+            "occurred": status in {"executed", "failed"},
+            "label": "Approval status",
+            "detail": status.replace("_", " ").title(),
+        },
+        "data": {
+            "proposal": {
+                "id": proposal.id,
+                "kind": "task_suggestions",
+                "evidence": proposal.rationale,
+                "payload": proposal.payload,
+            }
+        },
+    }
+
+
+@app.get("/agent/review")
+def agent_review(status: ProposalStatus | None = Query(default=ProposalStatus.PENDING)):
+    """Expose the Python proposal queue using the frontend review shape."""
+    return {"items": [_review_item(item) for item in store.list(status)]}
+
+
+@app.get("/agent/review/{proposal_id}")
+def agent_review_item(proposal_id: str):
+    proposal = store.get(proposal_id)
+    if proposal is None:
+        raise HTTPException(status_code=404, detail="Review item not found")
+    return {"item": _review_item(proposal)}
+
+
+@app.post("/agent/review/{proposal_id}/decision")
+def agent_review_decision(proposal_id: str, payload: dict[str, Any] | None = None):
+    decision = str((payload or {}).get("decision", "")).strip().lower()
+    reason = (payload or {}).get("reason")
+    if decision not in {"approved", "rejected"}:
+        raise HTTPException(status_code=400, detail="decision must be approved or rejected")
+    try:
+        proposal = store.decide(proposal_id, ProposalStatus(decision), str(reason) if reason else None)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Review item not found") from None
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    return {"item": _review_item(proposal)}
+
+
+@app.get("/agent/scheduled-actions")
+def agent_scheduled_actions():
+    """Return only explicitly approved proposal work; execution remains gated."""
+    actions = [_review_item(item) for item in store.list(ProposalStatus.APPROVED)]
+    return {"actions": actions}
+
+
+@app.post("/agent/proposals/scan")
+def agent_proposals_scan():
+    """Keep the dashboard pipeline Python-owned until a Strands scanner is wired."""
+    return {"actions": [], "created": 0}
+
+
+def _google_token(x_google_token: str | None, authorization: str | None) -> str:
+    """Read the token injected by the OAuth gateway, never from browser storage."""
+    if x_google_token:
+        return x_google_token
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    raise HTTPException(status_code=401, detail="Google account is not connected")
+
+
+def _google_error(error: GoogleApiError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail=error.detail)
+
+
+@app.get("/agent/google/tasks")
+@app.get("/api/google/tasks")
+async def google_tasks(
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        tasks = await fetch_google_tasks(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"tasks": tasks}
+
+
+@app.get("/agent/calendars")
+@app.get("/api/google/calendars")
+async def google_calendars(
+    from_date: str | None = Query(default=None, alias="from"),
+    days: int = Query(default=7, ge=1, le=90),
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        calendars = await fetch_google_calendars(token, from_date=from_date, days=days)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"calendars": calendars}
+
+
+@app.get("/agent/notebook/pages")
+@app.get("/api/google/notebook/pages")
+async def google_notebook_pages(
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        pages = await fetch_google_notebook_pages(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"pages": pages}
+
+
+@app.get("/agent/drive/files")
+@app.get("/api/google/drive/files")
+async def google_drive_files(
+    page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        files = await fetch_google_drive_files(token, page_size=page_size)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"files": files}
+
+
+@app.get("/agent/inbox/messages")
+@app.get("/api/google/gmail/messages")
+async def google_gmail_messages(
+    local_date: str | None = Query(default=None, alias="localDate"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        messages, total = await fetch_gmail_messages(token, local_date=local_date, page_size=page_size)
+        # Gmail remains readable if the optional OpenPip app-data document has
+        # not been created yet or Drive is temporarily unavailable. In that
+        # case messages simply have no app-owned tags yet.
+        try:
+            app_data = await read_drive_app_data(token)
+        except Exception:
+            app_data = {"tags": [], "messageTags": {}}
+        tags_by_id = {
+            str(tag.get("id")): str(tag.get("name"))
+            for tag in app_data.get("tags", [])
+            if isinstance(tag, dict) and tag.get("id") and tag.get("name")
+        }
+        message_tags = app_data.get("messageTags", {})
+        for message in messages:
+            message["tags"] = [
+                tags_by_id[tag_id]
+                for tag_id in message_tags.get(message.get("id", ""), [])
+                if tag_id in tags_by_id
+            ]
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"messages": messages, "total": total, "page": page, "pageSize": page_size}
+
+
+@app.get("/agent/inbox/count")
+@app.get("/api/google/gmail/count")
+async def google_gmail_count(
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        messages, _ = await fetch_gmail_messages(token, page_size=100)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"unread": sum(1 for message in messages if message["unread"])}
+
+
+@app.get("/agent/inbox/tags")
+async def inbox_tags(
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        data = await read_drive_app_data(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return [tag for tag in data.get("tags", []) if isinstance(tag, dict)]
+
+
+@app.post("/agent/inbox/tags")
+async def create_inbox_tag(
+    payload: dict[str, Any],
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name is required")
+    now = datetime.now(UTC).isoformat()
+    tag = {
+        "id": f"tag_{uuid4().hex}",
+        "name": name,
+        "color": str(payload.get("color") or "#f47560"),
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    try:
+        data = await read_drive_app_data(token)
+        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
+        if any(str(item.get("name", "")).casefold() == name.casefold() for item in tags):
+            raise HTTPException(status_code=409, detail="A tag with that name already exists")
+        data["tags"] = [*tags, tag]
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return tag
+
+
+@app.put("/agent/inbox/tags/{tag_id}")
+async def update_inbox_tag(
+    tag_id: str,
+    payload: dict[str, Any],
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    name = str(payload.get("name", "")).strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Tag name is required")
+    try:
+        data = await read_drive_app_data(token)
+        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
+        tag = next((item for item in tags if str(item.get("id")) == tag_id), None)
+        if tag is None:
+            raise HTTPException(status_code=404, detail="Tag not found")
+        if any(str(item.get("id")) != tag_id and str(item.get("name", "")).casefold() == name.casefold() for item in tags):
+            raise HTTPException(status_code=409, detail="A tag with that name already exists")
+        tag.update({"name": name, "color": str(payload.get("color") or tag.get("color") or "#f47560"), "updatedAt": datetime.now(UTC).isoformat()})
+        data["tags"] = tags
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return tag
+
+
+@app.delete("/agent/inbox/tags/{tag_id}")
+async def delete_inbox_tag(
+    tag_id: str,
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    token = _google_token(x_google_token, authorization)
+    try:
+        data = await read_drive_app_data(token)
+        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
+        if not any(str(item.get("id")) == tag_id for item in tags):
+            raise HTTPException(status_code=404, detail="Tag not found")
+        data["tags"] = [item for item in tags if str(item.get("id")) != tag_id]
+        data["messageTags"] = {
+            message_id: [item for item in tag_ids if item != tag_id]
+            for message_id, tag_ids in data.get("messageTags", {}).items()
+        }
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
+
+
+async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool) -> dict[str, bool]:
+    message_id = str(payload.get("messageId", "")).strip()
+    tag_id = str(payload.get("tagId", "")).strip()
+    if not message_id or not tag_id:
+        raise HTTPException(status_code=400, detail="messageId and tagId are required")
+    try:
+        data = await read_drive_app_data(token)
+        valid_ids = {str(item.get("id")) for item in data.get("tags", []) if isinstance(item, dict)}
+        if tag_id not in valid_ids:
+            raise HTTPException(status_code=404, detail="Tag not found")
+        message_tags = data.setdefault("messageTags", {})
+        current = [str(item) for item in message_tags.get(message_id, [])]
+        if remove:
+            message_tags[message_id] = [item for item in current if item != tag_id]
+        elif tag_id not in current:
+            message_tags[message_id] = [*current, tag_id]
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
+
+
+@app.post("/agent/inbox/messages/assign-tag")
+async def assign_inbox_tag(
+    payload: dict[str, Any],
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    return await _set_message_tag(payload, _google_token(x_google_token, authorization), remove=False)
+
+
+@app.post("/agent/inbox/messages/remove-tag")
+async def remove_inbox_tag(
+    payload: dict[str, Any],
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+):
+    return await _set_message_tag(payload, _google_token(x_google_token, authorization), remove=True)
 
 
 @app.get("/api/demo/contacts")
