@@ -1,8 +1,9 @@
 import { createRoot } from "react-dom/client";
+import { proxyFetch } from "@/lib/proxy";
 import { DashboardPage } from "@/components/dashboard/DashboardPage";
 
 async function mount() {
-  const response = await fetch("/auth/me", { credentials: "include" });
+  const response = await proxyFetch("/auth/me");
   if (!response.ok) return;
   const user = await response.json();
   createRoot(document.getElementById("react-root")!).render(<DashboardPage userName={user.name ?? ""} userImage={user.picture ?? ""} />);

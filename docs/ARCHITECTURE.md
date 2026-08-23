@@ -6,7 +6,7 @@ The travel-agent frontend and its marketing landing-page directory are copied ve
 
 ```mermaid
 flowchart LR
- UI[Express + HJS Today / Review / Settings / Contacts] --> API[FastAPI + Strands API :6001]
+ UI[Express + HJS Today / Review / Settings / Contacts] --> API[FastAPI + Strands API :5501]
   API --> Store[(SQLite proposal queue\npreferences + audit events)]
   API --> Agent[Strands briefing / triage agents]
   Agent --> Context[User working context]
@@ -17,10 +17,10 @@ flowchart LR
   Gate -. approved only .-> Effects[Google writes / CALL-E]
 ```
 
-In local development, the Express server on `:6000` sends `/api` requests to
+In local development, the Express server on `:5500` sends `/api` requests to
 FastAPI and sends `/agent` requests through the OAuth session boundary on
 `:4001`, which injects the signed-in token before forwarding to FastAPI on
-`:6001`. Configure that boundary with `AGENT_URL=http://localhost:6001/agent`;
+`:5501`. Configure that boundary with `AGENT_URL=http://localhost:5501/agent`;
 the legacy travel-agent service is never a valid target. Google provider reads
 and Drive-backed app data remain owned by FastAPI.
 

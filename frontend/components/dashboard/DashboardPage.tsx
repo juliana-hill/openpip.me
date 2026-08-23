@@ -29,6 +29,9 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const [tasks, setTasks] = useState<TaskSnapshot>([]);
   const [tasksTotal, setTasksTotal] = useState(0);
+  const [openTotal, setOpenTotal] = useState(0);
+  const [eventsTotal, setEventsTotal] = useState(0);
+  const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [route, setRoute] = useState<RouteSnapshot>(null);
   const [scheduledPlan, setScheduledPlan] = useState<ScheduledPlan | null>(null);
   const [pipelineActions, setPipelineActions] = useState<ScheduledPlan[]>([]);
@@ -85,17 +88,22 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
     async function loadTasks() {
       type GoogleTask = { title: string; priority?: string; dueDate?: string | null };
-      const googleTasksRes = await proxyFetch("/agent/google/tasks");
+      type Calendar = { events?: Array<{ start?: string }> };
+      const [googleTasksRes, calendarRes, inboxRes] = await Promise.all([
+        proxyFetch("/agent/google/tasks"),
+        proxyFetch("/agent/calendars?days=1"),
+        proxyFetch(`/agent/inbox/count?localDate=${localToday()}`),
+      ]);
 
       const googleTasks: GoogleTask[] = googleTasksRes.ok ? ((await googleTasksRes.json()).tasks ?? []) : [];
+      const calendarData = calendarRes.ok ? await calendarRes.json() as { calendars?: Calendar[] } : { calendars: [] };
+      const inboxData = inboxRes.ok ? await inboxRes.json() as { unread?: number } : {};
+      const todayDate = new Date().toDateString();
+      const eventCount = (calendarData.calendars ?? []).reduce((total, calendar) => total + (calendar.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).length, 0);
+      setEventsTotal(eventCount);
+      setUnreadCount(inboxData.unread ?? 0);
       const namedPriorityToNumber = (p: string | undefined) =>
         p === "ASAP" ? 1 : p === "HIGH" ? 2 : p === "LOW" ? 4 : 3;
-
-      // All open Google Tasks so the "Today" count reflects connected work.
-      const openTasks: TaskSnapshot = [
-        ...googleTasks.map((t) => ({ title: t.title, priority: namedPriorityToNumber(t.priority), source: "google" })),
-      ];
-      setTasksTotal(openTasks.length);
 
       // Top-3 URGENT tasks only — overdue, due today, or due within the next few
       // days — across every source. Non-urgent open tasks (e.g. undated Google
@@ -107,15 +115,37 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       soonCutoff.setDate(soonCutoff.getDate() + SOON_DAYS);
       soonCutoff.setHours(23, 59, 59, 999);
 
+      // Google Tasks returns due dates as YYYY-MM-DD. Parse those as local
+      // calendar dates; `new Date("YYYY-MM-DD")` would interpret them as UTC
+      // and shift them to the previous day in western time zones.
+      const localTaskDate = (dateStr: string | null | undefined): Date | null => {
+        if (!dateStr) return null;
+        const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T00:00:00` : dateStr);
+        if (Number.isNaN(d.getTime())) return null;
+        d.setHours(0, 0, 0, 0);
+        return d;
+      };
+
       // 0 = overdue, 1 = due today, 2 = due soon, null = not urgent by date
       const dateUrgencyTier = (dateStr: string | null | undefined): number | null => {
-        if (!dateStr) return null;
-        const d = new Date(dateStr); d.setHours(0, 0, 0, 0);
+        const d = localTaskDate(dateStr);
+        if (!d) return null;
         if (d.getTime() < todayMidnight.getTime()) return 0;
         if (d.getTime() === todayMidnight.getTime()) return 1;
         if (d.getTime() <= soonCutoff.getTime()) return 2;
         return null;
       };
+
+      // The Today card count is intentionally narrower than "all open": only
+      // overdue tasks and tasks due today belong in today's workload metric.
+      const todayTaskCount = googleTasks.filter((task) => {
+        const tier = dateUrgencyTier(task.dueDate);
+        return tier === 0 || tier === 1;
+      }).length;
+      setTasksTotal(todayTaskCount);
+      // "Open" is the combined workload across today's Google Tasks,
+      // calendar events, and unread email—not the total number of open tasks.
+      setOpenTotal(todayTaskCount + eventCount + (inboxData.unread ?? 0));
 
       type UrgentTask = { title: string; priority: number; source: string; tier: number };
       const urgentTasks: UrgentTask[] = [
@@ -134,7 +164,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       // Build brief payload from the data we already have
       const briefTasks: BriefTask[] = [
         ...googleTasks
-          .filter((t) => t.dueDate && new Date(t.dueDate).toDateString() === today)
+          .filter((t) => localTaskDate(t.dueDate)?.toDateString() === today)
           .map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" })),
       ];
       return { briefTasks, briefEvents: [] as BriefEvent[] };
@@ -289,12 +319,13 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
         <Link href="/today" className={`${styles.card} ${styles.cardHalf} ${styles.outcomeToday}`} style={{ animationDelay: "60ms" }}>
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle}>Today</span>
-            {tasksTotal > 0 && <span className={styles.badge}>{tasksTotal} open</span>}
+            {openTotal > 0 && <span className={styles.badge}>{openTotal} open</span>}
             <span className={styles.cardArrow}>→</span>
           </div>
           {tasksLoading ? <div className={styles.skeleton} /> : <>
             <p className={styles.outcomeMetric}>{tasksTotal} Google task{tasksTotal === 1 ? "" : "s"}</p>
-            <p className={styles.outcomeDescription}>Tasks read from your connected Google Tasks account.</p>
+            <p className={styles.outcomeDescription}>Overdue or due today, from your connected Google Tasks account.</p>
+            <p className={styles.outcomeDescription}>{eventsTotal} calendar event{eventsTotal === 1 ? "" : "s"} · {unreadCount ?? 0} unread email{unreadCount === 1 ? "" : "s"} today</p>
             {tasks.slice(0, 3).map((task, index) => (
               <div key={index} className={styles.taskRow}>
                 <span className={styles.checkbox} />

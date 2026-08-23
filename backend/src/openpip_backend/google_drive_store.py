@@ -70,7 +70,7 @@ async def read_drive_app_data(access_token: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         file_id = await _find_file(client, access_token)
         if not file_id:
-            return {"version": 1, "tags": [], "messageTags": {}}
+            return {"version": 1, "tags": [], "messageTags": {}, "userData": {}}
         response = await _request(
             client,
             "GET",
@@ -83,11 +83,12 @@ async def read_drive_app_data(access_token: str) -> dict[str, Any]:
     except ValueError:
         payload = {}
     if not isinstance(payload, dict):
-        return {"version": 1, "tags": [], "messageTags": {}}
+        return {"version": 1, "tags": [], "messageTags": {}, "userData": {}}
     return {
         "version": 1,
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [],
         "messageTags": payload.get("messageTags") if isinstance(payload.get("messageTags"), dict) else {},
+        "userData": payload.get("userData") if isinstance(payload.get("userData"), dict) else {},
     }
 
 
@@ -97,6 +98,7 @@ async def write_drive_app_data(access_token: str, data: dict[str, Any]) -> dict[
         "version": 1,
         "tags": data.get("tags") if isinstance(data.get("tags"), list) else [],
         "messageTags": data.get("messageTags") if isinstance(data.get("messageTags"), dict) else {},
+        "userData": data.get("userData") if isinstance(data.get("userData"), dict) else {},
     }
     encoded = json.dumps(payload, separators=(",", ":"))
     async with _write_lock:

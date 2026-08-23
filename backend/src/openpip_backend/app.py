@@ -3,8 +3,9 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse
 
 from .agent import create_briefing
 from .executor import ActionExecutor, MockActionExecutor
@@ -21,6 +22,18 @@ from .google_workspace import (
     fetch_google_tasks,
 )
 from .google_drive_store import read_drive_app_data, write_drive_app_data
+from .google_oauth import (
+    OAuthConfigError,
+    OAuthSessionStore,
+    _verify_state,
+    build_authorization_url,
+    exchange_code_for_tokens,
+    issue_session_jwt,
+    read_session_jwt,
+    redirect_target_with_session,
+    verify_google_id_token,
+    verify_session_jwt,
+)
 
 app = FastAPI(title="OpenPip API", version="0.1.0")
 app.add_middleware(
@@ -30,13 +43,124 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-store = ProposalStore(os.getenv("OPENPIP_DATABASE_PATH", "./data/openpip.sqlite3"))
+_database_path = os.getenv("OPENPIP_DATABASE_PATH", "./data/openpip.sqlite3")
+store = ProposalStore(_database_path)
+oauth_sessions = OAuthSessionStore(_database_path)
 executor: ActionExecutor = MockActionExecutor()
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": "openpip-backend"}
+
+
+# --- Google OAuth (Path B from docs/OAUTH_SETUP.md) -------------------------
+#
+# Entirely backend-owned: the frontend only ever proxies /auth/* verbatim
+# (see frontend/server.js) to this service. No cookies anywhere. Google's own
+# id_token (a signed JWT) is verified here rather than trusted blindly; this
+# project's own session credential handed to the browser is likewise a JWT
+# (issue_session_jwt/verify_session_jwt), sent back as the X-OpenPip-Session
+# header. The real Google access/refresh tokens never leave the backend —
+# only encrypted in oauth_sessions, referenced by the JWT's `sid` claim.
+
+
+@app.get("/auth/login")
+def auth_login(next: str = Query(default="/")) -> RedirectResponse:
+    try:
+        url = build_authorization_url(next_path=next)
+    except OAuthConfigError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return RedirectResponse(url, status_code=302)
+
+
+@app.get("/auth/callback")
+async def auth_callback(code: str | None = None, state: str | None = None, error: str | None = None) -> RedirectResponse:
+    if error:
+        raise HTTPException(status_code=400, detail=f"Google OAuth error: {error}")
+    if not code or not state:
+        raise HTTPException(status_code=400, detail="Missing code or state")
+    state_claims = _verify_state(state)
+    try:
+        tokens = await exchange_code_for_tokens(code)
+    except OAuthConfigError as oauth_error:
+        raise HTTPException(status_code=500, detail=str(oauth_error)) from oauth_error
+    access_token = tokens["access_token"]
+    refresh_token = tokens.get("refresh_token")
+    expires_in = int(tokens.get("expires_in", 3600))
+    id_token = tokens.get("id_token")
+    if not id_token:
+        raise HTTPException(status_code=502, detail="Google did not return an id_token (openid scope missing?)")
+    id_claims = verify_google_id_token(id_token)
+    email = id_claims.get("email")
+    name = id_claims.get("name")
+    picture = id_claims.get("picture")
+    session_id = oauth_sessions.create(
+        email=email,
+        name=name,
+        picture=picture,
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=expires_in,
+    )
+    session_jwt = issue_session_jwt(email=email, name=name, picture=picture, session_id=session_id)
+    return RedirectResponse(redirect_target_with_session(state_claims.get("next", "/"), session_jwt), status_code=302)
+
+
+@app.get("/auth/me")
+def auth_me(request: Request) -> dict[str, Any]:
+    token = read_session_jwt(request)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not signed in")
+    claims = verify_session_jwt(token)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Session expired; please sign in again")
+    return {"email": claims.get("sub"), "name": claims.get("name"), "picture": claims.get("picture")}
+
+
+@app.post("/auth/logout")
+@app.get("/auth/logout")
+def auth_logout(request: Request) -> dict[str, bool]:
+    """Revoke the underlying Google-token record server-side. The frontend is
+    responsible for clearing its own sessionStorage — there is no cookie here
+    to clear."""
+    token = read_session_jwt(request)
+    if token:
+        claims = verify_session_jwt(token)
+        if claims and claims.get("sid"):
+            oauth_sessions.delete(claims["sid"])
+    return {"ok": True}
+
+
+async def get_google_token(
+    request: Request,
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> str:
+    """Resolve a live Google access token for this request.
+
+    Header-based raw-token auth (x-google-token / Authorization: Bearer) is
+    checked first — useful for direct API testing — then falls back to this
+    project's own signed session JWT (X-OpenPip-Session), refreshing the
+    underlying Google token if it has expired. Never falls back to any other
+    project's auth service, and never accepts a cookie.
+    """
+    if x_google_token:
+        return x_google_token
+    if authorization and authorization.lower().startswith("bearer "):
+        return authorization[7:].strip()
+    session_token = read_session_jwt(request)
+    if session_token:
+        claims = verify_session_jwt(session_token)
+        if claims and claims.get("sid"):
+            access_token = await oauth_sessions.resolve_access_token(claims["sid"])
+            if access_token:
+                return access_token
+    raise HTTPException(status_code=401, detail="Google account is not connected")
+
+
+def _google_error(error: GoogleApiError) -> HTTPException:
+    return HTTPException(status_code=error.status_code, detail=error.detail)
 
 
 @app.post("/agent/briefing", response_model=BriefingResponse)
@@ -163,26 +287,33 @@ def agent_proposals_scan():
     return {"actions": [], "created": 0}
 
 
-def _google_token(x_google_token: str | None, authorization: str | None) -> str:
-    """Read the token injected by the OAuth gateway, never from browser storage."""
-    if x_google_token:
-        return x_google_token
-    if authorization and authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-    raise HTTPException(status_code=401, detail="Google account is not connected")
+@app.get("/agent/user/data")
+async def get_agent_user_data(token: str = Depends(get_google_token)):
+    """Read OpenPip-owned assistant settings from the user's Drive app data."""
+    try:
+        data = await read_drive_app_data(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return data.get("userData", {})
 
 
-def _google_error(error: GoogleApiError) -> HTTPException:
-    return HTTPException(status_code=error.status_code, detail=error.detail)
+@app.put("/agent/user/data")
+async def save_agent_user_data(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Persist assistant settings in Drive, never in a legacy service store."""
+    allowed = {"agentName", "agentIcon", "theme", "accent"}
+    user_data = {key: value for key, value in payload.items() if key in allowed}
+    try:
+        data = await read_drive_app_data(token)
+        data["userData"] = user_data
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return user_data
 
 
 @app.get("/agent/google/tasks")
 @app.get("/api/google/tasks")
-async def google_tasks(
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def google_tasks(token: str = Depends(get_google_token)):
     try:
         tasks = await fetch_google_tasks(token)
     except GoogleApiError as error:
@@ -195,10 +326,8 @@ async def google_tasks(
 async def google_calendars(
     from_date: str | None = Query(default=None, alias="from"),
     days: int = Query(default=7, ge=1, le=90),
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
+    token: str = Depends(get_google_token),
 ):
-    token = _google_token(x_google_token, authorization)
     try:
         calendars = await fetch_google_calendars(token, from_date=from_date, days=days)
     except ValueError as error:
@@ -210,11 +339,7 @@ async def google_calendars(
 
 @app.get("/agent/notebook/pages")
 @app.get("/api/google/notebook/pages")
-async def google_notebook_pages(
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def google_notebook_pages(token: str = Depends(get_google_token)):
     try:
         pages = await fetch_google_notebook_pages(token)
     except GoogleApiError as error:
@@ -226,10 +351,8 @@ async def google_notebook_pages(
 @app.get("/api/google/drive/files")
 async def google_drive_files(
     page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
+    token: str = Depends(get_google_token),
 ):
-    token = _google_token(x_google_token, authorization)
     try:
         files = await fetch_google_drive_files(token, page_size=page_size)
     except GoogleApiError as error:
@@ -243,10 +366,8 @@ async def google_gmail_messages(
     local_date: str | None = Query(default=None, alias="localDate"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
+    token: str = Depends(get_google_token),
 ):
-    token = _google_token(x_google_token, authorization)
     try:
         messages, total = await fetch_gmail_messages(token, local_date=local_date, page_size=page_size)
         # Gmail remains readable if the optional OpenPip app-data document has
@@ -278,23 +399,20 @@ async def google_gmail_messages(
 @app.get("/agent/inbox/count")
 @app.get("/api/google/gmail/count")
 async def google_gmail_count(
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
+    local_date: str | None = Query(default=None, alias="localDate"),
+    token: str = Depends(get_google_token),
 ):
-    token = _google_token(x_google_token, authorization)
     try:
-        messages, _ = await fetch_gmail_messages(token, page_size=100)
+        messages, _ = await fetch_gmail_messages(token, local_date=local_date, page_size=100)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"unread": sum(1 for message in messages if message["unread"])}
 
 
 @app.get("/agent/inbox/tags")
-async def inbox_tags(
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def inbox_tags(token: str = Depends(get_google_token)):
     try:
         data = await read_drive_app_data(token)
     except GoogleApiError as error:
@@ -303,12 +421,7 @@ async def inbox_tags(
 
 
 @app.post("/agent/inbox/tags")
-async def create_inbox_tag(
-    payload: dict[str, Any],
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def create_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
     name = str(payload.get("name", "")).strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tag name is required")
@@ -333,13 +446,7 @@ async def create_inbox_tag(
 
 
 @app.put("/agent/inbox/tags/{tag_id}")
-async def update_inbox_tag(
-    tag_id: str,
-    payload: dict[str, Any],
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def update_inbox_tag(tag_id: str, payload: dict[str, Any], token: str = Depends(get_google_token)):
     name = str(payload.get("name", "")).strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tag name is required")
@@ -360,12 +467,7 @@ async def update_inbox_tag(
 
 
 @app.delete("/agent/inbox/tags/{tag_id}")
-async def delete_inbox_tag(
-    tag_id: str,
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    token = _google_token(x_google_token, authorization)
+async def delete_inbox_tag(tag_id: str, token: str = Depends(get_google_token)):
     try:
         data = await read_drive_app_data(token)
         tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
@@ -405,21 +507,13 @@ async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool)
 
 
 @app.post("/agent/inbox/messages/assign-tag")
-async def assign_inbox_tag(
-    payload: dict[str, Any],
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    return await _set_message_tag(payload, _google_token(x_google_token, authorization), remove=False)
+async def assign_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    return await _set_message_tag(payload, token, remove=False)
 
 
 @app.post("/agent/inbox/messages/remove-tag")
-async def remove_inbox_tag(
-    payload: dict[str, Any],
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-):
-    return await _set_message_tag(payload, _google_token(x_google_token, authorization), remove=True)
+async def remove_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    return await _set_message_tag(payload, token, remove=True)
 
 
 @app.get("/api/demo/contacts")

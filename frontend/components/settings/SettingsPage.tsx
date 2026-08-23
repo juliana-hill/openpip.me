@@ -12,6 +12,7 @@ import { PageShell } from "@/components/ui/PageShell";
 import styles from "./SettingsPage.module.css";
 import btnStyles from "@/components/ui/Button.module.css";
 import { proxyFetch } from "@/lib/proxy";
+import { clearSession } from "@/lib/session";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 
 type SettingsPageProps = Readonly<{
@@ -52,7 +53,7 @@ export function SettingsPage({ userEmail, userName, userImage }: SettingsPagePro
         <div style={{ marginTop: 48, paddingTop: 32, borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "flex-start" }}>
           <button
             className={`${btnStyles.btn} ${btnStyles.danger} ${btnStyles.md}`}
-            onClick={() => proxyFetch("/auth/logout", { method: "POST" }).finally(() => { window.location.href = "/login"; })}
+            onClick={() => proxyFetch("/auth/logout", { method: "POST" }).finally(() => { clearSession(); window.location.href = "/login"; })}
           >
             Log out
           </button>

@@ -4,15 +4,17 @@ const hjs = require("hjs");
 
 const app = express();
 const port = Number(process.env.PORT || 4444);
-// Keep OAuth separate from this project's API.
+// Keep OAuth separate from this project's API, while allowing the OAuth
+// boundary to inject the signed-in Google token before forwarding /agent calls.
 // Port 4000 is the travel-agent Next.js frontend, not an API. The OpenPip
-// backend is the FastAPI + Strands service on port 8000. Application requests
-// stay on this project's backend; only an explicitly configured OAuth-aware
-// gateway may handle a provider read.
-// The OAuth callback/session service is the only non-Python dependency. It is
-// used exclusively by /auth; no application or provider data is sent there.
+// backend is the FastAPI + Strands service on port 8000. All application and
+// provider requests stay on this project's backend.
+// The OAuth callback/session service is the only non-Python dependency. It may
+// forward authenticated /agent requests to the Python backend when
+// AUTH_AGENT_UPSTREAM is configured; it must never target the legacy agent.
 const authUpstream = process.env.AUTH_PROXY_URL || "http://localhost:4001";
 const backendUpstream = process.env.BACKEND_URL || "http://localhost:8000";
+const authAgentUpstream = process.env.AUTH_AGENT_UPSTREAM || authUpstream;
 
 const layoutPath = path.join(__dirname, "views", "layout.hjs");
 app.engine("hjs", (filePath, options, callback) => {
@@ -94,13 +96,15 @@ function readLoginReturn(req) {
 
 app.use("/auth", (req, res) => proxy(req, res, authUpstream));
 // Briefings belong to this OpenPip backend. Provider reads may use the OAuth
-// gateway, but never send the briefing request to the legacy travel-agent
-// service (which can poll connectors that are not part of this project).
-app.use("/agent/briefing", (req, res) => proxy(req, res, backendUpstream));
+// session only for authentication; never send the briefing request to the
+// legacy travel-agent service (which can poll connectors outside this project).
+app.use("/agent/briefing", (req, res) => proxy(req, res, authAgentUpstream));
 // Google provider reads and Drive-backed app-data operations are application
 // routes too: they must always terminate at this project's FastAPI backend.
-// OAuth token injection belongs in the Python auth boundary, not in a legacy
-// travel-agent proxy.
+// The configured auth boundary injects x-google-token, then forwards these
+// requests to FastAPI. It must be started with AGENT_URL=http://localhost:8000/agent
+// (or the equivalent Python service URL); the legacy travel-agent service is
+// not a valid target.
 for (const providerPath of [
   "/agent/google/tasks",
   "/agent/calendars",
@@ -116,10 +120,11 @@ for (const providerPath of [
   "/api/google/gmail/messages",
   "/api/google/gmail/count",
 ]) {
-  app.use(providerPath, (req, res) => proxy(req, res, backendUpstream));
+  app.use(providerPath, (req, res) => proxy(req, res, authAgentUpstream));
 }
-// Briefing, review, and other app operations remain on OpenPip's backend.
-app.use("/agent", (req, res) => proxy(req, res, backendUpstream));
+// Review, chat, and provider operations use the auth boundary so Python gets
+// the per-user token; the auth boundary must forward them to this backend.
+app.use("/agent", (req, res) => proxy(req, res, authAgentUpstream));
 app.use("/api", (req, res) => proxy(req, res, backendUpstream));
 
 const views = {
@@ -164,5 +169,5 @@ app.use((req, res) => res.status(404).render("not-found", { view: "not-found", p
 app.listen(port, () => {
   console.log(`OpenPip Express frontend listening on http://localhost:${port}`);
   console.log(`OpenPip backend upstream: ${backendUpstream}`);
-  console.log(`OAuth session upstream (auth only): ${authUpstream}`);
+  console.log(`OAuth session upstream (auth + token boundary): ${authUpstream}`);
 });

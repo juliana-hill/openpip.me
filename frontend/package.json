@@ -9,12 +9,19 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "hjs": "^0.0.6"
+    "hjs": "^0.0.6",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "lucide-react": "^1.7.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.27.2",
     "@babel/core": "^7.27.1",
     "@babel/preset-env": "^7.27.2",
-    "esbuild": "^0.25.5"
+    "esbuild": "^0.25.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19"
   }
 }

@@ -3,7 +3,6 @@ const fs = require("node:fs");
 const esbuild = require("esbuild");
 
 const root = path.resolve(__dirname, "..");
-const sourceModules = "/Users/juliana/Projects/Personal/travel-agent/frontend/node_modules";
 const aliases = {
   "@": root,
   "next/link": path.join(root, "compat/Link.tsx"),
@@ -37,7 +36,6 @@ esbuild.build({
   splitting: true,
   jsx: "automatic",
   absWorkingDir: root,
-  nodePaths: [sourceModules],
   alias: aliases,
   define: { "process.env.NEXT_PUBLIC_PROXY_URL": "\"\"" },
   loader: { ".css": "local-css", ".svg": "file" },

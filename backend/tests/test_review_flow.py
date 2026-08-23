@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app, store
-from openpip_backend.agent import build_briefing_prompt
+from openpip_backend.agent import SYSTEM_PROMPT, build_briefing_prompt, build_executive_assistant
 from openpip_backend.models import BriefingRequest, UserContext
+from openpip_backend.tools import travel_agent
 
 
 def setup_function() -> None:
@@ -21,6 +22,39 @@ def test_briefing_creates_pending_proposal_for_message() -> None:
     items = client.get("/api/proposals?status=pending").json()["items"]
     assert len(items) == 1
     assert items[0]["status"] == "pending"
+
+
+def test_travel_is_an_on_demand_executive_assistant_tool(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("strands.Agent", FakeAgent)
+    build_executive_assistant()
+
+    assert "travel" not in SYSTEM_PROMPT.lower()
+    tools = captured["tools"]
+    assert isinstance(tools, list)
+    assert tools == [travel_agent]
+    assert travel_agent.tool_name == "travel_agent"
+
+
+def test_active_frontend_review_routes_are_python_owned() -> None:
+    client = TestClient(app)
+    client.post("/api/briefing", json={"messages": [{"id": "message-review", "subject": "Review me"}]})
+
+    queue = client.get("/agent/review")
+    assert queue.status_code == 200
+    item = queue.json()["items"][0]
+    assert item["kind"] == "proposal"
+
+    detail = client.get(f"/agent/review/{item['id']}")
+    assert detail.status_code == 200
+    decided = client.post(f"/agent/review/{item['id']}/decision", json={"decision": "rejected"})
+    assert decided.status_code == 200
+    assert decided.json()["item"]["externalAction"]["detail"] == "Rejected"
 
 
 def test_approval_is_explicit_and_cannot_be_repeated() -> None:

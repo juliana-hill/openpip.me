@@ -3,17 +3,17 @@ import {
 } from "./chunk-H5AG5GHM.js";
 import {
   CalendarList
-} from "./chunk-2EQ7WS3J.js";
+} from "./chunk-BEJ2EH5Y.js";
 import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
 import {
   PageShell
-} from "./chunk-DFELCCCF.js";
+} from "./chunk-DYEATH4V.js";
 import {
   AppHeader,
   FloatingAssistant
-} from "./chunk-B6E4MHQS.js";
+} from "./chunk-Z4VWHJHU.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -27,7 +27,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-7G5O7DHP.js";
+} from "./chunk-LGZOQ3JO.js";
 
 // react-entries/calendar.tsx
 var import_client = __toESM(require_client());
@@ -343,7 +343,7 @@ function CalendarPage({ userName, userImage }) {
 // react-entries/calendar.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 async function mount() {
-  const r = await fetch("/auth/me", { credentials: "include" });
+  const r = await proxyFetch("/auth/me");
   if (!r.ok) return;
   const u = await r.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime4.jsx)(CalendarPage, { userName: u.name ?? "", userImage: u.picture ?? "" }));

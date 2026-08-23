@@ -14,7 +14,7 @@ import {
   pushUserData,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-B6E4MHQS.js";
+} from "./chunk-Z4VWHJHU.js";
 import {
   X,
   __toESM,
@@ -22,7 +22,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-7G5O7DHP.js";
+} from "./chunk-LGZOQ3JO.js";
 
 // react-entries/index.tsx
 var import_client = __toESM(require_client());
@@ -229,6 +229,9 @@ function DashboardPage({ userName, userImage }) {
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
   const [tasks, setTasks] = (0, import_react2.useState)([]);
   const [tasksTotal, setTasksTotal] = (0, import_react2.useState)(0);
+  const [openTotal, setOpenTotal] = (0, import_react2.useState)(0);
+  const [eventsTotal, setEventsTotal] = (0, import_react2.useState)(0);
+  const [unreadCount, setUnreadCount] = (0, import_react2.useState)(null);
   const [route, setRoute] = (0, import_react2.useState)(null);
   const [scheduledPlan, setScheduledPlan] = (0, import_react2.useState)(null);
   const [pipelineActions, setPipelineActions] = (0, import_react2.useState)([]);
@@ -277,28 +280,46 @@ function DashboardPage({ userName, userImage }) {
   (0, import_react2.useEffect)(() => {
     const today2 = (/* @__PURE__ */ new Date()).toDateString();
     async function loadTasks() {
-      const googleTasksRes = await proxyFetch("/agent/google/tasks");
+      const [googleTasksRes, calendarRes, inboxRes] = await Promise.all([
+        proxyFetch("/agent/google/tasks"),
+        proxyFetch("/agent/calendars?days=1"),
+        proxyFetch(`/agent/inbox/count?localDate=${localToday()}`)
+      ]);
       const googleTasks = googleTasksRes.ok ? (await googleTasksRes.json()).tasks ?? [] : [];
+      const calendarData = calendarRes.ok ? await calendarRes.json() : { calendars: [] };
+      const inboxData = inboxRes.ok ? await inboxRes.json() : {};
+      const todayDate = (/* @__PURE__ */ new Date()).toDateString();
+      const eventCount = (calendarData.calendars ?? []).reduce((total, calendar) => total + (calendar.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).length, 0);
+      setEventsTotal(eventCount);
+      setUnreadCount(inboxData.unread ?? 0);
       const namedPriorityToNumber = (p) => p === "ASAP" ? 1 : p === "HIGH" ? 2 : p === "LOW" ? 4 : 3;
-      const openTasks = [
-        ...googleTasks.map((t) => ({ title: t.title, priority: namedPriorityToNumber(t.priority), source: "google" }))
-      ];
-      setTasksTotal(openTasks.length);
       const SOON_DAYS = 3;
       const todayMidnight = /* @__PURE__ */ new Date();
       todayMidnight.setHours(0, 0, 0, 0);
       const soonCutoff = new Date(todayMidnight);
       soonCutoff.setDate(soonCutoff.getDate() + SOON_DAYS);
       soonCutoff.setHours(23, 59, 59, 999);
-      const dateUrgencyTier = (dateStr) => {
+      const localTaskDate = (dateStr) => {
         if (!dateStr) return null;
-        const d = new Date(dateStr);
+        const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T00:00:00` : dateStr);
+        if (Number.isNaN(d.getTime())) return null;
         d.setHours(0, 0, 0, 0);
+        return d;
+      };
+      const dateUrgencyTier = (dateStr) => {
+        const d = localTaskDate(dateStr);
+        if (!d) return null;
         if (d.getTime() < todayMidnight.getTime()) return 0;
         if (d.getTime() === todayMidnight.getTime()) return 1;
         if (d.getTime() <= soonCutoff.getTime()) return 2;
         return null;
       };
+      const todayTaskCount = googleTasks.filter((task) => {
+        const tier = dateUrgencyTier(task.dueDate);
+        return tier === 0 || tier === 1;
+      }).length;
+      setTasksTotal(todayTaskCount);
+      setOpenTotal(todayTaskCount + eventCount + (inboxData.unread ?? 0));
       const urgentTasks = [
         ...googleTasks.map((t) => ({ t, tier: dateUrgencyTier(t.dueDate) })).filter((x) => x.tier !== null).map(({ t, tier }) => ({ title: t.title, priority: namedPriorityToNumber(t.priority), source: "google", tier }))
       ];
@@ -306,7 +327,7 @@ function DashboardPage({ userName, userImage }) {
       setTasks(top3Urgent);
       setTasksLoading(false);
       const briefTasks = [
-        ...googleTasks.filter((t) => t.dueDate && new Date(t.dueDate).toDateString() === today2).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" }))
+        ...googleTasks.filter((t) => localTaskDate(t.dueDate)?.toDateString() === today2).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" }))
       ];
       return { briefTasks, briefEvents: [] };
     }
@@ -468,8 +489,8 @@ function DashboardPage({ userName, userImage }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Link, { href: "/today", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomeToday}`, style: { animationDelay: "60ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today" }),
-          tasksTotal > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: DashboardPage_default.badge, children: [
-            tasksTotal,
+          openTotal > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: DashboardPage_default.badge, children: [
+            openTotal,
             " open"
           ] }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
@@ -480,7 +501,17 @@ function DashboardPage({ userName, userImage }) {
             " Google task",
             tasksTotal === 1 ? "" : "s"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Tasks read from your connected Google Tasks account." }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Overdue or due today, from your connected Google Tasks account." }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.outcomeDescription, children: [
+            eventsTotal,
+            " calendar event",
+            eventsTotal === 1 ? "" : "s",
+            " \xB7 ",
+            unreadCount ?? 0,
+            " unread email",
+            unreadCount === 1 ? "" : "s",
+            " today"
+          ] }),
           tasks.slice(0, 3).map((task, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.taskRow, children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.checkbox }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.taskTitle, children: task.title }),
@@ -534,7 +565,7 @@ function DashboardPage({ userName, userImage }) {
 // react-entries/index.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 async function mount() {
-  const response = await fetch("/auth/me", { credentials: "include" });
+  const response = await proxyFetch("/auth/me");
   if (!response.ok) return;
   const user = await response.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DashboardPage, { userName: user.name ?? "", userImage: user.picture ?? "" }));

@@ -28,9 +28,9 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../Personal/travel-agent/frontend/node_modules/scheduler/cjs/scheduler.development.js
+// node_modules/scheduler/cjs/scheduler.development.js
 var require_scheduler_development = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/scheduler/cjs/scheduler.development.js"(exports) {
+  "node_modules/scheduler/cjs/scheduler.development.js"(exports) {
     "use strict";
     (function() {
       function performWorkUntilDeadline() {
@@ -287,9 +287,9 @@ var require_scheduler_development = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/scheduler/index.js
+// node_modules/scheduler/index.js
 var require_scheduler = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/scheduler/index.js"(exports, module) {
+  "node_modules/scheduler/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -299,9 +299,9 @@ var require_scheduler = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react/cjs/react.development.js
+// node_modules/react/cjs/react.development.js
 var require_react_development = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react/cjs/react.development.js"(exports, module) {
+  "node_modules/react/cjs/react.development.js"(exports, module) {
     "use strict";
     (function() {
       function defineDeprecationWarning(methodName, info) {
@@ -1271,9 +1271,9 @@ var require_react_development = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react/index.js
+// node_modules/react/index.js
 var require_react = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react/index.js"(exports, module) {
+  "node_modules/react/index.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -1283,9 +1283,9 @@ var require_react = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react-dom/cjs/react-dom.development.js
+// node_modules/react-dom/cjs/react-dom.development.js
 var require_react_dom_development = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react-dom/cjs/react-dom.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom.development.js"(exports) {
     "use strict";
     (function() {
       function noop() {
@@ -1527,9 +1527,9 @@ var require_react_dom_development = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react-dom/index.js
+// node_modules/react-dom/index.js
 var require_react_dom = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react-dom/index.js"(exports, module) {
+  "node_modules/react-dom/index.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -1540,9 +1540,9 @@ var require_react_dom = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react-dom/cjs/react-dom-client.development.js
+// node_modules/react-dom/cjs/react-dom-client.development.js
 var require_react_dom_client_development = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
+  "node_modules/react-dom/cjs/react-dom-client.development.js"(exports) {
     "use strict";
     (function() {
       function findHook(fiber, id) {
@@ -21439,9 +21439,9 @@ var require_react_dom_client_development = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react-dom/client.js
+// node_modules/react-dom/client.js
 var require_client = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react-dom/client.js"(exports, module) {
+  "node_modules/react-dom/client.js"(exports, module) {
     "use strict";
     if (false) {
       checkDCE();
@@ -21452,9 +21452,9 @@ var require_client = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react/cjs/react-jsx-runtime.development.js
+// node_modules/react/cjs/react-jsx-runtime.development.js
 var require_react_jsx_runtime_development = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
+  "node_modules/react/cjs/react-jsx-runtime.development.js"(exports) {
     "use strict";
     (function() {
       function getComponentNameFromType(type) {
@@ -21709,9 +21709,9 @@ var require_react_jsx_runtime_development = __commonJS({
   }
 });
 
-// ../../../Personal/travel-agent/frontend/node_modules/react/jsx-runtime.js
+// node_modules/react/jsx-runtime.js
 var require_jsx_runtime = __commonJS({
-  "../../../Personal/travel-agent/frontend/node_modules/react/jsx-runtime.js"(exports, module) {
+  "node_modules/react/jsx-runtime.js"(exports, module) {
     "use strict";
     if (false) {
       module.exports = null;
@@ -21721,10 +21721,52 @@ var require_jsx_runtime = __commonJS({
   }
 });
 
+// lib/session.ts
+var SESSION_KEY = "openpip_session";
+var SESSION_HEADER = "X-OpenPip-Session";
+function captureSessionFromUrlFragment() {
+  if (typeof window === "undefined") return;
+  const match = window.location.hash.match(/(?:^#|&)openpip_session=([^&]+)/);
+  if (!match) return;
+  try {
+    sessionStorage.setItem(SESSION_KEY, decodeURIComponent(match[1]));
+  } catch {
+  } finally {
+    const remaining = window.location.hash.replace(/(?:^#|&)openpip_session=[^&]+/, "");
+    const cleanHash = remaining === "#" ? "" : remaining;
+    history.replaceState(null, "", `${window.location.pathname}${window.location.search}${cleanHash}`);
+  }
+}
+if (typeof window !== "undefined") {
+  captureSessionFromUrlFragment();
+}
+function getSessionToken() {
+  if (typeof window === "undefined") return null;
+  try {
+    return sessionStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+function sessionHeaders() {
+  const token = getSessionToken();
+  return token ? { [SESSION_HEADER]: token } : {};
+}
+function clearSession() {
+  if (typeof window === "undefined") return;
+  try {
+    sessionStorage.removeItem(SESSION_KEY);
+  } catch {
+  }
+}
+
 // lib/proxy.ts
 var PROXY_URL = "";
 function proxyFetch(path, init) {
-  return fetch(`${PROXY_URL}${path}`, { ...init, credentials: "include" });
+  return fetch(`${PROXY_URL}${path}`, {
+    ...init,
+    headers: { ...sessionHeaders(), ...init?.headers ?? {} }
+  });
 }
 
 // compat/navigation.ts
@@ -21745,33 +21787,33 @@ function useRouter() {
   }), []);
 }
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/createLucideIcon.js
-var import_react4 = __toESM(require_react());
+// node_modules/lucide-react/dist/esm/createLucideIcon.mjs
+var import_react4 = __toESM(require_react(), 1);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/shared/src/utils/mergeClasses.js
+// node_modules/lucide-react/dist/esm/shared/src/utils/mergeClasses.mjs
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
   return Boolean(className) && className.trim() !== "" && array.indexOf(className) === index;
 }).join(" ").trim();
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/shared/src/utils/toKebabCase.js
+// node_modules/lucide-react/dist/esm/shared/src/utils/toKebabCase.mjs
 var toKebabCase = (string) => string.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase();
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/shared/src/utils/toCamelCase.js
+// node_modules/lucide-react/dist/esm/shared/src/utils/toCamelCase.mjs
 var toCamelCase = (string) => string.replace(
   /^([A-Z])|[\s-_]+(\w)/g,
   (match, p1, p2) => p2 ? p2.toUpperCase() : p1.toLowerCase()
 );
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/shared/src/utils/toPascalCase.js
+// node_modules/lucide-react/dist/esm/shared/src/utils/toPascalCase.mjs
 var toPascalCase = (string) => {
   const camelCase = toCamelCase(string);
   return camelCase.charAt(0).toUpperCase() + camelCase.slice(1);
 };
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/Icon.js
-var import_react3 = __toESM(require_react());
+// node_modules/lucide-react/dist/esm/Icon.mjs
+var import_react3 = __toESM(require_react(), 1);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/defaultAttributes.js
+// node_modules/lucide-react/dist/esm/defaultAttributes.mjs
 var defaultAttributes = {
   xmlns: "http://www.w3.org/2000/svg",
   width: 24,
@@ -21784,7 +21826,7 @@ var defaultAttributes = {
   strokeLinejoin: "round"
 };
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/shared/src/utils/hasA11yProp.js
+// node_modules/lucide-react/dist/esm/shared/src/utils/hasA11yProp.mjs
 var hasA11yProp = (props) => {
   for (const prop in props) {
     if (prop.startsWith("aria-") || prop === "role" || prop === "title") {
@@ -21794,12 +21836,12 @@ var hasA11yProp = (props) => {
   return false;
 };
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/context.js
-var import_react2 = __toESM(require_react());
+// node_modules/lucide-react/dist/esm/context.mjs
+var import_react2 = __toESM(require_react(), 1);
 var LucideContext = (0, import_react2.createContext)({});
 var useLucideContext = () => (0, import_react2.useContext)(LucideContext);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/Icon.js
+// node_modules/lucide-react/dist/esm/Icon.mjs
 var Icon = (0, import_react3.forwardRef)(
   ({ color, size, strokeWidth, absoluteStrokeWidth, className = "", children, iconNode, ...rest }, ref) => {
     const {
@@ -21831,7 +21873,7 @@ var Icon = (0, import_react3.forwardRef)(
   }
 );
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/createLucideIcon.js
+// node_modules/lucide-react/dist/esm/createLucideIcon.mjs
 var createLucideIcon = (iconName, iconNode) => {
   const Component = (0, import_react4.forwardRef)(
     ({ className, ...props }, ref) => (0, import_react4.createElement)(Icon, {
@@ -21849,7 +21891,7 @@ var createLucideIcon = (iconName, iconNode) => {
   return Component;
 };
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/external-link.js
+// node_modules/lucide-react/dist/esm/icons/external-link.mjs
 var __iconNode = [
   ["path", { d: "M15 3h6v6", key: "1q9fwt" }],
   ["path", { d: "M10 14 21 3", key: "gplh6r" }],
@@ -21857,14 +21899,14 @@ var __iconNode = [
 ];
 var ExternalLink = createLucideIcon("external-link", __iconNode);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/plus.js
+// node_modules/lucide-react/dist/esm/icons/plus.mjs
 var __iconNode2 = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "M12 5v14", key: "s699le" }]
 ];
 var Plus = createLucideIcon("plus", __iconNode2);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/refresh-cw.js
+// node_modules/lucide-react/dist/esm/icons/refresh-cw.mjs
 var __iconNode3 = [
   ["path", { d: "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8", key: "v9h5vc" }],
   ["path", { d: "M21 3v5h-5", key: "1q7to0" }],
@@ -21873,7 +21915,7 @@ var __iconNode3 = [
 ];
 var RefreshCw = createLucideIcon("refresh-cw", __iconNode3);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/users.js
+// node_modules/lucide-react/dist/esm/icons/users.mjs
 var __iconNode4 = [
   ["path", { d: "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2", key: "1yyitq" }],
   ["path", { d: "M16 3.128a4 4 0 0 1 0 7.744", key: "16gr8j" }],
@@ -21882,21 +21924,21 @@ var __iconNode4 = [
 ];
 var Users = createLucideIcon("users", __iconNode4);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/arrow-right.js
+// node_modules/lucide-react/dist/esm/icons/arrow-right.mjs
 var __iconNode5 = [
   ["path", { d: "M5 12h14", key: "1ays0h" }],
   ["path", { d: "m12 5 7 7-7 7", key: "xquz4c" }]
 ];
 var ArrowRight = createLucideIcon("arrow-right", __iconNode5);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/arrow-up.js
+// node_modules/lucide-react/dist/esm/icons/arrow-up.mjs
 var __iconNode6 = [
   ["path", { d: "m5 12 7-7 7 7", key: "hav0vg" }],
   ["path", { d: "M12 19V5", key: "x0mq9r" }]
 ];
 var ArrowUp = createLucideIcon("arrow-up", __iconNode6);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/bookmark.js
+// node_modules/lucide-react/dist/esm/icons/bookmark.mjs
 var __iconNode7 = [
   [
     "path",
@@ -21908,7 +21950,7 @@ var __iconNode7 = [
 ];
 var Bookmark = createLucideIcon("bookmark", __iconNode7);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/bot.js
+// node_modules/lucide-react/dist/esm/icons/bot.mjs
 var __iconNode8 = [
   ["path", { d: "M12 8V4H8", key: "hb8ula" }],
   ["rect", { width: "16", height: "12", x: "4", y: "8", rx: "2", key: "enze0r" }],
@@ -21919,14 +21961,14 @@ var __iconNode8 = [
 ];
 var Bot = createLucideIcon("bot", __iconNode8);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/briefcase.js
+// node_modules/lucide-react/dist/esm/icons/briefcase.mjs
 var __iconNode9 = [
   ["path", { d: "M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16", key: "jecpp" }],
   ["rect", { width: "20", height: "14", x: "2", y: "6", rx: "2", key: "i6l2r4" }]
 ];
 var Briefcase = createLucideIcon("briefcase", __iconNode9);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/building-2.js
+// node_modules/lucide-react/dist/esm/icons/building-2.mjs
 var __iconNode10 = [
   ["path", { d: "M10 12h4", key: "a56b0p" }],
   ["path", { d: "M10 8h4", key: "1sr2af" }],
@@ -21942,7 +21984,7 @@ var __iconNode10 = [
 ];
 var Building2 = createLucideIcon("building-2", __iconNode10);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/bus-front.js
+// node_modules/lucide-react/dist/esm/icons/bus-front.mjs
 var __iconNode11 = [
   ["path", { d: "M4 6 2 7", key: "1mqr15" }],
   ["path", { d: "M10 6h4", key: "1itunk" }],
@@ -21956,7 +21998,7 @@ var __iconNode11 = [
 ];
 var BusFront = createLucideIcon("bus-front", __iconNode11);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/bus.js
+// node_modules/lucide-react/dist/esm/icons/bus.mjs
 var __iconNode12 = [
   ["path", { d: "M8 6v6", key: "18i7km" }],
   ["path", { d: "M15 6v6", key: "1sg6z9" }],
@@ -21974,31 +22016,31 @@ var __iconNode12 = [
 ];
 var Bus = createLucideIcon("bus", __iconNode12);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/calendar-days.js
+// node_modules/lucide-react/dist/esm/icons/calendar-days.mjs
 var __iconNode13 = [
-  ["path", { d: "M8 2v4", key: "1cmpym" }],
-  ["path", { d: "M16 2v4", key: "4m81vk" }],
-  ["rect", { width: "18", height: "18", x: "3", y: "4", rx: "2", key: "1hopcy" }],
-  ["path", { d: "M3 10h18", key: "8toen8" }],
-  ["path", { d: "M8 14h.01", key: "6423bh" }],
-  ["path", { d: "M12 14h.01", key: "1etili" }],
-  ["path", { d: "M16 14h.01", key: "1gbofw" }],
-  ["path", { d: "M8 18h.01", key: "lrp35t" }],
-  ["path", { d: "M12 18h.01", key: "mhygvu" }],
-  ["path", { d: "M16 18h.01", key: "kzsmim" }]
+  ["path", { d: "M8 2v3", key: "1ioesn" }],
+  ["path", { d: "M16 2v3", key: "otl347" }],
+  ["rect", { x: "3", y: "3", width: "18", height: "18", rx: "2", key: "h1oib" }],
+  ["path", { d: "M3 9h18", key: "1pudct" }],
+  ["path", { d: "M8 13h.01", key: "1sbv64" }],
+  ["path", { d: "M12 13h.01", key: "y0uutt" }],
+  ["path", { d: "M16 13h.01", key: "wip0gl" }],
+  ["path", { d: "M8 17h.01", key: "p3bg7i" }],
+  ["path", { d: "M12 17h.01", key: "p32p05" }],
+  ["path", { d: "M16 17h.01", key: "ql8jdd" }]
 ];
 var CalendarDays = createLucideIcon("calendar-days", __iconNode13);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/calendar.js
+// node_modules/lucide-react/dist/esm/icons/calendar.mjs
 var __iconNode14 = [
-  ["path", { d: "M8 2v4", key: "1cmpym" }],
-  ["path", { d: "M16 2v4", key: "4m81vk" }],
-  ["rect", { width: "18", height: "18", x: "3", y: "4", rx: "2", key: "1hopcy" }],
-  ["path", { d: "M3 10h18", key: "8toen8" }]
+  ["path", { d: "M8 2v3", key: "1ioesn" }],
+  ["path", { d: "M16 2v3", key: "otl347" }],
+  ["rect", { x: "3", y: "3", width: "18", height: "18", rx: "2", key: "h1oib" }],
+  ["path", { d: "M3 9h18", key: "1pudct" }]
 ];
 var Calendar = createLucideIcon("calendar", __iconNode14);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/car.js
+// node_modules/lucide-react/dist/esm/icons/car.mjs
 var __iconNode15 = [
   [
     "path",
@@ -22013,23 +22055,23 @@ var __iconNode15 = [
 ];
 var Car = createLucideIcon("car", __iconNode15);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/check.js
+// node_modules/lucide-react/dist/esm/icons/check.mjs
 var __iconNode16 = [["path", { d: "M20 6 9 17l-5-5", key: "1gmf2c" }]];
 var Check = createLucideIcon("check", __iconNode16);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/chevron-down.js
+// node_modules/lucide-react/dist/esm/icons/chevron-down.mjs
 var __iconNode17 = [["path", { d: "m6 9 6 6 6-6", key: "qrunsl" }]];
 var ChevronDown = createLucideIcon("chevron-down", __iconNode17);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/chevron-left.js
-var __iconNode18 = [["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]];
-var ChevronLeft = createLucideIcon("chevron-left", __iconNode18);
+// node_modules/lucide-react/dist/esm/icons/chevron-right.mjs
+var __iconNode18 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
+var ChevronRight = createLucideIcon("chevron-right", __iconNode18);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/chevron-right.js
-var __iconNode19 = [["path", { d: "m9 18 6-6-6-6", key: "mthhwq" }]];
-var ChevronRight = createLucideIcon("chevron-right", __iconNode19);
+// node_modules/lucide-react/dist/esm/icons/chevron-left.mjs
+var __iconNode19 = [["path", { d: "m15 18-6-6 6-6", key: "1wnfg3" }]];
+var ChevronLeft = createLucideIcon("chevron-left", __iconNode19);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/circle-alert.js
+// node_modules/lucide-react/dist/esm/icons/circle-alert.mjs
 var __iconNode20 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["line", { x1: "12", x2: "12", y1: "8", y2: "12", key: "1pkeuh" }],
@@ -22037,28 +22079,28 @@ var __iconNode20 = [
 ];
 var CircleAlert = createLucideIcon("circle-alert", __iconNode20);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/circle-check-big.js
+// node_modules/lucide-react/dist/esm/icons/circle-check-big.mjs
 var __iconNode21 = [
   ["path", { d: "M21.801 10A10 10 0 1 1 17 3.335", key: "yps3ct" }],
   ["path", { d: "m9 11 3 3L22 4", key: "1pflzl" }]
 ];
 var CircleCheckBig = createLucideIcon("circle-check-big", __iconNode21);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/circle-check.js
+// node_modules/lucide-react/dist/esm/icons/circle-check.mjs
 var __iconNode22 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "m9 12 2 2 4-4", key: "dzmm74" }]
 ];
 var CircleCheck = createLucideIcon("circle-check", __iconNode22);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/clock.js
+// node_modules/lucide-react/dist/esm/icons/clock.mjs
 var __iconNode23 = [
   ["circle", { cx: "12", cy: "12", r: "10", key: "1mglay" }],
   ["path", { d: "M12 6v6l4 2", key: "mmk7yg" }]
 ];
 var Clock = createLucideIcon("clock", __iconNode23);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/eye-off.js
+// node_modules/lucide-react/dist/esm/icons/eye-off.mjs
 var __iconNode24 = [
   [
     "path",
@@ -22079,7 +22121,7 @@ var __iconNode24 = [
 ];
 var EyeOff = createLucideIcon("eye-off", __iconNode24);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/eye.js
+// node_modules/lucide-react/dist/esm/icons/eye.mjs
 var __iconNode25 = [
   [
     "path",
@@ -22092,7 +22134,7 @@ var __iconNode25 = [
 ];
 var Eye = createLucideIcon("eye", __iconNode25);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/file-up.js
+// node_modules/lucide-react/dist/esm/icons/file-up.mjs
 var __iconNode26 = [
   [
     "path",
@@ -22107,7 +22149,7 @@ var __iconNode26 = [
 ];
 var FileUp = createLucideIcon("file-up", __iconNode26);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/hard-drive-download.js
+// node_modules/lucide-react/dist/esm/icons/hard-drive-download.mjs
 var __iconNode27 = [
   ["path", { d: "M12 2v8", key: "1q4o3n" }],
   ["path", { d: "m16 6-4 4-4-4", key: "6wukr" }],
@@ -22117,16 +22159,8 @@ var __iconNode27 = [
 ];
 var HardDriveDownload = createLucideIcon("hard-drive-download", __iconNode27);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/history.js
+// node_modules/lucide-react/dist/esm/icons/house.mjs
 var __iconNode28 = [
-  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
-  ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
-  ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
-];
-var History = createLucideIcon("history", __iconNode28);
-
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/house.js
-var __iconNode29 = [
   ["path", { d: "M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8", key: "5wwlr5" }],
   [
     "path",
@@ -22136,14 +22170,14 @@ var __iconNode29 = [
     }
   ]
 ];
-var House = createLucideIcon("house", __iconNode29);
+var House = createLucideIcon("house", __iconNode28);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/loader-circle.js
-var __iconNode30 = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]];
-var LoaderCircle = createLucideIcon("loader-circle", __iconNode30);
+// node_modules/lucide-react/dist/esm/icons/loader-circle.mjs
+var __iconNode29 = [["path", { d: "M21 12a9 9 0 1 1-6.219-8.56", key: "13zald" }]];
+var LoaderCircle = createLucideIcon("loader-circle", __iconNode29);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/map-pin.js
-var __iconNode31 = [
+// node_modules/lucide-react/dist/esm/icons/map-pin.mjs
+var __iconNode30 = [
   [
     "path",
     {
@@ -22153,10 +22187,10 @@ var __iconNode31 = [
   ],
   ["circle", { cx: "12", cy: "10", r: "3", key: "ilqhr7" }]
 ];
-var MapPin = createLucideIcon("map-pin", __iconNode31);
+var MapPin = createLucideIcon("map-pin", __iconNode30);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/mic-off.js
-var __iconNode32 = [
+// node_modules/lucide-react/dist/esm/icons/mic-off.mjs
+var __iconNode31 = [
   ["path", { d: "M12 19v3", key: "npa21l" }],
   ["path", { d: "M15 9.34V5a3 3 0 0 0-5.68-1.33", key: "1gzdoj" }],
   ["path", { d: "M16.95 16.95A7 7 0 0 1 5 12v-2", key: "cqa7eg" }],
@@ -22164,25 +22198,25 @@ var __iconNode32 = [
   ["path", { d: "m2 2 20 20", key: "1ooewy" }],
   ["path", { d: "M9 9v3a3 3 0 0 0 5.12 2.12", key: "r2i35w" }]
 ];
-var MicOff = createLucideIcon("mic-off", __iconNode32);
+var MicOff = createLucideIcon("mic-off", __iconNode31);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/mic.js
-var __iconNode33 = [
+// node_modules/lucide-react/dist/esm/icons/mic.mjs
+var __iconNode32 = [
   ["path", { d: "M12 19v3", key: "npa21l" }],
   ["path", { d: "M19 10v2a7 7 0 0 1-14 0v-2", key: "1vc78b" }],
   ["rect", { x: "9", y: "2", width: "6", height: "13", rx: "3", key: "s6n7sd" }]
 ];
-var Mic = createLucideIcon("mic", __iconNode33);
+var Mic = createLucideIcon("mic", __iconNode32);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/pause.js
-var __iconNode34 = [
+// node_modules/lucide-react/dist/esm/icons/pause.mjs
+var __iconNode33 = [
   ["rect", { x: "14", y: "3", width: "5", height: "18", rx: "1", key: "kaeet6" }],
   ["rect", { x: "5", y: "3", width: "5", height: "18", rx: "1", key: "1wsw3u" }]
 ];
-var Pause = createLucideIcon("pause", __iconNode34);
+var Pause = createLucideIcon("pause", __iconNode33);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/pencil.js
-var __iconNode35 = [
+// node_modules/lucide-react/dist/esm/icons/pencil.mjs
+var __iconNode34 = [
   [
     "path",
     {
@@ -22192,10 +22226,10 @@ var __iconNode35 = [
   ],
   ["path", { d: "m15 5 4 4", key: "1mk7zo" }]
 ];
-var Pencil = createLucideIcon("pencil", __iconNode35);
+var Pencil = createLucideIcon("pencil", __iconNode34);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/plane.js
-var __iconNode36 = [
+// node_modules/lucide-react/dist/esm/icons/plane.mjs
+var __iconNode35 = [
   [
     "path",
     {
@@ -22204,10 +22238,10 @@ var __iconNode36 = [
     }
   ]
 ];
-var Plane = createLucideIcon("plane", __iconNode36);
+var Plane = createLucideIcon("plane", __iconNode35);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/play.js
-var __iconNode37 = [
+// node_modules/lucide-react/dist/esm/icons/play.mjs
+var __iconNode36 = [
   [
     "path",
     {
@@ -22216,30 +22250,38 @@ var __iconNode37 = [
     }
   ]
 ];
-var Play = createLucideIcon("play", __iconNode37);
+var Play = createLucideIcon("play", __iconNode36);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/rotate-ccw.js
+// node_modules/lucide-react/dist/esm/icons/rotate-ccw-clock.mjs
+var __iconNode37 = [
+  ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
+  ["path", { d: "M3 3v5h5", key: "1xhq8a" }],
+  ["path", { d: "M12 7v5l4 2", key: "1fdv2h" }]
+];
+var RotateCcwClock = createLucideIcon("rotate-ccw-clock", __iconNode37);
+
+// node_modules/lucide-react/dist/esm/icons/rotate-ccw.mjs
 var __iconNode38 = [
   ["path", { d: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", key: "1357e3" }],
   ["path", { d: "M3 3v5h5", key: "1xhq8a" }]
 ];
 var RotateCcw = createLucideIcon("rotate-ccw", __iconNode38);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/search.js
+// node_modules/lucide-react/dist/esm/icons/search.mjs
 var __iconNode39 = [
   ["path", { d: "m21 21-4.34-4.34", key: "14j7rj" }],
   ["circle", { cx: "11", cy: "11", r: "8", key: "4ej97u" }]
 ];
 var Search = createLucideIcon("search", __iconNode39);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/smartphone.js
+// node_modules/lucide-react/dist/esm/icons/smartphone.mjs
 var __iconNode40 = [
   ["rect", { width: "14", height: "20", x: "5", y: "2", rx: "2", ry: "2", key: "1yt0o3" }],
   ["path", { d: "M12 18h.01", key: "mhygvu" }]
 ];
 var Smartphone = createLucideIcon("smartphone", __iconNode40);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/sparkles.js
+// node_modules/lucide-react/dist/esm/icons/sparkles.mjs
 var __iconNode41 = [
   [
     "path",
@@ -22254,7 +22296,7 @@ var __iconNode41 = [
 ];
 var Sparkles = createLucideIcon("sparkles", __iconNode41);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/square-check-big.js
+// node_modules/lucide-react/dist/esm/icons/square-check-big.mjs
 var __iconNode42 = [
   [
     "path",
@@ -22264,7 +22306,7 @@ var __iconNode42 = [
 ];
 var SquareCheckBig = createLucideIcon("square-check-big", __iconNode42);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/square-pen.js
+// node_modules/lucide-react/dist/esm/icons/square-pen.mjs
 var __iconNode43 = [
   ["path", { d: "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7", key: "1m0v6g" }],
   [
@@ -22277,7 +22319,7 @@ var __iconNode43 = [
 ];
 var SquarePen = createLucideIcon("square-pen", __iconNode43);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/tram-front.js
+// node_modules/lucide-react/dist/esm/icons/tram-front.mjs
 var __iconNode44 = [
   ["rect", { width: "16", height: "16", x: "4", y: "3", rx: "2", key: "1wxw4b" }],
   ["path", { d: "M4 11h16", key: "mpoxn0" }],
@@ -22289,7 +22331,7 @@ var __iconNode44 = [
 ];
 var TramFront = createLucideIcon("tram-front", __iconNode44);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/trash-2.js
+// node_modules/lucide-react/dist/esm/icons/trash-2.mjs
 var __iconNode45 = [
   ["path", { d: "M10 11v6", key: "nco0om" }],
   ["path", { d: "M14 11v6", key: "outv1u" }],
@@ -22299,7 +22341,7 @@ var __iconNode45 = [
 ];
 var Trash2 = createLucideIcon("trash-2", __iconNode45);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/upload.js
+// node_modules/lucide-react/dist/esm/icons/upload.mjs
 var __iconNode46 = [
   ["path", { d: "M12 3v12", key: "1x0j5s" }],
   ["path", { d: "m17 8-5-5-5 5", key: "7q97r8" }],
@@ -22307,14 +22349,14 @@ var __iconNode46 = [
 ];
 var Upload = createLucideIcon("upload", __iconNode46);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/user.js
+// node_modules/lucide-react/dist/esm/icons/user.mjs
 var __iconNode47 = [
   ["path", { d: "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2", key: "975kel" }],
   ["circle", { cx: "12", cy: "7", r: "4", key: "17ys0d" }]
 ];
 var User = createLucideIcon("user", __iconNode47);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/video.js
+// node_modules/lucide-react/dist/esm/icons/video.mjs
 var __iconNode48 = [
   [
     "path",
@@ -22327,7 +22369,7 @@ var __iconNode48 = [
 ];
 var Video = createLucideIcon("video", __iconNode48);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/volume-2.js
+// node_modules/lucide-react/dist/esm/icons/volume-2.mjs
 var __iconNode49 = [
   [
     "path",
@@ -22341,7 +22383,7 @@ var __iconNode49 = [
 ];
 var Volume2 = createLucideIcon("volume-2", __iconNode49);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/volume-off.js
+// node_modules/lucide-react/dist/esm/icons/volume-off.mjs
 var __iconNode50 = [
   ["path", { d: "M16 9a5 5 0 0 1 .95 2.293", key: "1fgyg8" }],
   ["path", { d: "M19.364 5.636a9 9 0 0 1 1.889 9.96", key: "l3zxae" }],
@@ -22357,7 +22399,7 @@ var __iconNode50 = [
 ];
 var VolumeOff = createLucideIcon("volume-off", __iconNode50);
 
-// ../../../Personal/travel-agent/frontend/node_modules/lucide-react/dist/esm/icons/x.js
+// node_modules/lucide-react/dist/esm/icons/x.mjs
 var __iconNode51 = [
   ["path", { d: "M18 6 6 18", key: "1bl5f8" }],
   ["path", { d: "m6 6 12 12", key: "d8bk6v" }]
@@ -22370,6 +22412,7 @@ export {
   __toESM,
   require_react,
   require_client,
+  clearSession,
   proxyFetch,
   require_jsx_runtime,
   useSearchParams,
@@ -22387,8 +22430,8 @@ export {
   Car,
   Check,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
+  ChevronLeft,
   CircleAlert,
   CircleCheckBig,
   CircleCheck,
@@ -22398,7 +22441,6 @@ export {
   Eye,
   FileUp,
   HardDriveDownload,
-  History,
   House,
   LoaderCircle,
   MapPin,
@@ -22410,6 +22452,7 @@ export {
   Play,
   Plus,
   RefreshCw,
+  RotateCcwClock,
   RotateCcw,
   Search,
   Smartphone,

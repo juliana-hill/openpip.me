@@ -31,3 +31,5 @@
 .cardHead span { color: var(--color-accent); font-size: var(--font-size-sm); font-weight: 800; }
 .inboxMetric { color: var(--color-text); font-size: 1.25rem; font-weight: 800; letter-spacing: -.025em; margin: 0; }
 .inboxHint { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.45; margin: 4px 0 0; }
+.taskMetric { color: var(--color-text); font-size: 1.25rem; font-weight: 800; letter-spacing: -.025em; margin: 0; }
+.taskHint { color: var(--color-text-muted); font-size: var(--font-size-sm); line-height: 1.45; margin: 4px 0 0; }

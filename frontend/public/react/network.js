@@ -15,7 +15,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-7G5O7DHP.js";
+} from "./chunk-LGZOQ3JO.js";
 
 // react-entries/network.tsx
 var import_client = __toESM(require_client());
@@ -407,7 +407,7 @@ function ContactsBoard() {
 // react-entries/network.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 async function mount() {
-  const r = await fetch("/auth/me", { credentials: "include" });
+  const r = await proxyFetch("/auth/me");
   if (!r.ok) return;
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ContactsBoard, {}));
 }

@@ -1,0 +1,80 @@
+# OpenPip's own isolated container group.
+#
+# This project must NEVER share containers, networks, or host ports with any
+# sibling project on this machine:
+#   travel-agent        -> host 4000-4003, 3097, 3099
+#   career_discernment   -> host 3000
+#   couchbumming         -> host 8000
+#   dailies              -> host 8080
+# OpenPip's own range is 5500 (frontend) / 5501 (backend) — chosen to be
+# clear of all of the above. Service-to-service calls use Docker Compose's
+# internal service DNS names (e.g. http://backend:5501), never localhost —
+# so even if every one of those projects' containers is running at the same
+# time, there is no host port or network path by which this project's
+# frontend can reach them, or vice versa.
+#
+# Bring this project up on its own with:
+#   docker compose up --build
+# (docker compose scopes the network/container names to this directory by
+# default; the explicit `name:` below makes that isolation unambiguous.)
+
+name: openpip
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: openpip-backend
+    ports:
+      - "5501:5501"
+    env_file:
+      - .env.local
+    environment:
+      - OPENPIP_DATABASE_PATH=/app/data/openpip.sqlite3
+      - OPENPIP_CORS_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
+      - FRONTEND_ORIGIN=http://localhost:5500
+      # Overrides .env.local's production redirect URI for local/Docker use.
+      # This exact URI must also be added to this OAuth client's Authorized
+      # redirect URIs in the Google Cloud Console, or Google will reject the
+      # callback with redirect_uri_mismatch.
+      - GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5500/auth/callback
+    volumes:
+      - ./backend/src:/app/src
+      - ./data:/app/data
+    networks:
+      - openpip-net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: openpip-frontend
+    ports:
+      - "5500:5500"
+    environment:
+      # Overrides the frontend Dockerfile's own default (PORT=4000, picked
+      # when that file was first copied from travel-agent's frontend) with
+      # this project's actual port, without editing the Dockerfile itself.
+      - PORT=5500
+      - FRONTEND_ORIGIN=http://localhost:5500
+      # Route straight to this project's own backend by its Compose service
+      # name — resolvable only inside the `openpip-net` network below.
+      - BACKEND_URL=http://backend:5501
+      - AUTH_AGENT_UPSTREAM=http://backend:5501
+      # Path B (docs/OAUTH_SETUP.md) is implemented directly on this
+      # project's own FastAPI backend (/auth/login, /auth/callback, /auth/me,
+      # /auth/logout — see backend/src/openpip_backend/google_oauth.py). Same
+      # service DNS name as BACKEND_URL above, never travel-agent's proxy.
+      - AUTH_PROXY_URL=http://backend:5501
+    depends_on:
+      - backend
+    networks:
+      - openpip-net
+    restart: unless-stopped
+
+networks:
+  openpip-net:
+    name: openpip-net
+    driver: bridge

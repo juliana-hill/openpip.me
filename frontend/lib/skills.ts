@@ -1,6 +1,7 @@
 export type SkillId = "general" | "executive-assistant";
 
-// Legacy IDs written by old IDB migrations and GDrive backups — normalize on read, never on write.
+// Legacy IDs written by old IDB migrations and GDrive backups — normalize on read,
+// never on write. Travel is an Executive Assistant tool, not a selectable skill.
 const SKILL_ALIASES: Record<string, SkillId> = {
   "career-coach": "executive-assistant",
   "executive-coach": "executive-assistant",
@@ -16,9 +17,8 @@ export function normalizeSkill(skill: string | undefined | null): SkillId {
 export const SKILL_LABELS: Record<string, string> = {
   general: "Tutorial",
   "executive-assistant": "Executive Assistant",
-  // legacy — kept for display of unmigriated IDB rows
+  // Legacy labels are retained for old persisted sessions only.
   "personal-assistant": "Executive Assistant",
   "career-coach": "Executive Assistant",
-  "travel-planner": "Executive Assistant",
   "executive-coach": "Executive Assistant",
 };

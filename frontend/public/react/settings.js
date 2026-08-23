@@ -3,7 +3,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-DFELCCCF.js";
+} from "./chunk-DYEATH4V.js";
 import {
   AppHeader,
   FloatingAssistant,
@@ -21,7 +21,7 @@ import {
   pushUserDataOrThrow,
   saveAgentIcon,
   setAgentIcon
-} from "./chunk-B6E4MHQS.js";
+} from "./chunk-Z4VWHJHU.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -42,11 +42,12 @@ import {
   Trash2,
   User,
   __toESM,
+  clearSession,
   proxyFetch,
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-7G5O7DHP.js";
+} from "./chunk-LGZOQ3JO.js";
 
 // react-entries/settings.tsx
 var import_client = __toESM(require_client());
@@ -1221,6 +1222,7 @@ function SettingsPage({ userEmail, userName, userImage }) {
         {
           className: `${Button_default.btn} ${Button_default.danger} ${Button_default.md}`,
           onClick: () => proxyFetch("/auth/logout", { method: "POST" }).finally(() => {
+            clearSession();
             window.location.href = "/login";
           }),
           children: "Log out"
@@ -1234,7 +1236,7 @@ function SettingsPage({ userEmail, userName, userImage }) {
 // react-entries/settings.tsx
 var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 async function mount() {
-  const r = await fetch("/auth/me", { credentials: "include" });
+  const r = await proxyFetch("/auth/me");
   if (!r.ok) return;
   const u = await r.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime10.jsx)(SettingsPage, { userEmail: u.email ?? "", userName: u.name ?? "", userImage: u.picture ?? "" }));
