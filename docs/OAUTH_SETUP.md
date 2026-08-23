@@ -67,10 +67,11 @@ Express/HJS views:
 These routes require a live Google access token in `x-google-token` (or an
 `Authorization: Bearer` header). The browser never stores or invents a token;
 without one the service returns `401 {"detail":"Google account is not connected"}`.
-The Express frontend sends all `/agent` and `/api` requests directly to this
-FastAPI service; the separate OAuth callback service is used only for `/auth`.
-The Python auth boundary is responsible for validating the session and
-injecting the per-user token before provider calls.
+The Express frontend sends `/api` requests directly to FastAPI. `/agent`
+requests pass through the OAuth session boundary so it can inject the signed-in
+user's access token, then must be forwarded to this Python backend—not the old
+travel-agent service. For the local proxy, set `AGENT_URL=http://localhost:6001/agent`.
+FastAPI validates the injected per-user token at each provider/app-data route.
 
 ## 5. Environment variables (names only — never commit values)
 

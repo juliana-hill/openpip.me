@@ -6,7 +6,7 @@ The travel-agent frontend and its marketing landing-page directory are copied ve
 
 ```mermaid
 flowchart LR
- UI[Express + HJS Today / Review / Settings / Contacts] --> API[FastAPI + Strands API :8000]
+ UI[Express + HJS Today / Review / Settings / Contacts] --> API[FastAPI + Strands API :6001]
   API --> Store[(SQLite proposal queue\npreferences + audit events)]
   API --> Agent[Strands briefing / triage agents]
   Agent --> Context[User working context]
@@ -17,13 +17,12 @@ flowchart LR
   Gate -. approved only .-> Effects[Google writes / CALL-E]
 ```
 
-In local development, the Express server on `:4444` sends `/api` and
-application `/agent` requests to the FastAPI + Strands service on `:8000`.
-Only `/auth` is delegated to the separate OAuth callback/session service on
-`:4001`; it is never an application or provider API target. Google provider
-reads and Drive-backed app data are owned by FastAPI, which must receive the
-signed-in token at its auth boundary. The legacy travel-agent proxy is never an
-implicit target.
+In local development, the Express server on `:6000` sends `/api` requests to
+FastAPI and sends `/agent` requests through the OAuth session boundary on
+`:4001`, which injects the signed-in token before forwarding to FastAPI on
+`:6001`. Configure that boundary with `AGENT_URL=http://localhost:6001/agent`;
+the legacy travel-agent service is never a valid target. Google provider reads
+and Drive-backed app data remain owned by FastAPI.
 
 The immutable system instructions define the agent’s tools and safety policy.
 User-authored working context is a separate, editable input used to prioritize

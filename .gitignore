@@ -13,6 +13,7 @@
 *.crt
 credentials.json
 token.json
+client_secret_*.json
 
 # Local tooling and generated state
 .firebase/
@@ -30,3 +31,4 @@ backend/data/
 /data/
 .DS_Store
 *.log
+client_secret_*

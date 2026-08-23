@@ -32,7 +32,7 @@ npm run dev
 
 The frontend is an Express.js server using HJS view templates. It serves one
 compiled browser entry per view and sends `/api` plus application requests to
-the FastAPI + Strands backend on `localhost:8000`. The separate OAuth callback
+the FastAPI + Strands backend on `localhost:6001`. The separate OAuth callback
 proxy is used only for `/auth`; `localhost:4000` is the travel-agent frontend
 and is never used as this app's API. There is no Next.js runtime, IndexedDB
 cache, or service worker.

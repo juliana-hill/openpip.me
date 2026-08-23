@@ -1,0 +1,12 @@
+{
+  "name": "openpip",
+  "private": true,
+  "description": "Root-level Docker Compose helpers for OpenPip's isolated container group (backend + frontend). See docker-compose.yml.",
+  "scripts": {
+    "docker:up": "docker compose up --build -d",
+    "docker:down": "docker compose down",
+    "docker:restart": "docker compose down && docker compose up --build -d",
+    "docker:logs": "docker compose logs -f",
+    "docker:ps": "docker compose ps"
+  }
+}
