@@ -19,7 +19,11 @@ export function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTag
   const [managing, setManaging] = useState(false);
   const [confirmingBlock, setConfirmingBlock] = useState(false);
   const colorMap = new Map(tagObjects.map((t) => [t.name, t.color]));
-  const allTags = ["Unread", ...Array.from(tags.keys()), tags.size > 0 ? "Untagged" : null].filter(Boolean) as string[];
+  // Mailbox states stay anchored. User Gmail labels are the part of the
+  // control that may scroll, and are still the only things Tags manages.
+  const staticFilters = ["Unread", "Drafts"];
+  const userLabels = Array.from(tags.keys()).filter((tag) => !staticFilters.includes(tag));
+  const allTags = [...staticFilters, ...userLabels, tags.size > 0 ? "Untagged" : null].filter(Boolean) as string[];
 
   const uniqueSenders = Array.from(new Set(selectedEmails.map((e) => e.fromEmail).filter(Boolean)));
 
@@ -48,10 +52,10 @@ export function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTag
   return (
     <>
       <div className={styles.strip}>
-        {allTags[0] && <span className={styles.staticPill}>{renderTagPill(allTags[0])}</span>}
+        {staticFilters.map((tag) => <span key={tag} className={styles.staticPill}>{renderTagPill(tag)}</span>)}
 
         <div className={styles.scrollArea}>
-          {allTags.slice(1).map(renderTagPill)}
+          {allTags.slice(staticFilters.length).map(renderTagPill)}
 
           {selectedEmails.length > 0 && (
             <>

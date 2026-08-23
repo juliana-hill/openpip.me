@@ -7,17 +7,25 @@ import styles from "./DashboardPage.module.css";
 
 type ReviewCountResponse = { items?: unknown[] };
 
-export function ReviewDashboardCard({ style, className }: { style?: React.CSSProperties; className?: string }) {
+export function ReviewDashboardCard({ style, className, onLoaded }: { style?: React.CSSProperties; className?: string; onLoaded?: () => void }) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
     let active = true;
     proxyFetch("/agent/review")
       .then(async (response) => response.ok ? response.json() as Promise<ReviewCountResponse> : { items: [] })
-      .then((data) => { if (active) setCount(data.items?.length ?? 0); })
-      .catch(() => { if (active) setCount(0); });
+      .then((data) => {
+        if (!active) return;
+        setCount(data.items?.length ?? 0);
+        onLoaded?.();
+      })
+      .catch(() => {
+        if (!active) return;
+        setCount(0);
+        onLoaded?.();
+      });
     return () => { active = false; };
-  }, []);
+  }, [onLoaded]);
 
   return (
     <Link href="/review" className={`${styles.card} ${styles.cardHalf} ${className ?? ""}`} style={style}>

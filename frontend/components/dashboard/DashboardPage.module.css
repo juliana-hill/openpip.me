@@ -88,6 +88,93 @@
   border-left: 4px solid var(--color-accent);
 }
 
+.assistantPrompt {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 20px;
+  background: linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)), var(--color-surface) 48%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: 16px;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--color-accent) 9%, transparent);
+  animation: assistantPromptEnter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes assistantPromptEnter {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.assistantPromptContent { min-width: 0; }
+.assistantPromptKicker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 5px;
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.assistantPromptKicker span { font-size: 0.9rem; line-height: 1; }
+.assistantPromptTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+.assistantPromptCopy {
+  max-width: 640px;
+  margin: 5px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+.assistantPromptMeta,
+.assistantPromptTrust {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+.assistantPromptActions {
+  display: grid;
+  grid-template-columns: auto auto;
+  justify-items: end;
+  justify-content: end;
+  gap: 8px;
+  min-width: 190px;
+}
+.assistantPromptTrust { grid-column: 1 / -1; max-width: 240px; margin: 0; text-align: right; }
+.assistantPrimaryBtn,
+.assistantSecondaryBtn {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 750;
+  line-height: 1.2;
+  padding: 10px 14px;
+  border-radius: 10px;
+  transition: opacity 0.15s, transform 0.15s, background 0.15s;
+}
+.assistantPrimaryBtn {
+  background: var(--color-accent);
+  border: none;
+  color: white;
+}
+.assistantSecondaryBtn {
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  color: var(--color-accent);
+}
+.assistantPrimaryBtn:hover,
+.assistantSecondaryBtn:hover { opacity: 0.9; transform: translateY(-1px); }
+.assistantPrimaryBtn:focus-visible,
+.assistantSecondaryBtn:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
+
 .pipelineStatus { background: var(--color-surface); border-left: 4px solid var(--color-accent); font: inherit; gap: 6px; text-align: left; width: 100%; }
 .pipelineStatus:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 42%, transparent); outline-offset: 3px; }
 .pipelineText { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 700; margin: 0; }
@@ -99,6 +186,18 @@
 .pipelineRunBtn { background: var(--color-accent); border: none; border-radius: 999px; color: white; cursor: pointer; font-size: var(--font-size-xs); font-weight: 800; padding: 5px 12px; transition: opacity 0.15s; }
 .pipelineRunBtn:hover { opacity: 0.85; }
 @keyframes pipelinePulse { 50% { box-shadow: 0 0 0 8px color-mix(in srgb, var(--color-accent) 8%, transparent), 0 0 17px color-mix(in srgb, var(--color-accent) 56%, transparent); transform: scale(.88); } }
+
+@media (max-width: 600px) {
+  .assistantPrompt { grid-template-columns: 1fr; gap: 16px; padding: 16px; }
+  .assistantPromptActions { grid-template-columns: repeat(2, minmax(0, 1fr)); justify-items: stretch; min-width: 0; }
+  .assistantPrimaryBtn,
+  .assistantSecondaryBtn { width: 100%; }
+  .assistantPromptTrust { max-width: none; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistantPrompt { animation: none; }
+}
 
 /* Agent-first outcome board: a clear primary card with secondary decision cards. */
 .outcomeToday {

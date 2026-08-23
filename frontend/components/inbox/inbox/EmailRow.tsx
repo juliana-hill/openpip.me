@@ -89,7 +89,8 @@ export function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onD
       <div className={styles.body}>
         <div className={styles.top}>
           <span className={`${styles.subject} ${email.unread ? styles.bold : ""}`}>{email.subject}</span>
-          {email.hasDraft && <span className={styles.draftStatus}>Draft</span>}
+          {email.gmailDraft && <span className={styles.gmailDraftStatus}>Draft</span>}
+          {email.hasDraft && !email.gmailDraft && <span className={styles.draftStatus}>Reply suggestion</span>}
           <span className={`${styles.sourceBadge} ${styles.source_gmail}`}>Gmail</span>
           {assignedTags.map((tag) => (
             <TagBadge key={tag.id} tag={tag} size="sm" onRemove={() => handleRemove(tag)} />
@@ -124,8 +125,8 @@ export function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onD
       <div className={styles.meta}>
         <span className={styles.date}>{formatDate(email.date)}</span>
         <div className={styles.actions}>
-          <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); onReply(); }} title="Reply">↩</button>
-          <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); onArchive(); }} title="Archive">📦</button>
+          {!email.gmailDraft && <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); onReply(); }} title="Reply">↩</button>}
+          {!email.gmailDraft && <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); onArchive(); }} title="Archive">📦</button>}
           <button className={styles.actionBtn} onClick={(e) => { e.stopPropagation(); onDelete(); }} title="Delete">🗑</button>
         </div>
       </div>

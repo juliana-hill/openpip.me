@@ -1,4 +1,7 @@
 import {
+  Dialog_default
+} from "./chunk-VGRKXESR.js";
+import {
   FloatingAssistant,
   ReadAloudButton
 } from "./chunk-CVKGYYHL.js";
@@ -8,6 +11,7 @@ import {
 } from "./chunk-XIKOZ5LE.js";
 import "./chunk-OHWNV7E6.js";
 import {
+  X,
   proxyFetch,
   redirectToLogin,
   require_client,
@@ -32,9 +36,19 @@ var import_react7 = __toESM(require_react());
 // components/inbox/inbox/InboxTab.module.css
 var InboxTab_default = {
   triage: "InboxTab_triage",
-  triageLabel: "InboxTab_triageLabel",
+  "triage-enter": "InboxTab_triage-enter",
+  triageContent: "InboxTab_triageContent",
+  triageKicker: "InboxTab_triageKicker",
+  triageTitle: "InboxTab_triageTitle",
+  triageCopy: "InboxTab_triageCopy",
+  triageCapabilities: "InboxTab_triageCapabilities",
+  triageTrust: "InboxTab_triageTrust",
   triageSummary: "InboxTab_triageSummary",
+  triageActions: "InboxTab_triageActions",
+  triageProgress: "InboxTab_triageProgress",
+  triageLabel: "InboxTab_triageLabel",
   triageRunBtn: "InboxTab_triageRunBtn",
+  triageReviewBtn: "InboxTab_triageReviewBtn",
   triageTrack: "InboxTab_triageTrack",
   triageFill: "InboxTab_triageFill"
 };
@@ -365,7 +379,9 @@ function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTags, sele
   const [managing, setManaging] = (0, import_react2.useState)(false);
   const [confirmingBlock, setConfirmingBlock] = (0, import_react2.useState)(false);
   const colorMap = new Map(tagObjects.map((t) => [t.name, t.color]));
-  const allTags = ["Unread", ...Array.from(tags.keys()), tags.size > 0 ? "Untagged" : null].filter(Boolean);
+  const staticFilters = ["Unread", "Drafts"];
+  const userLabels = Array.from(tags.keys()).filter((tag) => !staticFilters.includes(tag));
+  const allTags = [...staticFilters, ...userLabels, tags.size > 0 ? "Untagged" : null].filter(Boolean);
   const uniqueSenders = Array.from(new Set(selectedEmails.map((e) => e.fromEmail).filter(Boolean)));
   const handleConfirmBlock = () => {
     setConfirmingBlock(false);
@@ -391,9 +407,9 @@ function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTags, sele
   };
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: TagFilterStrip_default.strip, children: [
-      allTags[0] && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: TagFilterStrip_default.staticPill, children: renderTagPill(allTags[0]) }),
+      staticFilters.map((tag) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: TagFilterStrip_default.staticPill, children: renderTagPill(tag) }, tag)),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: TagFilterStrip_default.scrollArea, children: [
-        allTags.slice(1).map(renderTagPill),
+        allTags.slice(staticFilters.length).map(renderTagPill),
         selectedEmails.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
           onArchive && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: `${TagFilterStrip_default.pill} ${TagFilterStrip_default.actionPill}`, onClick: onArchive, children: "\u{1F4E6} Archive" }),
           onDelete && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { className: `${TagFilterStrip_default.pill} ${TagFilterStrip_default.dangerPill}`, onClick: onDelete, children: "\u{1F5D1} Delete" }),
@@ -534,6 +550,7 @@ var EmailRow_default = {
   subject: "EmailRow_subject",
   bold: "EmailRow_bold",
   draftStatus: "EmailRow_draftStatus",
+  gmailDraftStatus: "EmailRow_gmailDraftStatus",
   sourceBadge: "EmailRow_sourceBadge",
   source_gmail: "EmailRow_source_gmail",
   tagPill: "EmailRow_tagPill",
@@ -620,7 +637,8 @@ function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onDelete, 
     /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.body, children: [
       /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.top, children: [
         /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: `${EmailRow_default.subject} ${email.unread ? EmailRow_default.bold : ""}`, children: email.subject }),
-        email.hasDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.draftStatus, children: "Draft" }),
+        email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.gmailDraftStatus, children: "Draft" }),
+        email.hasDraft && !email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.draftStatus, children: "Reply suggestion" }),
         /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: `${EmailRow_default.sourceBadge} ${EmailRow_default.source_gmail}`, children: "Gmail" }),
         assignedTags.map((tag) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TagBadge, { tag, size: "sm", onRemove: () => handleRemove(tag) }, tag.id)),
         assignable.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.tagDropdownWrap, onClick: (e) => e.stopPropagation(), children: [
@@ -653,11 +671,11 @@ function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onDelete, 
     /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.meta, children: [
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.date, children: formatDate2(email.date) }),
       /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.actions, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: EmailRow_default.actionBtn, onClick: (e) => {
+        !email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: EmailRow_default.actionBtn, onClick: (e) => {
           e.stopPropagation();
           onReply();
         }, title: "Reply", children: "\u21A9" }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: EmailRow_default.actionBtn, onClick: (e) => {
+        !email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: EmailRow_default.actionBtn, onClick: (e) => {
           e.stopPropagation();
           onArchive();
         }, title: "Archive", children: "\u{1F4E6}" }),
@@ -1304,8 +1322,71 @@ function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender
   ] });
 }
 
-// components/inbox/inbox/InboxTab.tsx
+// components/inbox/inbox/TriageDetailsModal.module.css
+var TriageDetailsModal_default = {
+  content: "TriageDetailsModal_content",
+  eyebrow: "TriageDetailsModal_eyebrow",
+  boundary: "TriageDetailsModal_boundary",
+  scrollArea: "TriageDetailsModal_scrollArea",
+  list: "TriageDetailsModal_list",
+  item: "TriageDetailsModal_item",
+  itemHeader: "TriageDetailsModal_itemHeader",
+  subject: "TriageDetailsModal_subject",
+  sender: "TriageDetailsModal_sender",
+  label: "TriageDetailsModal_label",
+  messageId: "TriageDetailsModal_messageId",
+  draft: "TriageDetailsModal_draft",
+  empty: "TriageDetailsModal_empty"
+};
+
+// components/inbox/inbox/TriageDetailsModal.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime());
+function TriageDetailsModal({ open, suggestions, onClose }) {
+  if (!open) return null;
+  const deletions = suggestions.filter((item) => item.deleteSuggested);
+  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: Dialog_default.overlay, onClick: onClose }),
+    /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("section", { className: `${Dialog_default.content} ${TriageDetailsModal_default.content}`, role: "dialog", "aria-modal": "true", "aria-labelledby": "triage-details-title", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { className: Dialog_default.closeBtn, onClick: onClose, "aria-label": "Close triage details", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(X, { size: 16 }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("header", { className: Dialog_default.header, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: TriageDetailsModal_default.eyebrow, children: "Inbox assistant" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h2", { className: Dialog_default.title, id: "triage-details-title", children: "Review details" }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("p", { className: Dialog_default.description, children: [
+          "The assistant found ",
+          suggestions.length,
+          " item",
+          suggestions.length === 1 ? "" : "s",
+          " to review. Nothing has been deleted."
+        ] })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.boundary, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("strong", { children: [
+          deletions.length,
+          " deletion suggestion",
+          deletions.length === 1 ? "" : "s"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: "Deletion is irreversible, so review each message in the inbox before taking action." })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.scrollArea, children: suggestions.length ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("ul", { className: TriageDetailsModal_default.list, children: suggestions.map((suggestion) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("li", { className: TriageDetailsModal_default.item, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.itemHeader, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("strong", { children: suggestion.deleteSuggested ? "Suggested deletion" : suggestion.action }),
+          suggestion.label && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.label, children: suggestion.label })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.subject, children: suggestion.subject || "Email suggestion" }),
+        suggestion.sender && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.sender, children: suggestion.sender }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { children: suggestion.reason }),
+        suggestion.draft && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("pre", { className: TriageDetailsModal_default.draft, children: suggestion.draft }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: TriageDetailsModal_default.messageId, children: [
+          "Message: ",
+          suggestion.messageId
+        ] })
+      ] }, suggestion.messageId)) }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: TriageDetailsModal_default.empty, children: "No saved suggestions from the latest review." }) })
+    ] })
+  ] });
+}
+
+// components/inbox/inbox/InboxTab.tsx
+var import_jsx_runtime12 = __toESM(require_jsx_runtime());
 function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChange, onTagsLoaded, onEmailsLoaded, initialMessageId }) {
   const [emails, setEmails] = (0, import_react7.useState)([]);
   const [loading, setLoading] = (0, import_react7.useState)(true);
@@ -1321,7 +1402,11 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
   const [replyDraft, setReplyDraft] = (0, import_react7.useState)();
   const [viewEmail, setViewEmail] = (0, import_react7.useState)(null);
   const [triage, setTriage] = (0, import_react7.useState)(null);
+  const [triageSuggestions, setTriageSuggestions] = (0, import_react7.useState)([]);
+  const [triageDetailsOpen, setTriageDetailsOpen] = (0, import_react7.useState)(false);
+  const [showTriageCard, setShowTriageCard] = (0, import_react7.useState)(false);
   const triagePoll = (0, import_react7.useRef)(null);
+  const hasFinishedInitialLoad = (0, import_react7.useRef)(false);
   const openedSourceMessage = (0, import_react7.useRef)(false);
   const tagsRef = (0, import_react7.useRef)(tags);
   tagsRef.current = tags;
@@ -1367,17 +1452,25 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     void update();
   }, [loadTags, stopTriagePolling]);
   (0, import_react7.useEffect)(() => () => stopTriagePolling(), [stopTriagePolling]);
+  (0, import_react7.useEffect)(() => {
+    if (!loading && !hasFinishedInitialLoad.current) {
+      hasFinishedInitialLoad.current = true;
+      setShowTriageCard(true);
+    }
+  }, [loading]);
   const fetchPage = (0, import_react7.useCallback)(async (p) => {
     setLoading(true);
     setError(null);
     try {
       let availableTags = tagsRef.current;
-      if (activeTag !== "Unread" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
+      if (activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
         availableTags = await loadTags();
       }
-      const selectedLabel = activeTag !== "Unread" && activeTag !== "Untagged" ? availableTags.find((tag) => tag.name === activeTag) : void 0;
+      const selectedLabel = activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged" ? availableTags.find((tag) => tag.name === activeTag) : void 0;
       const params = new URLSearchParams({ source: "gmail", page: String(p), pageSize: String(PAGE_SIZE2) });
-      if (selectedLabel) {
+      if (activeTag === "Drafts") {
+        params.set("labelId", "DRAFT");
+      } else if (selectedLabel) {
         params.set("labelId", selectedLabel.id);
       } else {
         params.set("localDate", (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
@@ -1453,6 +1546,8 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     let list = emails;
     if (activeTag === "Unread") {
       list = list.filter((e) => !e.archived && e.unread);
+    } else if (activeTag === "Drafts") {
+      list = list.filter((e) => !e.archived && e.gmailDraft);
     } else {
       list = list.filter((e) => !e.archived);
       if (activeTag === "Untagged") {
@@ -1526,6 +1621,17 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     } catch {
     }
   };
+  const openTriageDetails = async () => {
+    try {
+      const res = await proxyFetch("/agent/inbox/network/details");
+      if (res.ok) {
+        const data = await res.json();
+        setTriageSuggestions(data.suggestions ?? []);
+      }
+    } finally {
+      setTriageDetailsOpen(true);
+    }
+  };
   const openReply = async (email) => {
     try {
       const res = await proxyFetch(`/agent/inbox/network/draft/${encodeURIComponent(email.id)}`);
@@ -1545,31 +1651,64 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     });
   };
   const clearSelection = () => setSelected(/* @__PURE__ */ new Set());
-  return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(InboxHeader, { unreadCount: emails.filter((e) => e.unread).length, onCompose }),
-    triage ? /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("section", { className: InboxTab_default.triage, "aria-live": "polite", children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: InboxTab_default.triageLabel, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: triage.status === "running" ? "Organizing inbox" : triage.status === "completed" ? "Inbox organized" : "Inbox processing needs attention" }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { children: [
-          triage.processed,
-          " of ",
-          triage.total,
-          " emails processed"
+  const unreadEmailCount = emails.filter((email) => email.unread).length;
+  const reviewButtonLabel = unreadEmailCount ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"}` : "Review inbox";
+  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(InboxHeader, { unreadCount: unreadEmailCount, onCompose }),
+    showTriageCard && (triage ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("section", { className: InboxTab_default.triage, "aria-live": "polite", children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageContent, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageKicker, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
+          " Inbox assistant"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: triage.status === "running" ? "Reviewing your inbox" : triage.status === "completed" ? "Your inbox review is ready" : "Your inbox review needs attention" }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: triage.status === "running" ? `Looking at ${triage.processed} of ${triage.total} unread emails. You can keep browsing.` : triage.status === "completed" ? "Your assistant has prepared suggestions for you to review." : "We could not finish reviewing every email. You can try again when you are ready." }),
+        triage.status !== "running" && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageReviewBtn, onClick: () => {
+          void openTriageDetails();
+        }, children: "Review details" })
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageProgress, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageLabel, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: triage.status === "running" ? "Review in progress" : "Review summary" }),
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { children: [
+            triage.processed,
+            " of ",
+            triage.total,
+            " emails"
+          ] })
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: InboxTab_default.triageTrack, role: "progressbar", "aria-valuemin": 0, "aria-valuemax": triage.total, "aria-valuenow": triage.processed, "aria-label": "Inbox review progress", children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: InboxTab_default.triageFill, style: { width: `${triage.total ? triage.processed / triage.total * 100 : 100}%` } }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageSummary, children: [
+          triage.fileSuggestions ?? triage.deleted,
+          " filing suggestions \xB7 ",
+          triage.tasksCreated,
+          " task suggestions",
+          triage.labelsApplied ? ` \xB7 ${triage.labelsApplied} Gmail tags applied` : "",
+          triage.draftsCreated ? ` \xB7 ${triage.draftsCreated} reply drafts` : "",
+          triage.interactionsTracked ? ` \xB7 ${triage.interactionsTracked} networking interactions logged` : "",
+          triage.labelFailures ? ` \xB7 ${triage.labelFailures} tag failures` : "",
+          triage.failed ? ` \xB7 ${triage.failed} failed` : ""
+        ] })
+      ] })
+    ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("section", { className: InboxTab_default.triage, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageContent, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageKicker, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
+          " Inbox assistant"
+        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: "Clear the small stuff. Keep the important things." }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: unreadEmailCount ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.` : "Review recent mail and surface anything that still needs your attention." }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageCapabilities, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("strong", { children: "Can do:" }),
+          " apply Gmail tags \xB7 draft replies \xB7 suggest Google Tasks"
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: InboxTab_default.triageTrack, role: "progressbar", "aria-valuemin": 0, "aria-valuemax": triage.total, "aria-valuenow": triage.processed, "aria-label": "Inbox processing progress", children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: InboxTab_default.triageFill, style: { width: `${triage.total ? triage.processed / triage.total * 100 : 100}%` } }) }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("p", { className: InboxTab_default.triageSummary, children: [
-        triage.deleted,
-        " cleared \xB7 ",
-        triage.tasksCreated,
-        " tasks created",
-        triage.failed ? ` \xB7 ${triage.failed} failed` : ""
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageActions, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, children: reviewButtonLabel }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." })
       ] })
-    ] }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("section", { className: InboxTab_default.triage, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: InboxTab_default.triageLabel, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: "Inbox triage" }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, children: "Run triage" })
-    ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    ] })),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       SearchSortBar,
       {
         search,
@@ -1581,7 +1720,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         onRefresh: load
       }
     ),
-    /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       TagFilterStrip,
       {
         tags: allTags,
@@ -1595,8 +1734,8 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         onBlockSender: handleBlockSender
       }
     ),
-    !loading && total > 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "0 0 4px" }, children: `${total} email${total !== 1 ? "s" : ""}` }),
-    error ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { style: { color: "var(--color-danger, #b42318)", fontSize: "var(--font-size-sm)" }, children: error }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    !loading && total > 0 && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "0 0 4px" }, children: `${total} email${total !== 1 ? "s" : ""}` }),
+    error ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { style: { color: "var(--color-danger, #b42318)", fontSize: "var(--font-size-sm)" }, children: error }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       GroupedEmailList,
       {
         groups: grouped ? groups : [{ sender: "All", senderEmail: "", emails: filtered, latestDate: "" }],
@@ -1625,8 +1764,8 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         grouped
       }
     ),
-    !loading && total > PAGE_SIZE2 && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 4px", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    !loading && total > PAGE_SIZE2 && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 4px", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
         "button",
         {
           onClick: () => fetchPage(page - 1),
@@ -1635,13 +1774,13 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
           children: "\u2190 Prev"
         }
       ),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("span", { children: [
         "Page ",
         page,
         " of ",
         Math.ceil(total / PAGE_SIZE2)
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
         "button",
         {
           onClick: () => fetchPage(page + 1),
@@ -1651,11 +1790,11 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         }
       )
     ] }),
-    replyEmail && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(ReplyModal, { email: replyEmail, initialBody: replyDraft, onClose: () => {
+    replyEmail && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(ReplyModal, { email: replyEmail, initialBody: replyDraft, onClose: () => {
       setReplyEmail(null);
       setReplyDraft(void 0);
     } }),
-    viewEmail && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+    viewEmail && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
       ViewEmailModal,
       {
         email: viewEmail,
@@ -1680,6 +1819,14 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         })
       },
       viewEmail.id
+    ),
+    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
+      TriageDetailsModal,
+      {
+        open: triageDetailsOpen,
+        suggestions: triageSuggestions,
+        onClose: () => setTriageDetailsOpen(false)
+      }
     )
   ] });
 }
@@ -1742,7 +1889,7 @@ var CreateCampaignModal_default = {
 };
 
 // components/inbox/campaigns/CreateCampaignModal.tsx
-var import_jsx_runtime12 = __toESM(require_jsx_runtime());
+var import_jsx_runtime13 = __toESM(require_jsx_runtime());
 function CreateCampaignModal({ onClose, onCreated }) {
   const [name, setName] = (0, import_react8.useState)("");
   const [templateId, setTemplateId] = (0, import_react8.useState)("");
@@ -1789,37 +1936,37 @@ function CreateCampaignModal({ onClose, onCreated }) {
     }
     setCreating(false);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: CreateCampaignModal_default.overlay, onClick: onClose }),
-    /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.modal, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.header, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h2", { className: CreateCampaignModal_default.title, children: "Create Campaign" }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: CreateCampaignModal_default.closeBtn, onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: CreateCampaignModal_default.overlay, onClick: onClose }),
+    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.modal, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.header, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h2", { className: CreateCampaignModal_default.title, children: "Create Campaign" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { className: CreateCampaignModal_default.closeBtn, onClick: onClose, children: "\u2715" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.body, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("label", { className: CreateCampaignModal_default.label, children: "Campaign Name" }),
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("input", { className: CreateCampaignModal_default.input, value: name, onChange: (e) => setName(e.target.value), placeholder: "e.g. Q4 Beta Launch" })
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.body, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: CreateCampaignModal_default.label, children: "Campaign Name" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { className: CreateCampaignModal_default.input, value: name, onChange: (e) => setName(e.target.value), placeholder: "e.g. Q4 Beta Launch" })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("label", { className: CreateCampaignModal_default.label, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: CreateCampaignModal_default.label, children: [
             "Template ",
-            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: CreateCampaignModal_default.required, children: "*" })
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: CreateCampaignModal_default.required, children: "*" })
           ] }),
-          templates.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: CreateCampaignModal_default.noTemplates, children: [
+          templates.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("p", { className: CreateCampaignModal_default.noTemplates, children: [
             "No templates yet \u2014 ",
-            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("a", { href: "/inbox/templates", children: "create one first" })
-          ] }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("select", { className: CreateCampaignModal_default.select, value: templateId, onChange: (e) => setTemplateId(e.target.value), children: [
-            /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("option", { value: "", children: "Select a template..." }),
-            templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("option", { value: t.id, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("a", { href: "/inbox/templates", children: "create one first" })
+          ] }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("select", { className: CreateCampaignModal_default.select, value: templateId, onChange: (e) => setTemplateId(e.target.value), children: [
+            /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("option", { value: "", children: "Select a template..." }),
+            templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("option", { value: t.id, children: [
               t.name,
               t.subject ? ` \u2014 ${t.subject}` : ""
             ] }, t.id))
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("label", { className: CreateCampaignModal_default.label, children: "Recipients CSV" }),
-          /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("label", { className: CreateCampaignModal_default.label, children: "Recipients CSV" }),
+          /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(
             "div",
             {
               className: CreateCampaignModal_default.dropZone,
@@ -1830,10 +1977,10 @@ function CreateCampaignModal({ onClose, onCreated }) {
                 if (f) handleFile(f);
               },
               children: [
-                csvFile ? /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: CreateCampaignModal_default.fileName, children: csvFile.name }) : /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { className: CreateCampaignModal_default.dropHint, children: "Drop a CSV here or" }),
-                /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("label", { className: CreateCampaignModal_default.browseBtn, children: [
+                csvFile ? /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: CreateCampaignModal_default.fileName, children: csvFile.name }) : /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: CreateCampaignModal_default.dropHint, children: "Drop a CSV here or" }),
+                /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("label", { className: CreateCampaignModal_default.browseBtn, children: [
                   "Browse",
-                  /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("input", { type: "file", accept: ".csv", style: { display: "none" }, onChange: (e) => {
+                  /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("input", { type: "file", accept: ".csv", style: { display: "none" }, onChange: (e) => {
                     const f = e.target.files?.[0];
                     if (f) handleFile(f);
                   } })
@@ -1841,25 +1988,25 @@ function CreateCampaignModal({ onClose, onCreated }) {
               ]
             }
           ),
-          recipientCount != null && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: CreateCampaignModal_default.recipientHint, children: [
+          recipientCount != null && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("p", { className: CreateCampaignModal_default.recipientHint, children: [
             recipientCount,
             " recipient",
             recipientCount !== 1 ? "s" : "",
             " after merge & dedup"
           ] })
         ] }),
-        error && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: CreateCampaignModal_default.error, children: error })
+        error && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("p", { className: CreateCampaignModal_default.error, children: error })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: CreateCampaignModal_default.footer, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: CreateCampaignModal_default.cancelBtn, onClick: onClose, disabled: creating, children: "Cancel" }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: CreateCampaignModal_default.createBtn, onClick: handleCreate, disabled: creating || !name.trim() || !templateId, children: creating ? "Creating..." : "Create Campaign" })
+      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: CreateCampaignModal_default.footer, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { className: CreateCampaignModal_default.cancelBtn, onClick: onClose, disabled: creating, children: "Cancel" }),
+        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { className: CreateCampaignModal_default.createBtn, onClick: handleCreate, disabled: creating || !name.trim() || !templateId, children: creating ? "Creating..." : "Create Campaign" })
       ] })
     ] })
   ] });
 }
 
 // components/inbox/sidebar/CampaignsCard.tsx
-var import_jsx_runtime13 = __toESM(require_jsx_runtime());
+var import_jsx_runtime14 = __toESM(require_jsx_runtime());
 function CampaignsCard() {
   const [campaigns, setCampaigns] = (0, import_react9.useState)([]);
   const [createOpen, setCreateOpen] = (0, import_react9.useState)(false);
@@ -1875,25 +2022,25 @@ function CampaignsCard() {
     pending: SidebarCard_default.statusPending,
     failed: SidebarCard_default.statusPending
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)(import_jsx_runtime13.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: SidebarCard_default.card, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: SidebarCard_default.headerRow, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("h4", { className: SidebarCard_default.label, children: "Campaigns" }),
-          campaigns.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("span", { className: SidebarCard_default.countBadge, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: SidebarCard_default.card, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: SidebarCard_default.headerRow, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h4", { className: SidebarCard_default.label, children: "Campaigns" }),
+          campaigns.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("span", { className: SidebarCard_default.countBadge, children: [
             campaigns.length,
             " TOTAL"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(Link, { href: "/inbox/campaigns", className: SidebarCard_default.viewAll, children: "View all \u2192" })
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(Link, { href: "/inbox/campaigns", className: SidebarCard_default.viewAll, children: "View all \u2192" })
       ] }),
-      campaigns.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("div", { className: SidebarCard_default.itemList, children: campaigns.map((c) => /* @__PURE__ */ (0, import_jsx_runtime13.jsxs)("div", { className: SidebarCard_default.item, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: SidebarCard_default.itemName, children: c.name }),
-        /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("span", { className: `${SidebarCard_default.statusBadge} ${statusClass[c.status] ?? SidebarCard_default.statusPending}`, children: c.status.charAt(0).toUpperCase() + c.status.slice(1) })
+      campaigns.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: SidebarCard_default.itemList, children: campaigns.map((c) => /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: SidebarCard_default.item, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: SidebarCard_default.itemName, children: c.name }),
+        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("span", { className: `${SidebarCard_default.statusBadge} ${statusClass[c.status] ?? SidebarCard_default.statusPending}`, children: c.status.charAt(0).toUpperCase() + c.status.slice(1) })
       ] }, c.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime13.jsx)("button", { className: SidebarCard_default.dashedBtn, onClick: () => setCreateOpen(true), children: "+ Create Campaign" })
+      /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: SidebarCard_default.dashedBtn, onClick: () => setCreateOpen(true), children: "+ Create Campaign" })
     ] }),
-    createOpen && /* @__PURE__ */ (0, import_jsx_runtime13.jsx)(CreateCampaignModal, { onClose: () => setCreateOpen(false), onCreated: () => setCreateOpen(false) })
+    createOpen && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(CreateCampaignModal, { onClose: () => setCreateOpen(false), onCreated: () => setCreateOpen(false) })
   ] });
 }
 
@@ -1933,7 +2080,7 @@ var TemplateModal_default = {
 };
 
 // components/inbox/templates/TemplateModal.tsx
-var import_jsx_runtime14 = __toESM(require_jsx_runtime());
+var import_jsx_runtime15 = __toESM(require_jsx_runtime());
 function TemplateModal({ template, onClose, onSaved }) {
   const isEdit = !!template?.id;
   const [name, setName] = (0, import_react10.useState)(template?.name ?? "");
@@ -1964,27 +2111,27 @@ function TemplateModal({ template, onClose, onSaved }) {
     }
     setSaving(false);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)(import_jsx_runtime14.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: TemplateModal_default.overlay, onClick: onClose }),
-    /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.modal, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.header, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("h2", { className: TemplateModal_default.title, children: isEdit ? "Edit Template" : "New Template" }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: TemplateModal_default.closeBtn, onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: TemplateModal_default.overlay, onClick: onClose }),
+    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.modal, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.header, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h2", { className: TemplateModal_default.title, children: isEdit ? "Edit Template" : "New Template" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: TemplateModal_default.closeBtn, onClick: onClose, children: "\u2715" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.body, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.row2, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.field, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: TemplateModal_default.label, children: "Name" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("input", { className: TemplateModal_default.input, value: name, onChange: (e) => setName(e.target.value), placeholder: "Template name" })
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.body, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.row2, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.field, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: TemplateModal_default.label, children: "Name" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("input", { className: TemplateModal_default.input, value: name, onChange: (e) => setName(e.target.value), placeholder: "Template name" })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.field, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: TemplateModal_default.label, children: "Subject" }),
-            /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("input", { className: TemplateModal_default.input, value: subject, onChange: (e) => setSubject(e.target.value), placeholder: "Email subject" })
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.field, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: TemplateModal_default.label, children: "Subject" }),
+            /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("input", { className: TemplateModal_default.input, value: subject, onChange: (e) => setSubject(e.target.value), placeholder: "Email subject" })
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("label", { className: TemplateModal_default.label, children: "Type" }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { className: TemplateModal_default.typeSelector, children: ["welcome", "newsletter", "promotional", "transactional", "other"].map((opt) => /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("label", { className: TemplateModal_default.label, children: "Type" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: TemplateModal_default.typeSelector, children: ["welcome", "newsletter", "promotional", "transactional", "other"].map((opt) => /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
             "button",
             {
               type: "button",
@@ -1995,11 +2142,11 @@ function TemplateModal({ template, onClose, onSaved }) {
             opt
           )) })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.modeToggle, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: `${TemplateModal_default.modeBtn} ${editorMode === "code" ? TemplateModal_default.modeActive : ""}`, onClick: () => setEditorMode("code"), children: "Code" }),
-          /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: `${TemplateModal_default.modeBtn} ${editorMode === "visual" ? TemplateModal_default.modeActive : ""}`, onClick: () => setEditorMode("visual"), children: "Visual" })
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.modeToggle, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: `${TemplateModal_default.modeBtn} ${editorMode === "code" ? TemplateModal_default.modeActive : ""}`, onClick: () => setEditorMode("code"), children: "Code" }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: `${TemplateModal_default.modeBtn} ${editorMode === "visual" ? TemplateModal_default.modeActive : ""}`, onClick: () => setEditorMode("visual"), children: "Visual" })
         ] }),
-        editorMode === "code" ? /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        editorMode === "code" ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           "textarea",
           {
             className: TemplateModal_default.textarea,
@@ -2008,7 +2155,7 @@ function TemplateModal({ template, onClose, onSaved }) {
             placeholder: "Paste your HTML template here...",
             rows: 14
           }
-        ) : /* @__PURE__ */ (0, import_jsx_runtime14.jsx)(
+        ) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(
           "div",
           {
             className: TemplateModal_default.visualEditor,
@@ -2017,14 +2164,14 @@ function TemplateModal({ template, onClose, onSaved }) {
             onInput: (e) => setBody(e.target.innerHTML)
           }
         ),
-        error && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("p", { className: TemplateModal_default.error, children: error })
+        error && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("p", { className: TemplateModal_default.error, children: error })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime14.jsxs)("div", { className: TemplateModal_default.footer, children: [
-        isEdit && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: TemplateModal_default.deleteBtn, onClick: async () => {
+      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: TemplateModal_default.footer, children: [
+        isEdit && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: TemplateModal_default.deleteBtn, onClick: async () => {
           await proxyFetch(`/agent/templates/${template.id}`, { method: "DELETE" });
           onSaved();
         }, children: "Delete" }),
-        isEdit && /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: TemplateModal_default.duplicateBtn, onClick: async () => {
+        isEdit && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: TemplateModal_default.duplicateBtn, onClick: async () => {
           await proxyFetch("/agent/templates", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -2032,16 +2179,16 @@ function TemplateModal({ template, onClose, onSaved }) {
           });
           onSaved();
         }, children: "Duplicate" }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("div", { style: { flex: 1 } }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: TemplateModal_default.cancelBtn, onClick: onClose, disabled: saving, children: "Cancel" }),
-        /* @__PURE__ */ (0, import_jsx_runtime14.jsx)("button", { className: TemplateModal_default.saveBtn, onClick: handleSave, disabled: saving || !name.trim(), children: saving ? "Saving..." : "Save" })
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { style: { flex: 1 } }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: TemplateModal_default.cancelBtn, onClick: onClose, disabled: saving, children: "Cancel" }),
+        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: TemplateModal_default.saveBtn, onClick: handleSave, disabled: saving || !name.trim(), children: saving ? "Saving..." : "Save" })
       ] })
     ] })
   ] });
 }
 
 // components/inbox/sidebar/TemplatesCard.tsx
-var import_jsx_runtime15 = __toESM(require_jsx_runtime());
+var import_jsx_runtime16 = __toESM(require_jsx_runtime());
 function TemplatesCard() {
   const [templates, setTemplates] = (0, import_react11.useState)([]);
   const [newOpen, setNewOpen] = (0, import_react11.useState)(false);
@@ -2051,31 +2198,31 @@ function TemplatesCard() {
     }).catch(() => {
     });
   }, []);
-  return /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)(import_jsx_runtime15.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: SidebarCard_default.card, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: SidebarCard_default.headerRow, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("h4", { className: SidebarCard_default.label, children: "Templates" }),
-          templates.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("span", { className: SidebarCard_default.countBadge, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: SidebarCard_default.card, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: SidebarCard_default.headerRow, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h4", { className: SidebarCard_default.label, children: "Templates" }),
+          templates.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { className: SidebarCard_default.countBadge, children: [
             templates.length,
             " SAVED"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(Link, { href: "/inbox/templates", className: SidebarCard_default.viewAll, children: "View all \u2192" })
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(Link, { href: "/inbox/templates", className: SidebarCard_default.viewAll, children: "View all \u2192" })
       ] }),
-      templates.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: SidebarCard_default.itemList, children: templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: SidebarCard_default.item, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: SidebarCard_default.templateIcon, children: "\u{1F4C4}" }),
-        /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: SidebarCard_default.itemName, children: t.name })
+      templates.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: SidebarCard_default.itemList, children: templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: SidebarCard_default.item, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: SidebarCard_default.templateIcon, children: "\u{1F4C4}" }),
+        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("span", { className: SidebarCard_default.itemName, children: t.name })
       ] }, t.id)) }),
-      /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { className: SidebarCard_default.dashedBtn, onClick: () => setNewOpen(true), children: "+ New Template" })
+      /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: SidebarCard_default.dashedBtn, onClick: () => setNewOpen(true), children: "+ New Template" })
     ] }),
-    newOpen && /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(TemplateModal, { onClose: () => setNewOpen(false), onSaved: () => setNewOpen(false) })
+    newOpen && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(TemplateModal, { onClose: () => setNewOpen(false), onSaved: () => setNewOpen(false) })
   ] });
 }
 
 // components/inbox/compose/ComposeModal.tsx
 var import_react12 = __toESM(require_react());
-var import_jsx_runtime16 = __toESM(require_jsx_runtime());
+var import_jsx_runtime17 = __toESM(require_jsx_runtime());
 function ComposeModal({ onClose }) {
   const [recipients, setRecipients] = (0, import_react12.useState)([{ name: "", email: "" }]);
   const [subject, setSubject] = (0, import_react12.useState)("");
@@ -2147,22 +2294,22 @@ function ComposeModal({ onClose }) {
     }
     setSending(false);
   };
-  return /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { className: ComposeModal_default.overlay, onClick: onClose }),
-    /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.modal, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.header, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("h2", { className: ComposeModal_default.title, children: "Compose" }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: ComposeModal_default.sendBtn, onClick: handleSend, disabled: sending, children: sending ? "Sending..." : "Send" }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: ComposeModal_default.closeBtn, onClick: onClose, children: "\u2715" })
+  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: ComposeModal_default.overlay, onClick: onClose }),
+    /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.modal, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.header, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("h2", { className: ComposeModal_default.title, children: "Compose" }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { style: { display: "flex", gap: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: ComposeModal_default.sendBtn, onClick: handleSend, disabled: sending, children: sending ? "Sending..." : "Send" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: ComposeModal_default.closeBtn, onClick: onClose, children: "\u2715" })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.body, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "To" }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
-            recipients.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.body, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "To" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 8 }, children: [
+            recipients.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { style: { display: "flex", gap: 8, alignItems: "center" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
                 "input",
                 {
                   className: ComposeModal_default.input,
@@ -2172,7 +2319,7 @@ function ComposeModal({ onClose }) {
                   onChange: (e) => updateRecipient(i, "name", e.target.value)
                 }
               ),
-              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
                 "input",
                 {
                   className: ComposeModal_default.input,
@@ -2183,9 +2330,9 @@ function ComposeModal({ onClose }) {
                   onChange: (e) => updateRecipient(i, "email", e.target.value)
                 }
               ),
-              recipients.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: ComposeModal_default.closeBtn, onClick: () => removeRecipient(i), title: "Remove", children: "\u2715" })
+              recipients.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: ComposeModal_default.closeBtn, onClick: () => removeRecipient(i), title: "Remove", children: "\u2715" })
             ] }, i)),
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "button",
               {
                 style: { alignSelf: "flex-start", background: "none", border: "none", color: "var(--color-accent)", fontSize: "var(--font-size-xs)", fontWeight: 600, cursor: "pointer", padding: 0 },
@@ -2195,32 +2342,32 @@ function ComposeModal({ onClose }) {
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.modeToggle, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: `${ComposeModal_default.modeBtn} ${mode === "custom" ? ComposeModal_default.modeActive : ""}`, onClick: () => setMode("custom"), children: "Custom" }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: `${ComposeModal_default.modeBtn} ${mode === "template" ? ComposeModal_default.modeActive : ""}`, onClick: () => setMode("template"), children: "Use Template" })
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.modeToggle, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: `${ComposeModal_default.modeBtn} ${mode === "custom" ? ComposeModal_default.modeActive : ""}`, onClick: () => setMode("custom"), children: "Custom" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: `${ComposeModal_default.modeBtn} ${mode === "template" ? ComposeModal_default.modeActive : ""}`, onClick: () => setMode("template"), children: "Use Template" })
         ] }),
-        mode === "template" ? /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Template" }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(
+        mode === "template" ? /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Template" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(
             "select",
             {
               className: ComposeModal_default.input,
               value: selectedTemplate,
               onChange: (e) => setSelectedTemplate(e.target.value),
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("option", { value: "", children: "Choose a template..." }),
-                templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("option", { value: t.id, children: t.name }, t.id))
+                /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("option", { value: "", children: "Choose a template..." }),
+                templates.map((t) => /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("option", { value: t.id, children: t.name }, t.id))
               ]
             }
           ),
-          selectedTemplate && /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "4px 0 0" }, children: [
+          selectedTemplate && /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "4px 0 0" }, children: [
             "Subject: ",
             templates.find((t) => t.id === selectedTemplate)?.subject
           ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)(import_jsx_runtime16.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.field, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Subject" }),
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)(import_jsx_runtime17.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.field, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Subject" }),
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "input",
               {
                 className: ComposeModal_default.input,
@@ -2230,10 +2377,10 @@ function ComposeModal({ onClose }) {
               }
             )
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.field, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Body (HTML)" }),
-              /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.field, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Body (HTML)" }),
+              /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
                 "button",
                 {
                   type: "button",
@@ -2243,7 +2390,7 @@ function ComposeModal({ onClose }) {
                 }
               )
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "textarea",
               {
                 className: ComposeModal_default.textarea,
@@ -2252,14 +2399,14 @@ function ComposeModal({ onClose }) {
                 rows: 10
               }
             ),
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "4px 0 0" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("p", { style: { fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)", margin: "4px 0 0" }, children: [
               "Use ",
               "{{name}}",
               " and ",
               "{{email}}",
               " for personalization"
             ] }),
-            showPreview && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+            showPreview && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "iframe",
               {
                 srcDoc: body,
@@ -2270,12 +2417,12 @@ function ComposeModal({ onClose }) {
             )
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.field, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Attachments" }),
-          /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("label", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 16px", border: "2px dashed var(--color-border)", borderRadius: 12, cursor: "pointer", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", fontWeight: 600, transition: "border-color 0.15s" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("path", { d: "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.field, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("label", { className: ComposeModal_default.fieldLabel, children: "Attachments" }),
+          /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("label", { style: { display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "14px 16px", border: "2px dashed var(--color-border)", borderRadius: 12, cursor: "pointer", color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", fontWeight: 600, transition: "border-color 0.15s" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("svg", { width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2", strokeLinecap: "round", strokeLinejoin: "round", children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("path", { d: "m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" }) }),
             attachments.length ? `${attachments.length} file${attachments.length === 1 ? "" : "s"} attached` : "+ Attach files",
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "input",
               {
                 type: "file",
@@ -2285,10 +2432,10 @@ function ComposeModal({ onClose }) {
               }
             )
           ] }),
-          attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }, children: attachments.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("span", { style: { fontSize: "var(--font-size-xs)", padding: "4px 10px", background: "var(--color-bg)", border: "1px solid var(--color-border)", borderRadius: 999 }, children: [
+          attachments.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }, children: attachments.map((f, i) => /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("span", { style: { fontSize: "var(--font-size-xs)", padding: "4px 10px", background: "var(--color-bg)", border: "1px solid var(--color-border)", borderRadius: 999 }, children: [
             "\u{1F4CE} ",
             f.name,
-            /* @__PURE__ */ (0, import_jsx_runtime16.jsx)(
+            /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
               "button",
               {
                 type: "button",
@@ -2299,11 +2446,11 @@ function ComposeModal({ onClose }) {
             )
           ] }, i)) })
         ] }),
-        error && /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("p", { className: ComposeModal_default.error, children: error })
+        error && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("p", { className: ComposeModal_default.error, children: error })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime16.jsxs)("div", { className: ComposeModal_default.footer, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: ComposeModal_default.cancelBtn, onClick: onClose, disabled: sending, children: "Cancel" }),
-        /* @__PURE__ */ (0, import_jsx_runtime16.jsx)("button", { className: ComposeModal_default.sendBtn, onClick: handleSend, disabled: sending, children: sending ? "Sending..." : "Send" })
+      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: ComposeModal_default.footer, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: ComposeModal_default.cancelBtn, onClick: onClose, disabled: sending, children: "Cancel" }),
+        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("button", { className: ComposeModal_default.sendBtn, onClick: handleSend, disabled: sending, children: sending ? "Sending..." : "Send" })
       ] })
     ] })
   ] });
@@ -2318,7 +2465,7 @@ var InboxPage_default = {
 };
 
 // components/inbox/InboxPage.tsx
-var import_jsx_runtime17 = __toESM(require_jsx_runtime());
+var import_jsx_runtime18 = __toESM(require_jsx_runtime());
 function InboxPage({ userName, userImage }) {
   const searchParams = useSearchParams();
   const initials2 = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -2328,10 +2475,10 @@ function InboxPage({ userName, userImage }) {
   const [activeTag, setActiveTag] = (0, import_react13.useState)("Unread");
   const handleUnreadChange = (0, import_react13.useCallback)((n) => setUnreadCount(n), []);
   const handleTagsLoaded = (0, import_react13.useCallback)((t) => setTags(t), []);
-  return /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("div", { className: InboxPage_default.shell, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(AppHeader, { userImage, userName, initials: initials2, pageTitle: "Inbox" }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("main", { className: InboxPage_default.layout, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsx)("div", { className: InboxPage_default.main, children: /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(
+  return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: InboxPage_default.shell, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(AppHeader, { userImage, userName, initials: initials2, pageTitle: "Inbox" }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("main", { className: InboxPage_default.layout, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsx)("div", { className: InboxPage_default.main, children: /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(
         InboxTab,
         {
           unreadCount,
@@ -2344,18 +2491,18 @@ function InboxPage({ userName, userImage }) {
           initialMessageId: searchParams.get("messageId") ?? void 0
         }
       ) }),
-      /* @__PURE__ */ (0, import_jsx_runtime17.jsxs)("aside", { className: InboxPage_default.sidebar, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(CampaignsCard, {}),
-        /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(TemplatesCard, {})
+      /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("aside", { className: InboxPage_default.sidebar, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(CampaignsCard, {}),
+        /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(TemplatesCard, {})
       ] })
     ] }),
-    composeOpen && /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(ComposeModal, { onClose: () => setComposeOpen(false) }),
-    /* @__PURE__ */ (0, import_jsx_runtime17.jsx)(FloatingAssistant, {})
+    composeOpen && /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(ComposeModal, { onClose: () => setComposeOpen(false) }),
+    /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(FloatingAssistant, {})
   ] });
 }
 
 // react-entries/inbox.tsx
-var import_jsx_runtime18 = __toESM(require_jsx_runtime());
+var import_jsx_runtime19 = __toESM(require_jsx_runtime());
 async function mount() {
   const r = await proxyFetch("/auth/me");
   if (!r.ok) {
@@ -2363,6 +2510,6 @@ async function mount() {
     return;
   }
   const u = await r.json();
-  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime18.jsx)(InboxPage, { userName: u.name ?? "", userImage: u.picture ?? "" }));
+  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime19.jsx)(InboxPage, { userName: u.name ?? "", userImage: u.picture ?? "" }));
 }
 void mount();

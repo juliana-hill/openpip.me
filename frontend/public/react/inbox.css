@@ -101,11 +101,89 @@
 /* components/inbox/inbox/InboxTab.module.css */
 .InboxTab_triage {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 20px;
+  background:
+    linear-gradient(
+      120deg,
+      color-mix(in srgb, var(--color-accent) 12%, var(--color-surface)),
+      var(--color-surface) 48%);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  border-radius: 16px;
+  box-shadow: 0 10px 28px color-mix(in srgb, var(--color-accent) 9%, transparent);
+  animation: InboxTab_triage-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes InboxTab_triage-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.InboxTab_triageContent {
+  min-width: 0;
+}
+.InboxTab_triageKicker {
+  display: flex;
+  align-items: center;
   gap: 6px;
-  padding: 10px 14px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 14px;
+  margin: 0 0 5px;
+  color: var(--color-accent);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+.InboxTab_triageKicker span {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.InboxTab_triageTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+.InboxTab_triageCopy {
+  max-width: 640px;
+  margin: 5px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+}
+.InboxTab_triageCapabilities,
+.InboxTab_triageTrust,
+.InboxTab_triageSummary {
+  margin: 10px 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+.InboxTab_triageCapabilities strong {
+  color: var(--color-text);
+  font-weight: 700;
+}
+.InboxTab_triageActions {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+  min-width: 190px;
+}
+.InboxTab_triageTrust {
+  max-width: 190px;
+  margin: 0;
+  text-align: right;
+}
+.InboxTab_triageProgress {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
 }
 .InboxTab_triageLabel {
   display: flex;
@@ -115,24 +193,48 @@
   font-size: var(--font-size-xs);
   font-weight: 600;
 }
-.InboxTab_triageLabel span:last-child,
-.InboxTab_triageSummary {
+.InboxTab_triageLabel span:last-child {
   color: var(--color-text-muted);
   font-weight: 400;
 }
 .InboxTab_triageRunBtn {
   background: var(--color-accent);
   border: none;
-  border-radius: 999px;
+  border-radius: 10px;
   color: white;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 750;
+  line-height: 1.2;
+  padding: 10px 14px;
+  transition: opacity 0.15s, transform 0.15s;
+}
+.InboxTab_triageRunBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+.InboxTab_triageRunBtn:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+.InboxTab_triageReviewBtn {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-accent);
   cursor: pointer;
   font-size: var(--font-size-xs);
   font-weight: 800;
-  padding: 5px 12px;
-  transition: opacity 0.15s;
+  margin-top: 10px;
+  padding: 7px 12px;
 }
-.InboxTab_triageRunBtn:hover {
-  opacity: 0.85;
+.InboxTab_triageReviewBtn:hover {
+  background: var(--color-accent-light);
+}
+.InboxTab_triageReviewBtn:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
 }
 .InboxTab_triageTrack {
   height: 5px;
@@ -146,15 +248,27 @@
   background: var(--color-accent);
   transition: width 180ms ease-out;
 }
-.InboxTab_triageSummary {
-  margin: 0;
-  font-size: var(--font-size-xs);
-}
 @media (max-width: 600px) {
-  .InboxTab_triageLabel {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 2px;
+  .InboxTab_triage {
+    grid-template-columns: 1fr;
+    gap: 16px;
+    padding: 16px;
+  }
+  .InboxTab_triageActions {
+    justify-items: stretch;
+    min-width: 0;
+  }
+  .InboxTab_triageRunBtn {
+    width: 100%;
+  }
+  .InboxTab_triageTrust {
+    max-width: none;
+    text-align: left;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .InboxTab_triage {
+    animation: none;
   }
 }
 
@@ -743,6 +857,19 @@
   color: #6d5dfb;
   font-size: var(--font-size-xs);
   font-weight: 700;
+  flex-shrink: 0;
+}
+.EmailRow_gmailDraftStatus {
+  padding: 2px 6px;
+  border: 1px solid color-mix(in srgb, #6d5dfb 35%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, #6d5dfb 11%, transparent);
+  color: #6d5dfb;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   flex-shrink: 0;
 }
 .EmailRow_sourceBadge {
@@ -1389,6 +1516,205 @@
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* components/ui/Dialog.module.css */
+.Dialog_overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.4);
+  animation: Dialog_fadeIn 200ms ease-out both;
+}
+.Dialog_content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: 51;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 800px;
+  max-height: 85vh;
+  background: var(--color-surface);
+  border-radius: 20px;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: Dialog_slideUp 280ms ease-out both;
+}
+.Dialog_header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.Dialog_title {
+  font-size: var(--font-size-xl);
+  font-weight: 800;
+  color: var(--color-text);
+  margin: 0;
+}
+.Dialog_description {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin: 0;
+}
+.Dialog_footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+.Dialog_closeBtn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.Dialog_closeBtn:hover {
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+}
+@keyframes Dialog_fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes Dialog_slideUp {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 24px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* components/inbox/inbox/TriageDetailsModal.module.css */
+.TriageDetailsModal_content {
+  max-height: min(85vh, 760px);
+  max-width: 640px;
+}
+.TriageDetailsModal_eyebrow {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  letter-spacing: .09em;
+  margin: 0;
+  text-transform: uppercase;
+}
+.TriageDetailsModal_boundary {
+  background: var(--color-accent-light);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 26%, transparent);
+  border-radius: 12px;
+  color: var(--color-text-muted);
+  display: grid;
+  gap: 3px;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  padding: 11px 13px;
+}
+.TriageDetailsModal_boundary strong {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  text-transform: uppercase;
+}
+.TriageDetailsModal_scrollArea {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 10px 8px 14px;
+}
+.TriageDetailsModal_list {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.TriageDetailsModal_item {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 13px 14px;
+}
+.TriageDetailsModal_itemHeader {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.TriageDetailsModal_itemHeader strong {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+}
+.TriageDetailsModal_subject {
+  color: var(--color-text);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  margin-top: 10px;
+}
+.TriageDetailsModal_sender {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  margin-top: 2px;
+}
+.TriageDetailsModal_item p {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  margin: 6px 0 0;
+}
+.TriageDetailsModal_label {
+  background: var(--color-accent-light);
+  border-radius: 999px;
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  padding: 4px 8px;
+}
+.TriageDetailsModal_messageId {
+  color: var(--color-text-muted);
+  display: block;
+  font-size: var(--font-size-xs);
+  margin-top: 9px;
+  overflow-wrap: anywhere;
+}
+.TriageDetailsModal_draft {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  margin: 9px 0 0;
+  padding: 9px;
+  white-space: pre-wrap;
+}
+.TriageDetailsModal_empty {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  padding: 16px 0;
 }
 
 /* components/inbox/sidebar/SidebarCard.module.css */

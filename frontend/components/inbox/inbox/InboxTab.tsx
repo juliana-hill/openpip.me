@@ -8,6 +8,7 @@ import { TagFilterStrip } from "./TagFilterStrip";
 import { GroupedEmailList } from "./GroupedEmailList";
 import { ReplyModal } from "./ReplyModal";
 import { ViewEmailModal } from "./ViewEmailModal";
+import { TriageDetailsModal, type TriageSuggestion } from "./TriageDetailsModal";
 
 export type Tag = {
   id: string;
@@ -30,6 +31,8 @@ export type Email = {
   body?: string;
   archived?: boolean;
   attachments?: { name: string }[];
+  /** A native, unsent Gmail draft — distinct from an OpenPip reply suggestion. */
+  gmailDraft?: boolean;
   hasDraft?: boolean;
 };
 
@@ -47,6 +50,12 @@ type TriageProgress = {
   attempted?: number;
   processed: number;
   deleted: number;
+  fileSuggestions?: number;
+  labelsApplied?: number;
+  labelFailures?: number;
+  readMarked?: number;
+  readFailures?: number;
+  interactionsTracked?: number;
   tasksCreated: number;
   draftsCreated?: number;
   draftedMessageIds?: string[];
@@ -80,7 +89,11 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   const [replyDraft, setReplyDraft] = useState<string | undefined>();
   const [viewEmail, setViewEmail] = useState<Email | null>(null);
   const [triage, setTriage] = useState<TriageProgress | null>(null);
+  const [triageSuggestions, setTriageSuggestions] = useState<TriageSuggestion[]>([]);
+  const [triageDetailsOpen, setTriageDetailsOpen] = useState(false);
+  const [showTriageCard, setShowTriageCard] = useState(false);
   const triagePoll = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasFinishedInitialLoad = useRef(false);
   const openedSourceMessage = useRef(false);
   const tagsRef = useRef(tags);
   tagsRef.current = tags;
@@ -132,22 +145,36 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
 
   useEffect(() => () => stopTriagePolling(), [stopTriagePolling]);
 
+  // Let the inbox content establish itself first, then introduce the assistant
+  // as a contextual suggestion instead of competing with the page title.
+  useEffect(() => {
+    if (!loading && !hasFinishedInitialLoad.current) {
+      hasFinishedInitialLoad.current = true;
+      setShowTriageCard(true);
+    }
+  }, [loading]);
+
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
     setError(null);
     try {
       let availableTags = tagsRef.current;
-      if (activeTag !== "Unread" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
+      if (activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
         // Labels can be painted from the message payload before the separate
         // Gmail-label request finishes. Make the first click wait for that
         // request instead of falling back to the date-scoped inbox query.
         availableTags = await loadTags();
       }
-      const selectedLabel = activeTag !== "Unread" && activeTag !== "Untagged"
+      const selectedLabel = activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged"
         ? availableTags.find((tag) => tag.name === activeTag)
         : undefined;
       const params = new URLSearchParams({ source: "gmail", page: String(p), pageSize: String(PAGE_SIZE) });
-      if (selectedLabel) {
+      if (activeTag === "Drafts") {
+        // Native Gmail drafts are a mailbox state, not an OpenPip tag or a
+        // user-managed Gmail label. They intentionally include read mail and
+        // are never limited to today's Inbox messages.
+        params.set("labelId", "DRAFT");
+      } else if (selectedLabel) {
         // Label views intentionally include read and archived mail.
         params.set("labelId", selectedLabel.id);
       } else {
@@ -236,6 +263,8 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     let list = emails;
     if (activeTag === "Unread") {
       list = list.filter((e) => !e.archived && e.unread);
+    } else if (activeTag === "Drafts") {
+      list = list.filter((e) => !e.archived && e.gmailDraft);
     } else {
       list = list.filter((e) => !e.archived);
       if (activeTag === "Untagged") {
@@ -316,6 +345,18 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     } catch { /* silent */ }
   };
 
+  const openTriageDetails = async () => {
+    try {
+      const res = await proxyFetch("/agent/inbox/network/details");
+      if (res.ok) {
+        const data = await res.json() as { suggestions?: TriageSuggestion[] };
+        setTriageSuggestions(data.suggestions ?? []);
+      }
+    } finally {
+      setTriageDetailsOpen(true);
+    }
+  };
+
   const openReply = async (email: Email) => {
     try {
       const res = await proxyFetch(`/agent/inbox/network/draft/${encodeURIComponent(email.id)}`);
@@ -334,31 +375,63 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   };
 
   const clearSelection = () => setSelected(new Set());
+  const unreadEmailCount = emails.filter((email) => email.unread).length;
+  const reviewButtonLabel = unreadEmailCount
+    ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"}`
+    : "Review inbox";
 
   return (
     <>
-      <InboxHeader unreadCount={emails.filter((e) => e.unread).length} onCompose={onCompose} />
-      {triage ? (
+      <InboxHeader unreadCount={unreadEmailCount} onCompose={onCompose} />
+      {showTriageCard && (triage ? (
         <section className={styles.triage} aria-live="polite">
-          <div className={styles.triageLabel}>
-            <span>{triage.status === "running" ? "Organizing inbox" : triage.status === "completed" ? "Inbox organized" : "Inbox processing needs attention"}</span>
-            <span>{triage.processed} of {triage.total} emails processed</span>
+          <div className={styles.triageContent}>
+            <p className={styles.triageKicker}><span aria-hidden="true">✦</span> Inbox assistant</p>
+            <h3 className={styles.triageTitle}>
+              {triage.status === "running" ? "Reviewing your inbox" : triage.status === "completed" ? "Your inbox review is ready" : "Your inbox review needs attention"}
+            </h3>
+            <p className={styles.triageCopy}>
+              {triage.status === "running"
+                ? `Looking at ${triage.processed} of ${triage.total} unread emails. You can keep browsing.`
+                : triage.status === "completed"
+                  ? "Your assistant has prepared suggestions for you to review."
+                  : "We could not finish reviewing every email. You can try again when you are ready."}
+            </p>
+            {triage.status !== "running" && <button type="button" className={styles.triageReviewBtn} onClick={() => { void openTriageDetails(); }}>Review details</button>}
           </div>
-          <div className={styles.triageTrack} role="progressbar" aria-valuemin={0} aria-valuemax={triage.total} aria-valuenow={triage.processed} aria-label="Inbox processing progress">
-            <div className={styles.triageFill} style={{ width: `${triage.total ? (triage.processed / triage.total) * 100 : 100}%` }} />
+          <div className={styles.triageProgress}>
+            <div className={styles.triageLabel}>
+              <span>{triage.status === "running" ? "Review in progress" : "Review summary"}</span>
+              <span>{triage.processed} of {triage.total} emails</span>
+            </div>
+            <div className={styles.triageTrack} role="progressbar" aria-valuemin={0} aria-valuemax={triage.total} aria-valuenow={triage.processed} aria-label="Inbox review progress">
+              <div className={styles.triageFill} style={{ width: `${triage.total ? (triage.processed / triage.total) * 100 : 100}%` }} />
+            </div>
+            <p className={styles.triageSummary}>
+              {triage.fileSuggestions ?? triage.deleted} filing suggestions · {triage.tasksCreated} task suggestions{triage.labelsApplied ? ` · ${triage.labelsApplied} Gmail tags applied` : ""}{triage.draftsCreated ? ` · ${triage.draftsCreated} reply drafts` : ""}{triage.interactionsTracked ? ` · ${triage.interactionsTracked} networking interactions logged` : ""}{triage.labelFailures ? ` · ${triage.labelFailures} tag failures` : ""}{triage.failed ? ` · ${triage.failed} failed` : ""}
+            </p>
           </div>
-          <p className={styles.triageSummary}>
-            {triage.deleted} cleared · {triage.tasksCreated} tasks created{triage.failed ? ` · ${triage.failed} failed` : ""}
-          </p>
         </section>
       ) : (
         <section className={styles.triage}>
-          <div className={styles.triageLabel}>
-            <span>Inbox triage</span>
-            <button className={styles.triageRunBtn} onClick={runTriage}>Run triage</button>
+          <div className={styles.triageContent}>
+            <p className={styles.triageKicker}><span aria-hidden="true">✦</span> Inbox assistant</p>
+            <h3 className={styles.triageTitle}>Clear the small stuff. Keep the important things.</h3>
+            <p className={styles.triageCopy}>
+              {unreadEmailCount
+                ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.`
+                : "Review recent mail and surface anything that still needs your attention."}
+            </p>
+            <p className={styles.triageCapabilities}>
+              <strong>Can do:</strong> apply Gmail tags · draft replies · suggest Google Tasks
+            </p>
+          </div>
+          <div className={styles.triageActions}>
+            <button className={styles.triageRunBtn} onClick={runTriage}>{reviewButtonLabel}</button>
+            <p className={styles.triageTrust}>Nothing is sent or changed without your review.</p>
           </div>
         </section>
-      )}
+      ))}
       <SearchSortBar
         search={search}
         sort={sort}
@@ -447,6 +520,11 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
           })}
         />
       )}
+      <TriageDetailsModal
+        open={triageDetailsOpen}
+        suggestions={triageSuggestions}
+        onClose={() => setTriageDetailsOpen(false)}
+      />
     </>
   );
 }

@@ -40,6 +40,8 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [brief, setBrief] = useState<string | null>(null);
   const [briefLoading, setBriefLoading] = useState(true);
   const [tasksLoading, setTasksLoading] = useState(true);
+  const [dashboardDataReady, setDashboardDataReady] = useState(false);
+  const [reviewLoaded, setReviewLoaded] = useState(false);
   const briefFetchedRef = useRef(false);
   const dashboardPipelineRequestedRef = useRef(false);
 
@@ -80,6 +82,8 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       // The next dashboard visit retries through the same durable scheduler path.
     }
   }, [refreshScheduledActions]);
+
+  const handleReviewLoaded = useCallback(() => setReviewLoaded(true), []);
 
   useEffect(() => {
     const today = new Date().toDateString();
@@ -222,15 +226,27 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
     }
 
     async function init() {
-      const [{ briefTasks, briefEvents }, , activeActions] = await Promise.all([
-        loadTasks(),
-        loadRoute(),
-        refreshScheduledActions(),
-      ]);
-      // Pipeline scan is manual — user clicks the button to start it
-      if (!briefFetchedRef.current) {
-        briefFetchedRef.current = true;
-        await loadBrief(briefTasks, briefEvents);
+      try {
+        const [{ briefTasks, briefEvents }] = await Promise.all([
+          loadTasks(),
+          loadRoute(),
+          refreshScheduledActions(),
+        ]);
+        // Pipeline scan is manual — user clicks the button to start it
+        if (!briefFetchedRef.current) {
+          briefFetchedRef.current = true;
+          await loadBrief(briefTasks, briefEvents);
+        }
+      } catch {
+        // A partial provider outage should not keep the assistant entry point
+        // hidden forever. The individual cards already render their empty
+        // states when their data is unavailable.
+        setTasksLoading(false);
+        setBriefLoading(false);
+      } finally {
+        // The assistant prompt is deliberately introduced after the rest of
+        // the dashboard establishes its initial content.
+        setDashboardDataReady(true);
       }
     }
 
@@ -256,14 +272,59 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   }, [refreshScheduledActions]);
 
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading;
 
   return (
     <div className={styles.shell}>
       <AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle={today} />
 
       <main className={styles.grid}>
+        {showAssistantPrompt && (latestPipelineAction ? (
+          <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }} aria-live="polite">
+            <div className={styles.assistantPromptContent}>
+              <p className={styles.assistantPromptKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>
+              <h2 className={styles.assistantPromptTitle}>
+                {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"
+                  ? "Reviewing your workspace"
+                  : latestPipelineAction.status === "completed"
+                    ? "Your workspace review is ready"
+                    : "Something needs your attention"}
+              </h2>
+              <p className={styles.assistantPromptCopy}>
+                {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"
+                  ? "Your assistant is looking for useful next actions. You can keep working while it finishes."
+                  : latestPipelineStatus || "Your assistant prepared an item for you to review."}
+              </p>
+              {latestPipelineDetail && <p className={styles.assistantPromptMeta}>{latestPipelineDetail}</p>}
+              {latestPipelineAction.status === "failed" && !latestPipelineDetail && <p className={styles.assistantPromptMeta}>The scan did not finish. You can try again whenever you are ready.</p>}
+              {pipelineActions.length > 1 && <p className={styles.assistantPromptMeta}>+{pipelineActions.length - 1} more action{pipelineActions.length === 2 ? "" : "s"} in progress</p>}
+            </div>
+            <div className={styles.assistantPromptActions}>
+              {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? (
+                <span className={`${styles.pipelineStatusDot} ${styles.pipelinePulse}`} aria-label="Scan in progress" />
+              ) : (
+                <button type="button" className={styles.assistantPrimaryBtn} onClick={() => setRunHistoryOpen(true)}>Review details</button>
+              )}
+              <button type="button" className={styles.assistantSecondaryBtn} onClick={() => void requestDashboardPipeline()}>Run new scan</button>
+              <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
+            </div>
+          </section>
+        ) : (
+          <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }}>
+            <div className={styles.assistantPromptContent}>
+              <p className={styles.assistantPromptKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>
+              <h2 className={styles.assistantPromptTitle}>Ready to review your workspace.</h2>
+              <p className={styles.assistantPromptCopy}>Scan for useful next actions and prepare suggestions for you to review.</p>
+            </div>
+            <div className={styles.assistantPromptActions}>
+              <button type="button" className={styles.assistantPrimaryBtn} onClick={() => void requestDashboardPipeline()}>Start workspace scan</button>
+              <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
+            </div>
+          </section>
+        ))}
+
         {/* Daily Brief */}
-        <div className={`${styles.card} ${styles.cardFull} ${styles.cardBrief}`} style={{ animationDelay: "0ms" }}>
+        <div className={`${styles.card} ${styles.cardFull} ${styles.cardBrief}`} style={{ animationDelay: "80ms" }}>
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle}>Today&apos;s Brief</span>
             {brief && !briefLoading && (
@@ -284,48 +345,6 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
             </div>
           ) : <p className={styles.briefText}>No briefing available.</p>}
         </div>
-
-        {latestPipelineAction && <button
-          type="button"
-          className={`${styles.card} ${styles.cardFull} ${styles.pipelineStatus}`}
-          onClick={() => setRunHistoryOpen(true)}
-          aria-label={`View ${agentName}'s action history. Latest status: ${latestPipelineStatus}`}
-        >
-          <div className={styles.cardHeader}>
-            <span className={styles.cardTitle}>{latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? `${agentName} is working` : latestPipelineAction.status === "completed" ? `${agentName} is up to date` : `${agentName} needs attention`}</span>
-            {(latestPipelineAction.status === "queued" || latestPipelineAction.status === "running")
-              ? <span className={`${styles.pipelineStatusDot} ${styles.pipelinePulse}`} aria-hidden="true" />
-              : <span
-                  role="button"
-                  tabIndex={0}
-                  className={styles.pipelineRunBtn}
-                  onClick={(e) => { e.stopPropagation(); void requestDashboardPipeline(); }}
-                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); void requestDashboardPipeline(); } }}
-                  aria-label="Run proposal scan"
-                >Run scan</span>}
-          </div>
-          <p className={styles.pipelineText}>
-            {latestPipelineStatus}
-          </p>
-          {latestPipelineDetail && <p className={styles.pipelineMeta}>{latestPipelineDetail}</p>}
-          {latestPipelineAction.status === "failed" && !latestPipelineDetail && <p className={styles.pipelineMeta}>The agent will try again after the next data sync.</p>}
-          {pipelineActions.length > 1 && <p className={styles.pipelineMeta}>+{pipelineActions.length - 1} more action{pipelineActions.length === 2 ? "" : "s"} in progress</p>}
-        </button>}
-
-        {!latestPipelineAction && <div className={`${styles.card} ${styles.cardFull} ${styles.pipelineStatus}`}>
-          <div className={styles.cardHeader}>
-            <span className={styles.cardTitle}>{agentName}</span>
-            <span
-              role="button"
-              tabIndex={0}
-              className={styles.pipelineRunBtn}
-              onClick={() => void requestDashboardPipeline()}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") void requestDashboardPipeline(); }}
-              aria-label="Run proposal scan"
-            >Run scan</span>
-          </div>
-          <p className={styles.pipelineText}>No recent activity. Start a scan to find useful next actions.</p>
-        </div>}
 
         {/* Today is a single outcome card: schedule and work, not separate navigation modes. */}
         <Link href="/today" className={`${styles.card} ${styles.cardHalf} ${styles.outcomeToday}`} style={{ animationDelay: "60ms" }}>
@@ -349,7 +368,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
           </>}
         </Link>
 
-        <ReviewDashboardCard className={styles.outcomeReview} style={{ animationDelay: "120ms" }} />
+        <ReviewDashboardCard className={styles.outcomeReview} style={{ animationDelay: "120ms" }} onLoaded={handleReviewLoaded} />
 
         {/* Travel planning is always visible as an outcome card. It only claims an
             active plan when the browser has a persisted route search. */}
