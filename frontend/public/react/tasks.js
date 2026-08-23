@@ -321,7 +321,63 @@ var ActiveTaskCard = (0, import_react.forwardRef)(function ActiveTaskCard2({ act
 
 // components/tasks/TaskRow.tsx
 var import_react2 = __toESM(require_react());
+
+// components/tasks/OverdueBadge.tsx
 var import_jsx_runtime6 = __toESM(require_jsx_runtime());
+function isTaskOverdue(dueDate) {
+  if (!dueDate) return false;
+  const due = /* @__PURE__ */ new Date(`${dueDate}T00:00:00`);
+  if (Number.isNaN(due.getTime())) return false;
+  const today = /* @__PURE__ */ new Date();
+  today.setHours(0, 0, 0, 0);
+  return due.getTime() < today.getTime();
+}
+function formatDueDate(dueDate) {
+  const [year, month, day] = dueDate.split("-");
+  return `${month}-${day}-${year}`;
+}
+function DueDateBadge({ dueDate }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(
+    "span",
+    {
+      style: {
+        fontSize: 10,
+        fontWeight: 500,
+        padding: "2px 6px",
+        borderRadius: "var(--radius-pill)",
+        background: "var(--color-border)",
+        color: "var(--color-text-muted)",
+        flexShrink: 0
+      },
+      children: [
+        "Due ",
+        formatDueDate(dueDate)
+      ]
+    }
+  );
+}
+function OverdueBadge() {
+  return /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+    "span",
+    {
+      style: {
+        background: "color-mix(in srgb, #f87171 15%, var(--color-bg))",
+        color: "#f87171",
+        fontSize: 10,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: "0.06em",
+        padding: "2px 8px",
+        borderRadius: 4,
+        flexShrink: 0
+      },
+      children: "Overdue"
+    }
+  );
+}
+
+// components/tasks/TaskRow.tsx
+var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 function TaskRow({ task, isActive, onFlag, onComplete }) {
   const [open, setOpen] = (0, import_react2.useState)(false);
   const [completing, setCompleting] = (0, import_react2.useState)(false);
@@ -350,8 +406,9 @@ function TaskRow({ task, isActive, onFlag, onComplete }) {
   };
   const durationMinutes = task.scheduledStartTime && task.scheduledEndTime ? Math.max(0, Number(task.scheduledEndTime.slice(0, 2)) * 60 + Number(task.scheduledEndTime.slice(3, 5)) - (Number(task.scheduledStartTime.slice(0, 2)) * 60 + Number(task.scheduledStartTime.slice(3, 5)))) : task.duration ?? null;
   const durationLabel = durationMinutes ? durationMinutes >= 60 ? `${Math.floor(durationMinutes / 60)}h${durationMinutes % 60 ? ` ${durationMinutes % 60}m` : ""}` : `${durationMinutes}m` : null;
-  return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(
+  const overdue = isTaskOverdue(task.dueDate);
+  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
       "div",
       {
         style: { background: "color-mix(in srgb, var(--color-surface) 40%, transparent)", borderRadius: "var(--radius-lg)", border: "1px solid transparent", cursor: "pointer", opacity: isActive ? 0.6 : 1 },
@@ -366,57 +423,57 @@ function TaskRow({ task, isActive, onFlag, onComplete }) {
           event.currentTarget.style.background = "color-mix(in srgb, var(--color-surface) 40%, transparent)";
           event.currentTarget.style.borderColor = "transparent";
         },
-        children: /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { padding: "12px", display: "flex", alignItems: "center", gap: "12px" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", "aria-label": "Mark Google task complete", onClick: handleComplete, disabled: completing, style: { width: 24, height: 24, borderRadius: "var(--radius-sm)", border: "2px solid var(--color-border)", background: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: completing ? "not-allowed" : "pointer", opacity: completing ? 0.5 : 1 }, children: completing ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LoaderCircle, { size: 12, style: { animation: "spin 0.6s linear infinite" } }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Check, { size: 12, style: { color: "var(--color-text-muted)" } }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SourceBadge, { source: "google" }),
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: "var(--font-size-sm)", fontWeight: 500, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: task.title }),
-              isActive && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#fb7185", flexShrink: 0, animation: "pulse 2s infinite" } })
+        children: /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { padding: "12px", display: "flex", alignItems: "center", gap: "12px" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", "aria-label": "Mark Google task complete", onClick: handleComplete, disabled: completing, style: { width: 24, height: 24, borderRadius: "var(--radius-sm)", border: "2px solid var(--color-border)", background: "none", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: completing ? "not-allowed" : "pointer", opacity: completing ? 0.5 : 1 }, children: completing ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(LoaderCircle, { size: 12, style: { animation: "spin 0.6s linear infinite" } }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Check, { size: 12, style: { color: "var(--color-text-muted)" } }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }, children: [
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(SourceBadge, { source: "google" }),
+              /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: "var(--font-size-sm)", fontWeight: 500, color: "var(--color-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: task.title }),
+              isActive && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#fb7185", flexShrink: 0, animation: "pulse 2s infinite" } })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" }, children: [
-              durationLabel && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "var(--color-border)", color: "var(--color-text-muted)" }, children: durationLabel }),
-              task.labels?.map((label) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "color-mix(in srgb, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }, children: label }, label))
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" }, children: [
+              task.dueDate && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(DueDateBadge, { dueDate: task.dueDate }),
+              durationLabel && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "var(--color-border)", color: "var(--color-text-muted)" }, children: durationLabel }),
+              task.labels?.map((label) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: { fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "color-mix(in srgb, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }, children: label }, label))
             ] })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PriorityBadge, { priority: task.priority }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { type: "button", "aria-label": "Flag as active", onClick: (event) => {
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }, children: [
+            overdue && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(OverdueBadge, {}),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PriorityBadge, { priority: task.priority }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { type: "button", "aria-label": "Flag as active", onClick: (event) => {
               event.stopPropagation();
               onFlag(task);
-            }, style: { color: "var(--color-text-muted)", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Play, { size: 16 }) })
+            }, style: { color: "var(--color-text-muted)", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Play, { size: 16 }) })
           ] })
         ] })
       }
     ),
-    open && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(import_jsx_runtime6.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: Dialog_default.overlay, onClick: () => setOpen(false) }),
-      /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: Dialog_default.content, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { className: Dialog_default.closeBtn, onClick: () => setOpen(false), "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(X, { size: 16 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: Dialog_default.header, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { className: Dialog_default.title, children: task.title }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(SourceBadge, { source: "google" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PriorityBadge, { priority: task.priority })
+    open && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: Dialog_default.overlay, onClick: () => setOpen(false) }),
+      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: Dialog_default.content, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: Dialog_default.closeBtn, onClick: () => setOpen(false), "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(X, { size: 16 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: Dialog_default.header, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h2", { className: Dialog_default.title, children: task.title }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", flexWrap: "wrap", gap: 8 }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(SourceBadge, { source: "google" }),
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(PriorityBadge, { priority: task.priority }),
+          overdue && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(OverdueBadge, {}),
+          task.dueDate && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(DueDateBadge, { dueDate: task.dueDate })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { style: { overflowY: "auto", flex: 1, minHeight: 0 }, children: detailLoading ? /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", padding: "8px 0" }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(LoaderCircle, { size: 14, style: { animation: "spin 0.6s linear infinite" } }),
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { overflowY: "auto", flex: 1, minHeight: 0 }, children: detailLoading ? /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 8, fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", padding: "8px 0" }, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(LoaderCircle, { size: 14, style: { animation: "spin 0.6s linear infinite" } }),
           "Loading details\u2026"
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 10, fontSize: "var(--font-size-sm)" }, children: [
-          task.dueDate && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { style: { color: "var(--color-text-muted)" }, children: "Due " }),
-            new Date(task.dueDate).toLocaleDateString()
-          ] }),
-          detail?.description && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Markdown, { remarkPlugins: [remarkGfm], children: detail.description }),
-          detail?.comments?.map((comment) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { style: { borderLeft: "2px solid var(--color-border)", paddingLeft: 12 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("b", { children: comment.author }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { children: comment.body })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: 10, fontSize: "var(--font-size-sm)" }, children: [
+          detail?.description && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Markdown, { remarkPlugins: [remarkGfm], children: detail.description }),
+          detail?.comments?.map((comment) => /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { borderLeft: "2px solid var(--color-border)", paddingLeft: 12 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("b", { children: comment.author }),
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { children: comment.body })
           ] }, comment.id)),
-          detail?.url && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("a", { href: detail.url, target: "_blank", rel: "noopener noreferrer", style: { color: "var(--color-accent)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }, children: [
+          detail?.url && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("a", { href: detail.url, target: "_blank", rel: "noopener noreferrer", style: { color: "var(--color-accent)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }, children: [
             "Open in Google Tasks ",
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(ExternalLink, { size: 12 })
+            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(ExternalLink, { size: 12 })
           ] })
         ] }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: Dialog_default.footer, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("button", { className: `${Button_default.btn} ${Button_default.ghost} ${Button_default.sm}`, onClick: () => setOpen(false), children: "Close" }) })
+        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: Dialog_default.footer, children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: `${Button_default.btn} ${Button_default.ghost} ${Button_default.sm}`, onClick: () => setOpen(false), children: "Close" }) })
       ] })
     ] })
   ] });
@@ -424,7 +481,7 @@ function TaskRow({ task, isActive, onFlag, onComplete }) {
 
 // components/tasks/CalendarEventRow.tsx
 var import_react3 = __toESM(require_react());
-var import_jsx_runtime7 = __toESM(require_jsx_runtime());
+var import_jsx_runtime8 = __toESM(require_jsx_runtime());
 function formatTime(iso) {
   if (iso.length === 10) return "All day";
   return new Date(iso).toLocaleTimeString(void 0, {
@@ -438,8 +495,8 @@ function formatRange(start, end) {
 }
 function CalendarEventRow({ event }) {
   const [open, setOpen] = (0, import_react3.useState)(false);
-  return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
       "div",
       {
         style: {
@@ -461,15 +518,15 @@ function CalendarEventRow({ event }) {
           e.currentTarget.style.background = "color-mix(in srgb, var(--color-border) 30%, transparent)";
         },
         children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { style: {
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { style: {
             fontSize: "var(--font-size-xs)",
             color: "var(--color-text-muted)",
             fontVariantNumeric: "tabular-nums",
             width: "64px",
             flexShrink: 0
           }, children: formatTime(event.start) }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: {
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: {
               fontSize: "var(--font-size-sm)",
               fontWeight: 500,
               color: "var(--color-text)",
@@ -478,26 +535,26 @@ function CalendarEventRow({ event }) {
               textOverflow: "ellipsis",
               whiteSpace: "nowrap"
             }, children: event.title }),
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: {
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: {
               fontSize: "var(--font-size-xs)",
               color: "color-mix(in srgb, var(--color-text-muted) 60%, transparent)",
               margin: "2px 0 0 0"
             }, children: event.calendarName })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(CalendarDays, { size: 16, style: { color: "color-mix(in srgb, var(--color-text-muted) 40%, transparent)", flexShrink: 0 } })
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(CalendarDays, { size: 16, style: { color: "color-mix(in srgb, var(--color-text-muted) 40%, transparent)", flexShrink: 0 } })
         ]
       }
     ),
-    open && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(import_jsx_runtime7.Fragment, { children: [
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { className: Dialog_default.overlay, onClick: () => setOpen(false) }),
-      /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: Dialog_default.content, style: { maxWidth: 500 }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("button", { className: Dialog_default.closeBtn, onClick: () => setOpen(false), "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(X, { size: 16 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: Dialog_default.header, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("h2", { className: Dialog_default.title, children: event.title }),
-          /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { className: Dialog_default.description, children: formatRange(event.start, event.end) })
+    open && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(import_jsx_runtime8.Fragment, { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: Dialog_default.overlay, onClick: () => setOpen(false) }),
+      /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: Dialog_default.content, style: { maxWidth: 500 }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("button", { className: Dialog_default.closeBtn, onClick: () => setOpen(false), "aria-label": "Close", children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(X, { size: 16 }) }),
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: Dialog_default.header, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("h2", { className: Dialog_default.title, children: event.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { className: Dialog_default.description, children: formatRange(event.start, event.end) })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { overflowY: "auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: "16px", paddingTop: "8px" }, children: [
-          event.meetLink && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)(
+        /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { overflowY: "auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: "16px", paddingTop: "8px" }, children: [
+          event.meetLink && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)(
             "a",
             {
               href: event.meetLink,
@@ -513,17 +570,17 @@ function CalendarEventRow({ event }) {
                 textDecoration: "none"
               },
               children: [
-                /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(Video, { size: 16 }),
+                /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(Video, { size: 16 }),
                 "Join Google Meet"
               ]
             }
           ),
-          event.location && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(MapPin, { size: 16, style: { marginTop: "2px", flexShrink: 0 } }),
-            /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { children: event.location })
+          event.location && /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { style: { display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(MapPin, { size: 16, style: { marginTop: "2px", flexShrink: 0 } }),
+            /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("span", { children: event.location })
           ] }),
-          event.description && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0 }, children: event.description }),
-          !event.meetLink && !event.location && !event.description && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }, children: "No additional details." })
+          event.description && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: { fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0 }, children: event.description }),
+          !event.meetLink && !event.location && !event.description && /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: { fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", margin: 0 }, children: "No additional details." })
         ] })
       ] })
     ] })
@@ -538,7 +595,7 @@ var TaskList_default = {
 };
 
 // components/tasks/TaskList.tsx
-var import_jsx_runtime8 = __toESM(require_jsx_runtime());
+var import_jsx_runtime9 = __toESM(require_jsx_runtime());
 function SectionBlock({ section, activeTask, onFlag, onComplete }) {
   const isAsap = section.label === "ASAP (Unscheduled)";
   const isToday = section.label === "Today";
@@ -548,8 +605,8 @@ function SectionBlock({ section, activeTask, onFlag, onComplete }) {
     isToday ? TaskList_default.sectionToday : "",
     isTomorrow ? TaskList_default.sectionTomorrow : ""
   ].filter(Boolean).join(" ");
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsxs)("div", { className: cls, style: { borderRadius: "var(--radius-lg)", paddingLeft: 12, paddingRight: 12, paddingBottom: 12 }, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: {
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: cls, style: { borderRadius: "var(--radius-lg)", paddingLeft: 12, paddingRight: 12, paddingBottom: 12 }, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { style: {
       fontSize: "10px",
       fontWeight: 700,
       textTransform: "uppercase",
@@ -558,7 +615,7 @@ function SectionBlock({ section, activeTask, onFlag, onComplete }) {
       marginBottom: "16px",
       padding: "12px 8px 0 8px"
     }, children: section.label }),
-    /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: "12px" }, children: section.items.map((item, i) => item.kind === "event" ? /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { animationDuration: "300ms", animationDelay: `${i * 40}ms` }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(CalendarEventRow, { event: item.data }) }, `event-${item.data.id}`) : /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { animationDuration: "300ms", animationDelay: `${i * 40}ms` }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(
+    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { display: "flex", flexDirection: "column", gap: "12px" }, children: section.items.map((item, i) => item.kind === "event" ? /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { animationDuration: "300ms", animationDelay: `${i * 40}ms` }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(CalendarEventRow, { event: item.data }) }, `event-${item.data.id}`) : /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { animationDuration: "300ms", animationDelay: `${i * 40}ms` }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
       TaskRow,
       {
         task: item.data,
@@ -571,12 +628,12 @@ function SectionBlock({ section, activeTask, onFlag, onComplete }) {
 }
 function TaskList({ sections, loading, activeTask, onFlag, onComplete }) {
   if (loading) {
-    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: "12px" }, children: [1, 2, 3].map((i) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { className: Skeleton_default.skeleton, style: { height: "64px", borderRadius: "var(--radius-lg)" } }, i)) });
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: "12px" }, children: [1, 2, 3].map((i) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { className: Skeleton_default.skeleton, style: { height: "64px", borderRadius: "var(--radius-lg)" } }, i)) });
   }
   if (sections.length === 0) {
-    return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("p", { style: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", textAlign: "center", padding: "64px 0" }, children: "You're all caught up. Enjoy the space." }) });
+    return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0 }, children: /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("p", { style: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", textAlign: "center", padding: "64px 0" }, children: "You're all caught up. Enjoy the space." }) });
   }
-  return /* @__PURE__ */ (0, import_jsx_runtime8.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }, children: sections.map((section) => /* @__PURE__ */ (0, import_jsx_runtime8.jsx)(SectionBlock, { section, activeTask, onFlag, onComplete }, section.label)) });
+  return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }, children: sections.map((section) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SectionBlock, { section, activeTask, onFlag, onComplete }, section.label)) });
 }
 
 // components/tasks/TasksDashboard.module.css
@@ -585,7 +642,7 @@ var TasksDashboard_default = {
 };
 
 // components/tasks/TasksDashboard.tsx
-var import_jsx_runtime9 = __toESM(require_jsx_runtime());
+var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 var PRIORITY_ORDER = { ASAP: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 function computeFlowRate(task) {
   const base = { ASAP: 85, HIGH: 70, MEDIUM: 55, LOW: 40 };
@@ -905,23 +962,23 @@ function TasksDashboard({ userName, userImage }) {
   const completionScope = todayTaskCount > 0 ? "today" : "all";
   const tasksRemaining = todayTaskCount > 0 ? todayTaskCount : sections.flatMap((section) => section.items).filter((item) => item.kind === "task").length;
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-  return /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(import_jsx_runtime9.Fragment, { children: [
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(AppHeader, { userImage, userName, initials, pageTitle: `Good ${getGreeting()}, ${firstName}.` }),
-    /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)(PageShell, { children: [
-      authError && /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { style: { background: "#fde8e8", borderRadius: 8, padding: "8px 16px", fontSize: "var(--font-size-sm)", color: "#c02e2e", textAlign: "center" }, children: [
+  return /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(import_jsx_runtime10.Fragment, { children: [
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(AppHeader, { userImage, userName, initials, pageTitle: `Good ${getGreeting()}, ${firstName}.` }),
+    /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)(PageShell, { children: [
+      authError && /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { style: { background: "#fde8e8", borderRadius: 8, padding: "8px 16px", fontSize: "var(--font-size-sm)", color: "#c02e2e", textAlign: "center" }, children: [
         "Your Google session expired \u2014 live updates are paused.",
         " ",
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("a", { href: "/login", style: { textDecoration: "underline", fontWeight: 700 }, children: "Re-authenticate" })
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("a", { href: "/login", style: { textDecoration: "underline", fontWeight: 700 }, children: "Re-authenticate" })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("p", { style: { fontSize: "var(--font-size-sm)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("p", { style: { fontSize: "var(--font-size-sm)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }, children: [
         tasksRemaining,
         " task",
         tasksRemaining !== 1 ? "s" : "",
         " remaining"
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsxs)("div", { className: TasksDashboard_default.grid, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(DailyBriefingCard, { briefing, loading: briefingLoading, generatedAt: briefingAt }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: TasksDashboard_default.grid, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(DailyBriefingCard, { briefing, loading: briefingLoading, generatedAt: briefingAt }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           TodayAtAGlanceCard,
           {
             totalEvents: events.length,
@@ -930,8 +987,8 @@ function TasksDashboard({ userName, userImage }) {
             completionScope
           }
         ),
-        activeTask && /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(ActiveTaskCard, { ref: activeTaskRef, activeTask, onUnflag: handleUnflag, onPause: handleTimerPause, onResume: handleTimerResume }),
-        /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+        activeTask && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(ActiveTaskCard, { ref: activeTaskRef, activeTask, onUnflag: handleUnflag, onPause: handleTimerPause, onResume: handleTimerResume }),
+        /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
           TaskList,
           {
             sections,
@@ -942,7 +999,7 @@ function TasksDashboard({ userName, userImage }) {
           }
         )
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime10.jsx)(
         FloatingAssistant,
         {
           onFlagTask: (taskId, source) => {
@@ -971,7 +1028,7 @@ function getGreeting() {
 }
 
 // react-entries/tasks.tsx
-var import_jsx_runtime10 = __toESM(require_jsx_runtime());
+var import_jsx_runtime11 = __toESM(require_jsx_runtime());
 async function mount() {
   const r = await proxyFetch("/auth/me");
   if (!r.ok) {
@@ -979,6 +1036,6 @@ async function mount() {
     return;
   }
   const u = await r.json();
-  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TasksDashboard, { userName: u.name ?? "", userImage: u.picture ?? "" }));
+  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime11.jsx)(TasksDashboard, { userName: u.name ?? "", userImage: u.picture ?? "" }));
 }
 void mount();

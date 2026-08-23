@@ -6,6 +6,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PriorityBadge } from "./PriorityBadge";
 import { SourceBadge } from "./SourceBadge";
+import { OverdueBadge, isTaskOverdue, DueDateBadge } from "./OverdueBadge";
 import type { Task } from "@/types/tasks";
 import { proxyFetch } from "@/lib/proxy";
 import dialogStyles from "@/components/ui/Dialog.module.css";
@@ -57,6 +58,7 @@ export function TaskRow({ task, isActive, onFlag, onComplete }: TaskRowProps) {
   const durationLabel = durationMinutes
     ? durationMinutes >= 60 ? `${Math.floor(durationMinutes / 60)}h${durationMinutes % 60 ? ` ${durationMinutes % 60}m` : ""}` : `${durationMinutes}m`
     : null;
+  const overdue = isTaskOverdue(task.dueDate);
 
   return (
     <>
@@ -78,12 +80,14 @@ export function TaskRow({ task, isActive, onFlag, onComplete }: TaskRowProps) {
               {isActive && <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#fb7185", flexShrink: 0, animation: "pulse 2s infinite" }} />}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2, flexWrap: "wrap" }}>
+              {task.dueDate && <DueDateBadge dueDate={task.dueDate} />}
               {durationLabel && <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "var(--color-border)", color: "var(--color-text-muted)" }}>{durationLabel}</span>}
               {task.labels?.map((label) => <span key={label} style={{ fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: "var(--radius-pill)", background: "color-mix(in srgb, var(--color-accent) 12%, transparent)", color: "var(--color-accent)" }}>{label}</span>)}
             </div>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            {overdue && <OverdueBadge />}
             <PriorityBadge priority={task.priority} />
             <button type="button" aria-label="Flag as active" onClick={(event) => { event.stopPropagation(); onFlag(task); }} style={{ color: "var(--color-text-muted)", background: "none", border: "none", padding: 4, cursor: "pointer", display: "flex" }}>
               <Play size={16} />
@@ -98,11 +102,10 @@ export function TaskRow({ task, isActive, onFlag, onComplete }: TaskRowProps) {
           <div className={dialogStyles.content}>
             <button className={dialogStyles.closeBtn} onClick={() => setOpen(false)} aria-label="Close"><X size={16} /></button>
             <div className={dialogStyles.header}><h2 className={dialogStyles.title}>{task.title}</h2></div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><SourceBadge source="google" /><PriorityBadge priority={task.priority} /></div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}><SourceBadge source="google" /><PriorityBadge priority={task.priority} />{overdue && <OverdueBadge />}{task.dueDate && <DueDateBadge dueDate={task.dueDate} />}</div>
             <div style={{ overflowY: "auto", flex: 1, minHeight: 0 }}>
               {detailLoading ? <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)", padding: "8px 0" }}><Loader2 size={14} style={{ animation: "spin 0.6s linear infinite" }} />Loading details…</div> : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: "var(--font-size-sm)" }}>
-                  {task.dueDate && <div><span style={{ color: "var(--color-text-muted)" }}>Due </span>{new Date(task.dueDate).toLocaleDateString()}</div>}
                   {detail?.description && <Markdown remarkPlugins={[remarkGfm]}>{detail.description}</Markdown>}
                   {detail?.comments?.map((comment) => <div key={comment.id} style={{ borderLeft: "2px solid var(--color-border)", paddingLeft: 12 }}><b>{comment.author}</b><p>{comment.body}</p></div>)}
                   {detail?.url && <a href={detail.url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--color-accent)", textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 4 }}>Open in Google Tasks <ExternalLink size={12} /></a>}
