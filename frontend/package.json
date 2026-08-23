@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "voice:assets": "node scripts/patch-pocket-tts.mjs && node scripts/copy-ort-assets.mjs",
+    "postinstall": "npm run voice:assets",
     "dev": "node server.js",
     "build": "babel client-src --out-dir public/js --extensions .js --source-maps inline && node scripts/build-react.cjs",
     "start": "node server.js"
@@ -14,7 +16,9 @@
     "react-dom": "19.2.4",
     "lucide-react": "^1.7.0",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "pocket-tts-js": "^0.1.0",
+    "onnxruntime-web": "1.20.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.27.2",

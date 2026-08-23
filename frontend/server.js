@@ -27,6 +27,18 @@ app.set("view engine", "hjs");
 app.set("views", path.join(__dirname, "views"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+// The self-hosted onnxruntime-web runtime (scripts/copy-ort-assets.mjs) is
+// ~11MB and served from a version-numbered path that can never change
+// identity, so it can be cached forever rather than revalidated on every
+// page load — the read-aloud voice would otherwise pay that cost on every
+// visit. Must be registered before the general static handler below, which
+// has no cache headers at all.
+app.use(
+  "/ort",
+  express.static(path.join(__dirname, "public", "ort"), {
+    setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=31536000, immutable"),
+  }),
+);
 app.use(express.static(path.join(__dirname, "public")));
 
 async function proxy(req, res, upstream) {

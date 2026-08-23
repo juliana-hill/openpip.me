@@ -1,18 +1,29 @@
 import type { TutorialMessage, TutorialChatResponse } from "./types";
 
+// Detection ported from ../../../../couchbumming/lib/browser-model.ts: the
+// on-device Prompt API has shipped under two shapes, and the difference is
+// invisible at the call site —
+//   - the current spec exposes `self.ai.languageModel`
+//   - Chrome's earlier origin-trial builds exposed a bare `window.LanguageModel`
+// — so both are checked, current spec first, and availability() answers with
+// either a plain string or the older `{ available: "readily" | "after-download" | "no" }`
+// object depending on which shape responded.
+type BrowserLanguageModelHandle = {
+  availability: (options?: unknown) => Promise<"available" | "downloadable" | "downloading" | "unavailable" | { available: "readily" | "after-download" | "no" }>;
+  create: (options?: unknown) => Promise<{
+    prompt: (input: unknown) => Promise<string>;
+    destroy: () => void;
+  }>;
+};
+
 declare global {
   interface Window {
-    LanguageModel?: {
-      availability: (options?: unknown) => Promise<"available" | "downloadable" | "downloading" | "unavailable" | { available: "readily" | "after-download" | "no" }>;
-      create: (options?: unknown) => Promise<{
-        prompt: (input: unknown) => Promise<string>;
-        destroy: () => void;
-      }>;
-    };
+    ai?: { languageModel?: BrowserLanguageModelHandle };
+    LanguageModel?: BrowserLanguageModelHandle;
   }
 }
 
-export type BrowserLanguageModel = NonNullable<Window["LanguageModel"]>;
+export type BrowserLanguageModel = BrowserLanguageModelHandle;
 export type BrowserLanguageModelAvailability = "available" | "downloadable" | "downloading" | "unavailable";
 
 const SYSTEM_PROMPT = `You are a concise setup guide for Trippy, a personal AI for business travel and productivity.
@@ -28,9 +39,14 @@ Keep answers to 2–4 sentences. You cannot access the user's calendar, email, o
 
 let session: { prompt: (text: string) => Promise<string>; destroy: () => void } | null = null;
 
+/**
+ * The model namespace, or undefined where the browser has none. The current
+ * spec surface wins where both exist: a browser that has it has the newer
+ * implementation, and the legacy global is only kept for compatibility.
+ */
 export function getBrowserLanguageModel(): BrowserLanguageModel | undefined {
   if (typeof window === "undefined") return undefined;
-  return window.LanguageModel;
+  return self.ai?.languageModel ?? window.LanguageModel;
 }
 
 export async function getBrowserLanguageModelAvailability(options?: unknown): Promise<BrowserLanguageModelAvailability> {

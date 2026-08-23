@@ -21,6 +21,10 @@ client_secret_*.json
 dist/
 build/
 node_modules/
+# Self-hosted onnxruntime-web WASM/JS runtime (scripts/copy-ort-assets.mjs) —
+# ~11MB, regenerated from node_modules on every install/build.
+frontend/public/ort/
+frontend/.ort-version
 **/.venv/
 **/__pycache__/
 *.pyc

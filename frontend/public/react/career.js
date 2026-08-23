@@ -1,9 +1,9 @@
 import {
   CalendarList
-} from "./chunk-22VG7N66.js";
+} from "./chunk-WETGWHER.js";
 import {
   TrippyIcon
-} from "./chunk-X4GABOL2.js";
+} from "./chunk-GNQIUSN6.js";
 import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
@@ -12,7 +12,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-XYH2BRMG.js";
+} from "./chunk-HCAFC5Y7.js";
 import {
   AppHeader,
   FloatingAssistant,
@@ -22,7 +22,8 @@ import {
   normalizeSkill,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-ECSCCBAX.js";
+} from "./chunk-QDISQZG2.js";
+import "./chunk-OHWNV7E6.js";
 import {
   JobsBoard_default
 } from "./chunk-HZMUDGND.js";
@@ -47,14 +48,16 @@ import {
   Upload,
   User,
   X,
-  __toESM,
   proxyFetch,
   redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-7EDR7T7A.js";
+} from "./chunk-VIZZYLYO.js";
+import {
+  __toESM
+} from "./chunk-4VNS5WPM.js";
 
 // react-entries/career.tsx
 var import_client = __toESM(require_client());

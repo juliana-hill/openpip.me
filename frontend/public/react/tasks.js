@@ -1,6 +1,6 @@
 import {
   TrippyIcon
-} from "./chunk-X4GABOL2.js";
+} from "./chunk-GNQIUSN6.js";
 import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
@@ -9,7 +9,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-XYH2BRMG.js";
+} from "./chunk-HCAFC5Y7.js";
 import {
   AppHeader,
   FloatingAssistant,
@@ -29,7 +29,8 @@ import {
   pushTasksBackup,
   pushUserData,
   remarkGfm
-} from "./chunk-ECSCCBAX.js";
+} from "./chunk-QDISQZG2.js";
+import "./chunk-OHWNV7E6.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -44,13 +45,15 @@ import {
   SquareCheckBig,
   Video,
   X,
-  __toESM,
   proxyFetch,
   redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-7EDR7T7A.js";
+} from "./chunk-VIZZYLYO.js";
+import {
+  __toESM
+} from "./chunk-4VNS5WPM.js";
 
 // react-entries/tasks.tsx
 var import_client = __toESM(require_client());
