@@ -126,8 +126,31 @@ def test_gmail_label_query_includes_read_and_archived_messages(monkeypatch) -> N
         "source": "gmail",
         "unread": False,
         "labelIds": ["Label_1"],
+        "gmailDraft": False,
         "tags": ["Receipts"],
     }]
+
+
+def test_gmail_drafts_are_exposed_as_a_mailbox_state(monkeypatch) -> None:
+    async def fake_fetch(_token: str, *, local_date=None, label_id=None, unread_only=False, page_size=50):
+        assert local_date is None
+        assert label_id == "DRAFT"
+        assert unread_only is False
+        return ([{"id": "gmail-draft-1", "source": "gmail", "unread": False, "labelIds": ["DRAFT"]}], 1)
+
+    async def fake_labels(_token: str):
+        return []
+
+    monkeypatch.setattr("openpip_backend.app.fetch_gmail_messages", fake_fetch)
+    monkeypatch.setattr("openpip_backend.app.fetch_gmail_labels", fake_labels)
+    response = TestClient(app).get(
+        "/agent/inbox/messages?source=gmail&labelId=DRAFT&pageSize=20",
+        headers={"x-google-token": "oauth-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["messages"][0]["gmailDraft"] is True
+    assert response.json()["messages"][0]["tags"] == []
 
 
 def test_gmail_unread_count_honors_the_local_date(monkeypatch) -> None:

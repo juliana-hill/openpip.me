@@ -39,6 +39,17 @@ from .google_drive_docs import (
     write_json_file,
 )
 from .google_drive_store import read_drive_app_data, write_drive_app_data
+from .inbox_triage import (
+    ensure_contact_interactions,
+    ensure_contact_profile,
+    get_inbox_triage_progress,
+    get_saved_triage_details,
+    get_saved_draft,
+    list_saved_draft_ids,
+    queue_and_attach,
+    write_contact_interaction,
+    write_contact_profile,
+)
 from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
 from .google_oauth import (
     OAuthConfigError,
@@ -205,6 +216,56 @@ async def get_google_token_optional(
 
 def _google_error(error: GoogleApiError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=error.detail)
+
+
+@app.post("/agent/inbox/network/queue-triage")
+async def queue_inbox_triage(token: str = Depends(get_google_token)):
+    """Queue an approval-first review of unread Gmail messages.
+
+    The worker only prepares suggestions and Drive-backed networking events;
+    Gmail mutations, task creation, and sending remain explicit review actions.
+    """
+    try:
+        return await queue_and_attach(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.get("/agent/inbox/network/triage/{job_id}")
+async def inbox_triage_progress(job_id: str, token: str = Depends(get_google_token)):
+    progress = get_inbox_triage_progress(token, job_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Triage job not found")
+    return progress
+
+
+@app.get("/agent/inbox/network/drafts")
+async def inbox_triage_drafts(token: str = Depends(get_google_token)):
+    try:
+        return {"messageIds": await list_saved_draft_ids(token)}
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.get("/agent/inbox/network/details")
+async def inbox_triage_details(token: str = Depends(get_google_token)):
+    try:
+        return {"suggestions": await get_saved_triage_details(token)}
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.get("/agent/inbox/network/draft/{message_id}")
+async def inbox_triage_draft(message_id: str, saved_only: bool = Query(default=False, alias="savedOnly"), token: str = Depends(get_google_token)):
+    try:
+        draft = await get_saved_draft(token, message_id)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    if draft is None:
+        if saved_only:
+            raise HTTPException(status_code=404, detail="Saved draft not found")
+        raise HTTPException(status_code=404, detail="Reply suggestion not found")
+    return {"draft": draft}
 
 
 @app.post("/agent/briefing", response_model=BriefingResponse)
@@ -576,10 +637,28 @@ async def career_contacts(token: str = Depends(get_google_token)):
     except GoogleApiError as error:
         raise _google_error(error) from error
     wrapper = data.get("contacts", {})
+    async def load_contact(resource_name: str, entry: dict[str, Any]) -> dict[str, Any] | None:
+        if resource_name not in google_contacts:
+            return None  # dropped/merged in Google since — nothing to show
+        profile = await ensure_contact_profile(token, resource_name, entry)
+        profile["interactions"] = await ensure_contact_interactions(
+            token,
+            resource_name,
+            profile.get("interactions") if isinstance(profile.get("interactions"), list) else entry.get("interactions"),
+        )
+        if profile["interactions"] and not profile.get("lastInteractionDate"):
+            profile["lastInteractionDate"] = max(
+                (str(item.get("date") or "") for item in profile["interactions"] if isinstance(item, dict)),
+                default=None,
+            )
+        return _merge_contact(resource_name, google_contacts.get(resource_name), profile)
+
     contacts = [
-        _merge_contact(resource_name, google_contacts.get(resource_name), entry)
-        for resource_name, entry in wrapper.items()
-        if resource_name in google_contacts  # dropped/merged in Google since — nothing to show
+        contact for contact in await asyncio.gather(*(
+            load_contact(resource_name, entry)
+            for resource_name, entry in wrapper.items()
+            if isinstance(entry, dict)
+        )) if contact is not None
     ]
     contacts.sort(key=lambda c: c.get("updatedAt") or "", reverse=True)
     return {"contacts": contacts}
@@ -597,22 +676,41 @@ async def update_career_contact(contact_id: str, payload: dict[str, Any], token:
         entry = contacts.get(resource_name)
         if entry is None:
             raise HTTPException(status_code=404, detail="Contact is not being tracked")
+        profile = await ensure_contact_profile(token, resource_name, entry)
+        profile["interactions"] = await ensure_contact_interactions(
+            token,
+            resource_name,
+            profile.get("interactions") if isinstance(profile.get("interactions"), list) else entry.get("interactions"),
+        )
         now = datetime.now(UTC).isoformat()
         for field in ("status", "notes", "preferredContact", "followUpCadence"):
             if field in payload:
-                entry[field] = payload[field]
+                profile[field] = payload[field]
         interaction = payload.get("addInteraction")
         if isinstance(interaction, dict):
-            entry.setdefault("interactions", []).append(interaction)
-            entry["lastInteractionDate"] = interaction.get("date") or now
-        entry["updatedAt"] = now
-        contacts[resource_name] = entry
+            duplicate = any(
+                isinstance(existing, dict)
+                and (
+                    (interaction.get("id") and existing.get("id") == interaction.get("id"))
+                    or (interaction.get("messageId") and existing.get("messageId") == interaction.get("messageId"))
+                )
+                for existing in profile["interactions"]
+            )
+            if not duplicate:
+                await write_contact_interaction(token, resource_name, interaction)
+                profile["interactions"].append(interaction)
+                profile["lastInteractionDate"] = interaction.get("date") or now
+        profile["updatedAt"] = now
+        await write_contact_profile(token, resource_name, {key: value for key, value in profile.items() if key != "interactions"})
+        # Keep only a small tracking index in appData; the wrapper payload and
+        # unbounded interactions live in visible OpenPip/contacts/<id>/ files.
+        contacts[resource_name] = {"tracked": True}
         data["contacts"] = contacts
         await write_drive_app_data(token, data)
         person = await fetch_google_contact(token, resource_name)
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return {"contact": _merge_contact(resource_name, person, entry)}
+    return {"contact": _merge_contact(resource_name, person, profile)}
 
 
 @app.delete("/agent/career/contacts/{contact_id}")
@@ -658,6 +756,10 @@ async def google_gmail_messages(
         labels = await fetch_gmail_labels(token)
         labels_by_id = {str(label["id"]): str(label["name"]) for label in labels}
         for message in messages:
+            # DRAFT is a Gmail mailbox state, deliberately not surfaced as a
+            # user-editable label/tag. The Inbox UI gives it its own fixed
+            # Drafts view and visual treatment.
+            message["gmailDraft"] = "DRAFT" in message.get("labelIds", [])
             message["tags"] = [
                 labels_by_id[label_id]
                 for label_id in message.get("labelIds", [])
@@ -803,6 +905,26 @@ async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool)
 @app.post("/agent/inbox/messages/assign-tag")
 async def assign_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
     return await _set_message_tag(payload, token, remove=False)
+
+
+@app.post("/agent/inbox/mark-read")
+@app.post("/api/google/gmail/mark-read")
+async def mark_inbox_messages_read(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(item, str) and item.strip() for item in ids):
+        raise HTTPException(status_code=400, detail="ids must be a non-empty array of message ids")
+    try:
+        await asyncio.gather(*(
+            modify_gmail_message_labels(
+                token,
+                message_id.strip().removeprefix("gmail_"),
+                remove_label_ids=["UNREAD"],
+            )
+            for message_id in ids
+        ))
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True, "markedRead": ids}
 
 
 @app.post("/agent/inbox/messages/remove-tag")

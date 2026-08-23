@@ -306,14 +306,18 @@ def _normalize_gmail_message(detail: dict[str, Any], *, include_body: bool = Fal
     message_id = str(detail.get("id") or "")
     payload = detail.get("payload") if isinstance(detail.get("payload"), dict) else {}
     headers = payload.get("headers", []) if isinstance(payload.get("headers"), list) else []
-    from_header = _gmail_header(headers, "From")
-    from_name, from_email = parseaddr(from_header)
+    is_draft = "DRAFT" in detail.get("labelIds", [])
+    # Gmail draft messages are authored by the signed-in user. In the Drafts
+    # view, the useful identity is their intended recipient instead of the
+    # user's own From address, so grouping and display remain meaningful.
+    counterparty_header = _gmail_header(headers, "To") if is_draft else _gmail_header(headers, "From")
+    counterparty_name, counterparty_email = parseaddr(counterparty_header)
     result: dict[str, Any] = {
         "id": f"gmail_{message_id}",
         "subject": _gmail_header(headers, "Subject") or "(no subject)",
         "snippet": detail.get("snippet", ""),
-        "from": from_name or from_email or from_header,
-        "fromEmail": from_email,
+        "from": counterparty_name or counterparty_email or counterparty_header or ("Draft recipient" if is_draft else "Unknown sender"),
+        "fromEmail": counterparty_email,
         "date": _gmail_date(str(detail.get("internalDate", "")), _gmail_header(headers, "Date")),
         "unread": "UNREAD" in detail.get("labelIds", []),
         "source": "gmail",
@@ -322,6 +326,7 @@ def _normalize_gmail_message(detail: dict[str, Any], *, include_body: bool = Fal
         # labels to their names without another request per message.
         "labelIds": [str(label_id) for label_id in detail.get("labelIds", []) if label_id],
         "archived": False,
+        "gmailDraft": is_draft,
         "attachments": [],
     }
     if include_body:
@@ -339,7 +344,7 @@ async def fetch_gmail_message(access_token: str, message_id: str) -> dict[str, A
             f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}",
             access_token,
             format="full",
-            metadataHeaders=["From", "Subject", "Date"],
+            metadataHeaders=["From", "To", "Subject", "Date"],
         )
     return _normalize_gmail_message(detail, include_body=True)
 
@@ -457,24 +462,31 @@ async def fetch_gmail_messages(
     *,
     local_date: str | None = None,
     label_id: str | None = None,
+    gmail_query: str | None = None,
     unread_only: bool = False,
     page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Read Gmail messages, optionally scoped to a label.
+    """Read Gmail messages, optionally scoped to a label or Gmail search.
 
     The default remains the Inbox. Supplying a label ID intentionally removes
-    the Inbox/date restriction so a label can retrieve read and archived mail.
+    the Inbox/date restriction so a label can retrieve read and archived mail;
+    ``gmail_query`` does the same for searches such as ``from:sender``.
     """
     query: dict[str, Any] = {
-        "labelIds": label_id or "INBOX",
         "includeSpamTrash": "false",
         # Gmail's resultSizeEstimate is explicitly approximate. Fetch the
         # message references across all result pages so the UI can display an
         # exact folder total and apply the requested page consistently.
         "maxResults": 100,
     }
+    if label_id:
+        query["labelIds"] = label_id
+    elif not gmail_query:
+        query["labelIds"] = "INBOX"
     query_parts: list[str] = []
+    if gmail_query:
+        query_parts.append(gmail_query)
     if unread_only:
         query_parts.append("is:unread")
     if local_date and not label_id:
@@ -517,7 +529,7 @@ async def fetch_gmail_messages(
                 f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}",
                 access_token,
                 format="metadata",
-                metadataHeaders=["From", "Subject", "Date"],
+                metadataHeaders=["From", "To", "Subject", "Date"],
             )
             return _normalize_gmail_message(detail)
 
