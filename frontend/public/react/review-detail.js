@@ -5,8 +5,8 @@ import {
   startLocalRecording,
   subscribeOnDeviceTranscription,
   transcribeLocally
-} from "./chunk-ST6WUVC7.js";
-import "./chunk-GBGSFNN4.js";
+} from "./chunk-HHC3YXP7.js";
+import "./chunk-2G5PXYFZ.js";
 import {
   AppHeader,
   Link

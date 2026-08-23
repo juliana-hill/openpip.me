@@ -25,10 +25,10 @@ import {
   postToSW,
   pushTasksBackup,
   pushUserData
-} from "./chunk-ST6WUVC7.js";
+} from "./chunk-HHC3YXP7.js";
 import {
   ReadAloudButton
-} from "./chunk-GBGSFNN4.js";
+} from "./chunk-2G5PXYFZ.js";
 import {
   AppHeader,
   Markdown,
@@ -86,7 +86,6 @@ var DailyBriefingCard_default = {
 // components/tasks/DailyBriefingCard.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
 function DailyBriefingCard({ briefing, loading, generatedAt }) {
-  const speechText = briefing?.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim() ?? "";
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: DailyBriefingCard_default.card, children: [
     /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: DailyBriefingCard_default.accentBar }),
     /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: DailyBriefingCard_default.header, children: [
@@ -95,7 +94,7 @@ function DailyBriefingCard({ briefing, loading, generatedAt }) {
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", { className: DailyBriefingCard_default.title, children: "Daily Briefing" }),
         /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { className: DailyBriefingCard_default.subtitle, children: loading ? "Generating briefing\u2026" : generatedAt ? `Generated ${generatedAt}` : "" })
       ] }),
-      briefing && !loading && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ReadAloudButton, { text: speechText, style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center" }, iconSize: 16 })
+      briefing && !loading && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ReadAloudButton, { text: briefing ?? "", style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center" }, iconSize: 16 })
     ] }),
     loading ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { className: DailyBriefingCard_default.skeletons, children: [
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: DailyBriefingCard_default.skeleton, style: { width: "100%" } }),

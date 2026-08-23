@@ -1,7 +1,7 @@
 import {
   ReadAloudButton,
   stopReadAloud
-} from "./chunk-GBGSFNN4.js";
+} from "./chunk-2G5PXYFZ.js";
 import {
   Markdown,
   remarkGfm,

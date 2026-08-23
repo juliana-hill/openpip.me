@@ -151,7 +151,7 @@ export function JobOverlaps({ job, onPatch }: JobOverlapsProps) {
         return (
           <div style={{ fontSize: "var(--font-size-sm)", color: "var(--color-text)" }}>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 6 }}>
-              <ReadAloudButton text={content.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim()} className={modalStyles.iconBtn} iconSize={14} />
+              <ReadAloudButton text={content} className={modalStyles.iconBtn} iconSize={14} />
             </div>
             <Markdown remarkPlugins={[remarkGfm]} components={{
               p: ({ children }) => <p style={{ marginBottom: 8, lineHeight: 1.6 }}>{children}</p>,

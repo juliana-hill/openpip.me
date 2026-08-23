@@ -10,7 +10,7 @@ import {
 } from "./chunk-HWKTRTVM.js";
 import {
   ReadAloudButton
-} from "./chunk-GBGSFNN4.js";
+} from "./chunk-2G5PXYFZ.js";
 import {
   AppHeader,
   Link,
@@ -468,7 +468,7 @@ Using my full career history (start from my earliest full-time position when cal
           const sections = parseOverlaps(overlapsText);
           const content = sections[activeTab];
           return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { style: { fontSize: "var(--font-size-sm)", color: "var(--color-text)" }, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReadAloudButton, { text: content.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim(), className: JobDetailModal_default.iconBtn, iconSize: 14 }) }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { style: { display: "flex", justifyContent: "flex-end", marginBottom: 6 }, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReadAloudButton, { text: content, className: JobDetailModal_default.iconBtn, iconSize: 14 }) }),
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(Markdown, { remarkPlugins: [remarkGfm], components: {
               p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { marginBottom: 8, lineHeight: 1.6 }, children }),
               ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { style: { margin: "6px 0", paddingLeft: 20 }, children }),

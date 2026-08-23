@@ -48,8 +48,6 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
 
-  const briefSpeechText = brief?.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim() ?? "";
-
   const refreshScheduledActions = useCallback(async (): Promise<ScheduledPlan[]> => {
     try {
       const response = await proxyFetch("/agent/scheduled-actions");
@@ -263,7 +261,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle}>Today&apos;s Brief</span>
             {brief && !briefLoading && (
-              <ReadAloudButton text={briefSpeechText} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" }} />
+              <ReadAloudButton text={brief ?? ""} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" }} />
             )}
           </div>
           {briefLoading ? <div className={styles.skeleton} /> : brief ? (

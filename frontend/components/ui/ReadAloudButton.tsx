@@ -115,7 +115,7 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
   }, [clearSystemVoiceTimer, id, speaking, text]);
 
   return (
-    <span style={{ position: "relative", display: "inline-flex" }}>
+    <>
       <button
         type="button"
         aria-label={speaking ? "Stop reading" : "Read aloud"}
@@ -126,23 +126,27 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
         {speaking ? <VolumeOff size={iconSize} /> : <Volume2 size={iconSize} />}
       </button>
       {status && (
+        // Fixed to the viewport corner, not anchored to the button: only one
+        // instance can ever be active at a time (activeButtonId is a single
+        // module-level value shared by every ReadAloudButton), and a
+        // button-relative tooltip gets clipped or overlapped in narrow
+        // viewports and inside modals. A corner toast is never in the way of
+        // whatever the button itself sits on top of.
         <span
           role="status"
           style={{
-            position: "absolute",
-            top: "100%",
-            left: "50%",
-            transform: "translateX(-50%)",
-            marginTop: 6,
-            padding: "4px 10px",
-            borderRadius: 6,
+            position: "fixed",
+            top: "calc(env(safe-area-inset-top, 0px) + 16px)",
+            right: "calc(env(safe-area-inset-right, 0px) + 16px)",
+            padding: "8px 14px",
+            borderRadius: 8,
             background: "#1f1f1f",
             color: "#fff",
-            fontSize: 12,
+            fontSize: 13,
             lineHeight: 1.4,
             whiteSpace: "nowrap",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-            zIndex: 20,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.25)",
+            zIndex: 2147483647,
             pointerEvents: "none",
           }}
         >
@@ -150,6 +154,6 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
           {typeof status.progress === "number" ? ` ${Math.round(status.progress * 100)}%` : ""}
         </span>
       )}
-    </span>
+    </>
   );
 }

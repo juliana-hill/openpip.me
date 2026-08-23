@@ -9,8 +9,6 @@ import styles from "./DailyBriefingCard.module.css";
 type Props = Readonly<{ briefing: string | null; loading: boolean; generatedAt: string | null }>;
 
 export function DailyBriefingCard({ briefing, loading, generatedAt }: Props) {
-  const speechText = briefing?.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim() ?? "";
-
   return (
     <div className={styles.card}>
       <div className={styles.accentBar} />
@@ -23,7 +21,7 @@ export function DailyBriefingCard({ briefing, loading, generatedAt }: Props) {
           </p>
         </div>
         {briefing && !loading && (
-          <ReadAloudButton text={speechText} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center" }} iconSize={16} />
+          <ReadAloudButton text={briefing ?? ""} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center" }} iconSize={16} />
         )}
       </div>
 

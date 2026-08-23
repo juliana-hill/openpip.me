@@ -8,10 +8,10 @@ import {
   idbSetUserPrefs,
   postToSW,
   pushUserData
-} from "./chunk-ST6WUVC7.js";
+} from "./chunk-HHC3YXP7.js";
 import {
   ReadAloudButton
-} from "./chunk-GBGSFNN4.js";
+} from "./chunk-2G5PXYFZ.js";
 import {
   AppHeader,
   Link,
@@ -254,7 +254,6 @@ function DashboardPage({ userName, userImage }) {
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
-  const briefSpeechText = brief?.replace(/[#*`_~>\-]/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").trim() ?? "";
   const refreshScheduledActions = (0, import_react2.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/scheduled-actions");
@@ -417,7 +416,7 @@ function DashboardPage({ userName, userImage }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `${DashboardPage_default.card} ${DashboardPage_default.cardFull} ${DashboardPage_default.cardBrief}`, style: { animationDelay: "0ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today's Brief" }),
-          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReadAloudButton, { text: briefSpeechText, style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
+          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReadAloudButton, { text: brief ?? "", style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
         ] }),
         briefLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.skeleton }) : brief ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.briefText, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
           Markdown,
