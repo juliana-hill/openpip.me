@@ -20,8 +20,6 @@ export function TemplateModal({ template, onClose, onSaved }: Props) {
   const [editorMode, setEditorMode] = useState<"visual" | "code">("code");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [convertedUrl, setConvertedUrl] = useState("");
 
   const handleSave = async () => {
     if (!name.trim()) { setError("Name is required."); return; }
@@ -42,16 +40,6 @@ export function TemplateModal({ template, onClose, onSaved }: Props) {
       setError("Network error.");
     }
     setSaving(false);
-  };
-
-  const convertYoutube = () => {
-    try {
-      const url = new URL(youtubeUrl);
-      const id = url.searchParams.get("v") ?? url.pathname.split("/").pop() ?? "";
-      setConvertedUrl(`https://juliluna.com/yt/${id}`);
-    } catch {
-      setConvertedUrl("Invalid URL");
-    }
   };
 
   return (
@@ -112,21 +100,6 @@ export function TemplateModal({ template, onClose, onSaved }: Props) {
               onInput={(e) => setBody((e.target as HTMLDivElement).innerHTML)}
             />
           )}
-
-          {/* YouTube converter */}
-          <div className={styles.ytCard}>
-            <span className={styles.ytTitle}>YouTube → juliluna.com converter</span>
-            <div className={styles.ytRow}>
-              <input className={styles.input} value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." />
-              <button className={styles.ytBtn} onClick={convertYoutube}>Convert</button>
-            </div>
-            {convertedUrl && (
-              <div className={styles.ytResult}>
-                <span className={styles.ytUrl}>{convertedUrl}</span>
-                <button className={styles.copyBtn} onClick={() => navigator.clipboard.writeText(convertedUrl)}>Copy</button>
-              </div>
-            )}
-          </div>
 
           {error && <p className={styles.error}>{error}</p>}
         </div>
