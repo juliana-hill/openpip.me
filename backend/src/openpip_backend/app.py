@@ -24,7 +24,9 @@ from .google_workspace import (
     fetch_google_notebook_pages,
     fetch_google_tasks,
 )
+from .google_drive_docs import get_or_create_document
 from .google_drive_store import read_drive_app_data, write_drive_app_data
+from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -136,19 +138,18 @@ def auth_logout(request: Request) -> dict[str, bool]:
     return {"ok": True}
 
 
-async def get_google_token(
+async def _resolve_google_token(
     request: Request,
-    x_google_token: str | None = Header(default=None),
-    authorization: str | None = Header(default=None),
-) -> str:
-    """Resolve a live Google access token for this request.
-
-    Header-based raw-token auth (x-google-token / Authorization: Bearer) is
+    x_google_token: str | None,
+    authorization: str | None,
+) -> str | None:
+    """Header-based raw-token auth (x-google-token / Authorization: Bearer) is
     checked first — useful for direct API testing — then falls back to this
     project's own signed session JWT (X-OpenPip-Session), refreshing the
     underlying Google token if it has expired. Never falls back to any other
-    project's auth service, and never accepts a cookie.
-    """
+    project's auth service, and never accepts a cookie. Returns None rather
+    than raising — see get_google_token / get_google_token_optional below for
+    the strict vs. permissive callers."""
     if x_google_token:
         return x_google_token
     if authorization and authorization.lower().startswith("bearer "):
@@ -160,7 +161,33 @@ async def get_google_token(
             access_token = await oauth_sessions.resolve_access_token(claims["sid"])
             if access_token:
                 return access_token
+    return None
+
+
+async def get_google_token(
+    request: Request,
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> str:
+    """Resolve a live Google access token for this request, or 401."""
+    token = await _resolve_google_token(request, x_google_token, authorization)
+    if token:
+        return token
     raise HTTPException(status_code=401, detail="Google account is not connected")
+
+
+async def get_google_token_optional(
+    request: Request,
+    x_google_token: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> str | None:
+    """Same resolution as get_google_token, but None instead of a 401 when
+    nothing resolves — for endpoints like /agent/briefing that have always
+    worked without a connected Google account (the frontend already supplies
+    tasks/events/messages in the request body) and should keep doing so;
+    Google is only used here to optionally enrich the prompt with the user's
+    own Agent & Guidelines documents when it's available."""
+    return await _resolve_google_token(request, x_google_token, authorization)
 
 
 def _google_error(error: GoogleApiError) -> HTTPException:
@@ -169,8 +196,8 @@ def _google_error(error: GoogleApiError) -> HTTPException:
 
 @app.post("/agent/briefing", response_model=BriefingResponse)
 @app.post("/api/briefing", response_model=BriefingResponse)
-def briefing(request: BriefingRequest) -> BriefingResponse:
-    text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
+async def briefing(request: BriefingRequest, token: str | None = Depends(get_google_token_optional)) -> BriefingResponse:
+    text, generated_by, proposals_created = await create_briefing(request, store, store.get_user_context(), token)
     return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
 
 
@@ -190,10 +217,10 @@ def discover_quote() -> dict[str, Any]:
 
 
 @app.post("/api/demo/briefing", response_model=BriefingResponse)
-def demo_briefing() -> BriefingResponse:
+async def demo_briefing() -> BriefingResponse:
     """Run the complete local loop with sanitized fixture data."""
     request = demo_request()
-    text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
+    text, generated_by, proposals_created = await create_briefing(request, store, store.get_user_context())
     return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
 
 
@@ -332,6 +359,34 @@ async def save_agent_user_data(payload: dict[str, Any], token: str = Depends(get
     except GoogleApiError as error:
         raise _google_error(error) from error
     return user_data
+
+
+@app.get("/agent/agent-file")
+async def agent_file(token: str = Depends(get_google_token)):
+    """Get-or-create "OpenPip/agent.md" in the user's real Drive and return
+    its content + a link to open it there. See google_drive_docs.py — this is
+    a real, visible file (drive.file scope), not the hidden appDataFolder
+    /agent/user/data uses. Its content is also what load_context_documents()
+    in agent.py folds into the Daily Briefing prompt as "Assistant Identity"."""
+    try:
+        drive_url, content = await get_or_create_document(token, "OpenPip", "agent.md", AGENT_MD_SAMPLE)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"driveUrl": drive_url, "content": content}
+
+
+@app.get("/agent/goals-n-guidelines/{skill}")
+async def goals_n_guidelines(skill: str, token: str = Depends(get_google_token)):
+    """Get-or-create "OpenPip/goals-n-guidelines/{skill}.md". Only the skills
+    the Settings page actually offers exist here — see guideline_templates.py."""
+    sample = GOALS_SAMPLES.get(skill)
+    if sample is None:
+        raise HTTPException(status_code=404, detail=f"No guidelines document for skill '{skill}'")
+    try:
+        drive_url, content = await get_or_create_document(token, "OpenPip/goals-n-guidelines", f"{skill}.md", sample)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"driveUrl": drive_url, "content": content}
 
 
 @app.get("/agent/google/tasks")

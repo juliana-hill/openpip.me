@@ -1,9 +1,16 @@
+import asyncio
 import os
 import re
 from typing import Any
 
 import boto3
 
+from .google_drive_docs import get_or_create_document
+from .guideline_templates import (
+    AGENT_MD_SAMPLE,
+    GOALS_EXECUTIVE_ASSISTANT_SAMPLE,
+    GOALS_TRAVEL_PLANNER_SAMPLE,
+)
 from .models import BriefingRequest, Proposal, SourceReference, UserContext
 from .store import ProposalStore
 from .tools import travel_agent
@@ -119,10 +126,50 @@ def build_briefing_prompt(request: BriefingRequest, user_context: UserContext) -
     )
 
 
-def create_briefing(
+async def load_context_documents(google_token: str | None) -> str:
+    """Fetch the user's Agent & Guidelines documents from their real Drive
+    (see google_drive_docs.py — a visible "OpenPip" folder, get-or-created
+    from the same starter templates the Settings page's "Edit in Drive"
+    links use) and compose them into a prompt-ready context block.
+
+    Ported from ~/Projects/Personal/travel-agent's buildPrompt(), which
+    injects the equivalent "agent.md" and per-skill "goals-n-guidelines"
+    documents the same way. Travel guidelines are included here too, since
+    the travel_agent tool is available to this same agent and may fire
+    mid-conversation — Proactive Proposals guidelines are deliberately left
+    out; nothing consumes them yet (see app.py's /agent/proposals/scan,
+    still a stub), so fetching them here would be wasted Drive calls for
+    text nothing reads.
+
+    Never raises — a briefing must never fail because Drive was slow,
+    unavailable, or the user hasn't connected Google at all.
+    """
+    if not google_token:
+        return ""
+    try:
+        (_, agent_md), (_, ea_guidelines), (_, travel_guidelines) = await asyncio.gather(
+            get_or_create_document(google_token, "OpenPip", "agent.md", AGENT_MD_SAMPLE),
+            get_or_create_document(google_token, "OpenPip/goals-n-guidelines", "executive-assistant.md", GOALS_EXECUTIVE_ASSISTANT_SAMPLE),
+            get_or_create_document(google_token, "OpenPip/goals-n-guidelines", "travel-planner.md", GOALS_TRAVEL_PLANNER_SAMPLE),
+        )
+    except Exception:
+        return ""
+
+    sections = []
+    if agent_md.strip():
+        sections.append(f"## Assistant Identity\n{agent_md.strip()}")
+    if ea_guidelines.strip():
+        sections.append(f"## Executive Assistant Guidelines\n{ea_guidelines.strip()}")
+    if travel_guidelines.strip():
+        sections.append(f"## Travel Preferences (only relevant if travel comes up)\n{travel_guidelines.strip()}")
+    return "\n\n".join(sections)
+
+
+async def create_briefing(
     request: BriefingRequest,
     store: ProposalStore,
     user_context: UserContext | None = None,
+    google_token: str | None = None,
 ) -> tuple[str, str, int]:
     """Generate a briefing and create reviewable proposals without side effects.
 
@@ -133,6 +180,9 @@ def create_briefing(
     tool involved.
     """
     prompt = build_briefing_prompt(request, user_context or UserContext())
+    context_block = await load_context_documents(google_token)
+    if context_block:
+        prompt = f"{context_block}\n\n{prompt}"
 
     try:
         agent = build_executive_assistant()

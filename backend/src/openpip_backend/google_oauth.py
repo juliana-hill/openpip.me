@@ -64,6 +64,13 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/drive.appdata",
+    # drive.file (not the broader drive or drive.readonly): the Agent &
+    # Guidelines documents (agent.md, goals-n-guidelines/*.md — see
+    # google_drive_docs.py) live in a real, visible "OpenPip" Drive folder so
+    # the user can open and edit them directly, unlike drive.appdata's hidden
+    # per-app space above. drive.file only grants access to files this app
+    # itself creates — never the user's existing Drive content.
+    "https://www.googleapis.com/auth/drive.file",
     # Read + write, not contacts.readonly: the Networking tracker treats Google
     # Contacts as the identity source of truth, and per-contact CRM data
     # (status/notes/interactions) lives in Drive app data — but adding someone
