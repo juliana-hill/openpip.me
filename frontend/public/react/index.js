@@ -3,22 +3,20 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   FloatingAssistant,
+  ReadAloudButton,
   idbGetUserPrefs,
   idbListSearches,
   idbSetUserPrefs,
   postToSW,
   pushUserData
-} from "./chunk-HHC3YXP7.js";
-import {
-  ReadAloudButton
-} from "./chunk-2G5PXYFZ.js";
+} from "./chunk-AUU3F3NY.js";
 import {
   AppHeader,
   Link,
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-ZLOKTPEE.js";
+} from "./chunk-QENHA2LX.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -27,7 +25,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-NPORSBBQ.js";
+} from "./chunk-2OHSVDHZ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

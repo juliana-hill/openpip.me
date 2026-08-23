@@ -72,7 +72,6 @@ export function InAppNotification() {
       const id = `${data.type}-${data.jobId}-${Date.now()}`;
       let href: string | undefined;
       if (data.type === "CHAT_UPDATE") href = "/planning";
-      if (data.type === "CAREER_CHAT_UPDATE") href = "/career";
       if (data.type === "JOB_UPDATE") href = "/trips";
 
       const notification: AppNotification = {

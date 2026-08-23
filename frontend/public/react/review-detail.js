@@ -5,12 +5,11 @@ import {
   startLocalRecording,
   subscribeOnDeviceTranscription,
   transcribeLocally
-} from "./chunk-HHC3YXP7.js";
-import "./chunk-2G5PXYFZ.js";
+} from "./chunk-AUU3F3NY.js";
 import {
   AppHeader,
   Link
-} from "./chunk-ZLOKTPEE.js";
+} from "./chunk-QENHA2LX.js";
 import "./chunk-OHWNV7E6.js";
 import {
   Mic,
@@ -23,7 +22,7 @@ import {
   require_react,
   useParams,
   useRouter
-} from "./chunk-NPORSBBQ.js";
+} from "./chunk-2OHSVDHZ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -530,8 +529,7 @@ function ApplicationReview({ application }) {
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Next step" }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: "Your review" })
           ] })
-        ] }),
-        application.id && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Link, { href: `/career/jobs/${encodeURIComponent(application.id)}`, className: ReviewDetailPage_default.jobLink, children: "Open job detail \u2192" })
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: ReviewDetailPage_default.card, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "Why this was prepared" }),

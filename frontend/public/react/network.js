@@ -1,7 +1,4 @@
 import {
-  JobsBoard_default
-} from "./chunk-HZMUDGND.js";
-import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
 import {
@@ -15,7 +12,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-NPORSBBQ.js";
+} from "./chunk-2OHSVDHZ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -124,6 +121,63 @@ function ContactCard({ contact, onClick }) {
     ] })
   ] });
 }
+
+// components/career/JobsBoard.module.css
+var JobsBoard_default = {
+  board: "JobsBoard_board",
+  topBar: "JobsBoard_topBar",
+  heading: "JobsBoard_heading",
+  subRow: "JobsBoard_subRow",
+  pulse: "JobsBoard_pulse",
+  subLabel: "JobsBoard_subLabel",
+  actions: "JobsBoard_actions",
+  actionBtn: "JobsBoard_actionBtn",
+  tabs: "JobsBoard_tabs",
+  tab: "JobsBoard_tab",
+  tabActive: "JobsBoard_tabActive",
+  skeletonGrid: "JobsBoard_skeletonGrid",
+  skeleton: "JobsBoard_skeleton",
+  shimmer: "JobsBoard_shimmer",
+  statusMsg: "JobsBoard_statusMsg",
+  spinner: "JobsBoard_spinner",
+  spin: "JobsBoard_spin",
+  statusText: "JobsBoard_statusText",
+  fadeOscillate: "JobsBoard_fadeOscillate",
+  elapsed: "JobsBoard_elapsed",
+  errorMsg: "JobsBoard_errorMsg",
+  addPrompt: "JobsBoard_addPrompt",
+  addIcon: "JobsBoard_addIcon",
+  addLabel: "JobsBoard_addLabel",
+  addForm: "JobsBoard_addForm",
+  addFields: "JobsBoard_addFields",
+  addInput: "JobsBoard_addInput",
+  addBtns: "JobsBoard_addBtns",
+  jobGrid: "JobsBoard_jobGrid",
+  separator: "JobsBoard_separator",
+  sepLine: "JobsBoard_sepLine",
+  sepLabel: "JobsBoard_sepLabel",
+  loadMoreBtn: "JobsBoard_loadMoreBtn",
+  emptyState: "JobsBoard_emptyState",
+  discoveredSection: "JobsBoard_discoveredSection",
+  discoveredHeader: "JobsBoard_discoveredHeader",
+  discoveredMeta: "JobsBoard_discoveredMeta",
+  resultsGrid: "JobsBoard_resultsGrid",
+  resultsGridHidden: "JobsBoard_resultsGridHidden",
+  resultsGridVisible: "JobsBoard_resultsGridVisible",
+  resultCard: "JobsBoard_resultCard",
+  fadeSlideUp: "JobsBoard_fadeSlideUp",
+  resultTop: "JobsBoard_resultTop",
+  resultTitle: "JobsBoard_resultTitle",
+  resultCompany: "JobsBoard_resultCompany",
+  resultBtns: "JobsBoard_resultBtns",
+  resultIconBtn: "JobsBoard_resultIconBtn",
+  resultIconBtnDanger: "JobsBoard_resultIconBtnDanger",
+  resultSnippet: "JobsBoard_resultSnippet",
+  resultMeta: "JobsBoard_resultMeta",
+  pagination: "JobsBoard_pagination",
+  pageBtn: "JobsBoard_pageBtn",
+  pageInfo: "JobsBoard_pageInfo"
+};
 
 // components/career/ContactsBoard.tsx
 var import_jsx_runtime2 = __toESM(require_jsx_runtime());

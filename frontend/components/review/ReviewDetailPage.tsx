@@ -157,7 +157,7 @@ function ApplicationReview({ application }: { application: Application }) {
       {application.app_questions?.length ? <details className={styles.materialDetails}><summary>Review application answers ({application.app_questions.length})</summary>{application.app_questions.map(([question, answer], index) => <div className={styles.material} key={index}><h3>{question}</h3><p>{answer}</p></div>)}</details> : null}
     </div>
     <aside className={styles.contextStack}>
-      <section className={styles.card}><h2>{application.role}</h2><p className={styles.company}>{application.company}</p><dl className={styles.facts}><div><dt>Status</dt><dd>Draft only</dd></div><div><dt>Prepared</dt><dd>{application.updatedAt ? new Date(application.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Recently"}</dd></div><div><dt>Next step</dt><dd>Your review</dd></div></dl>{application.id && <Link href={`/career/jobs/${encodeURIComponent(application.id)}`} className={styles.jobLink}>Open job detail →</Link>}</section>
+      <section className={styles.card}><h2>{application.role}</h2><p className={styles.company}>{application.company}</p><dl className={styles.facts}><div><dt>Status</dt><dd>Draft only</dd></div><div><dt>Prepared</dt><dd>{application.updatedAt ? new Date(application.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Recently"}</dd></div><div><dt>Next step</dt><dd>Your review</dd></div></dl></section>
       <section className={styles.card}><h2>Why this was prepared</h2><p className={styles.contextText}>{application.analysis?.positioning ?? "The role matches your saved background and the materials the agent prepared for it."}</p></section>
     </aside>
   </div>;

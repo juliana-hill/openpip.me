@@ -9,7 +9,6 @@ const endpointFor = {
   network: "/agent/career/contacts",
   notebook: "/agent/notebook/pages",
   routes: "/agent/routes",
-  career: "/agent/career/jobs",
 };
 
 function text(value) {

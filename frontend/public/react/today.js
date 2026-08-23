@@ -1,12 +1,11 @@
 import {
   FloatingAssistant
-} from "./chunk-HHC3YXP7.js";
-import "./chunk-2G5PXYFZ.js";
+} from "./chunk-AUU3F3NY.js";
 import {
   AppHeader,
   Link,
   useAgentIdentity
-} from "./chunk-ZLOKTPEE.js";
+} from "./chunk-QENHA2LX.js";
 import "./chunk-OHWNV7E6.js";
 import {
   proxyFetch,
@@ -14,7 +13,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-NPORSBBQ.js";
+} from "./chunk-2OHSVDHZ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
