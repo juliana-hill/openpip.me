@@ -7,13 +7,7 @@ import cardStyles from "@/components/ui/Card.module.css";
 import btnStyles from "@/components/ui/Button.module.css";
 import inputStyles from "@/components/ui/Input.module.css";
 import dialogStyles from "@/components/ui/Dialog.module.css";
-import {
-  type SavedAddress,
-  idbListAddresses,
-  idbAddAddress,
-  idbUpdateAddress,
-  idbDeleteAddress,
-} from "@/lib/idb";
+import { getUserData, patchUserData, type SavedAddress } from "@/lib/userData";
 
 function iconForLabel(label: string) {
   const lower = label.toLowerCase();
@@ -166,8 +160,8 @@ export function AddressSection() {
   const [saving, setSaving] = useState(false);
 
   const refresh = useCallback(async () => {
-    const list = await idbListAddresses();
-    setAddresses(list);
+    const data = await getUserData();
+    setAddresses(Array.isArray(data.addresses) ? data.addresses as SavedAddress[] : []);
   }, []);
 
   useEffect(() => {
@@ -176,8 +170,9 @@ export function AddressSection() {
 
   const handleAdd = async (label: string, address: string) => {
     setSaving(true);
-    await idbAddAddress({ label, address });
-    await refresh();
+    const next = [...addresses, { id: crypto.randomUUID(), label, address }];
+    await patchUserData({ addresses: next });
+    setAddresses(next);
     setShowForm(false);
     setSaving(false);
   };
@@ -185,16 +180,18 @@ export function AddressSection() {
   const handleEdit = async (label: string, address: string) => {
     if (!editingId) return;
     setSaving(true);
-    await idbUpdateAddress(editingId, { label, address });
-    await refresh();
+    const next = addresses.map((a) => a.id === editingId ? { ...a, label, address } : a);
+    await patchUserData({ addresses: next });
+    setAddresses(next);
     setEditingId(null);
     setSaving(false);
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
-    await idbDeleteAddress(deleteTarget.id);
-    await refresh();
+    const next = addresses.filter((a) => a.id !== deleteTarget.id);
+    await patchUserData({ addresses: next });
+    setAddresses(next);
     setDeleteTarget(null);
   };
 

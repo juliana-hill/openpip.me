@@ -319,7 +319,11 @@ async def get_agent_user_data(token: str = Depends(get_google_token)):
 @app.put("/agent/user/data")
 async def save_agent_user_data(payload: dict[str, Any], token: str = Depends(get_google_token)):
     """Persist assistant settings in Drive, never in a legacy service store."""
-    allowed = {"agentName", "agentIcon", "theme", "accent"}
+    allowed = {
+        "agentName", "agentIcon", "theme", "accent",
+        "notificationSound", "notificationVolume", "notificationPitch",
+        "addresses",
+    }
     user_data = {key: value for key, value in payload.items() if key in allowed}
     try:
         data = await read_drive_app_data(token)

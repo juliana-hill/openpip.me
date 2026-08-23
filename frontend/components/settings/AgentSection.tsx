@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { clearAgentIcon, setAgentIcon, saveAgentIcon } from "@/lib/agentIcon";
 import { proxyFetch } from "@/lib/proxy";
+import { getUserData, patchUserData } from "@/lib/userData";
 import { notifyAgentIdentityChanged } from "@/lib/agentIdentity";
 import styles from "./AgentSection.module.css";
 
@@ -16,9 +17,7 @@ export function AgentSection() {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    proxyFetch("/agent/user/data").then(async (res) => {
-      if (!res.ok) return;
-      const data = await res.json() as Record<string, unknown>;
+    getUserData().then((data) => {
       if (typeof data.agentName === "string" && data.agentName.trim()) {
         setAgentName(data.agentName.trim());
         setSavedName(data.agentName.trim());
@@ -28,18 +27,6 @@ export function AgentSection() {
       }
     }).catch(() => {});
   }, []);
-
-  async function patchUserData(patch: Record<string, unknown>) {
-    const res = await proxyFetch("/agent/user/data");
-    const current = res.ok ? (await res.json() as Record<string, unknown>) : {};
-    const body = { ...current, ...patch };
-    const putRes = await proxyFetch("/agent/user/data", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!putRes.ok) throw new Error(`Save failed: ${putRes.status}`);
-  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -61,8 +48,7 @@ export function AgentSection() {
   async function handleClear() {
     setIconSaving(true);
     try {
-      const res = await proxyFetch("/agent/user/data");
-      const current = res.ok ? (await res.json() as Record<string, unknown>) : {};
+      const current = await getUserData();
       delete current.agentIcon;
       const putRes = await proxyFetch("/agent/user/data", {
         method: "PUT",

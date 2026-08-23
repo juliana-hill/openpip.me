@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Search, Home, Building2, User, MapPin, X } from "lucide-react";
-import { idbListAddresses, type SavedAddress } from "@/lib/idb";
+import { listSavedAddresses, type SavedAddress } from "@/lib/userData";
 import styles from "./RouteAddressPickerSheet.module.css";
 
 function iconForLabel(label: string) {
@@ -29,7 +29,7 @@ export function RouteAddressPickerSheet({ open, title, onClose, onSelect }: Prop
     if (!open) return;
     setQuery("");
     setLoading(true);
-    idbListAddresses().then(setAddresses).finally(() => setLoading(false));
+    listSavedAddresses().then(setAddresses).finally(() => setLoading(false));
   }, [open]);
 
   const filtered = useMemo(() => {

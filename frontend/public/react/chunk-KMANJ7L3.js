@@ -2,7 +2,7 @@ import {
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-ZJ44CDQL.js";
+} from "./chunk-EYLK6625.js";
 import {
   ArrowRight,
   ArrowUp,
@@ -39,20 +39,13 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-YQDVQL7K.js";
+} from "./chunk-EEKIOSJK.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
 
 // compat/no-local-store.ts
 var idbListSearches = async () => [];
-var idbListAddresses = async () => [];
-var idbAddAddress = async (_value) => {
-};
-var idbUpdateAddress = async (_id, _value) => {
-};
-var idbDeleteAddress = async (_id) => {
-};
 var idbGetUserPrefs = async () => ({});
 var idbSetUserPrefs = async (_prefs) => {
 };
@@ -82,8 +75,6 @@ var idbDeleteChatSession = async (_id) => {
 
 // compat/no-sync.ts
 var pushUserData = async () => {
-};
-var pushUserDataOrThrow = async () => {
 };
 var loadAndRestoreUserData = async () => {
 };
@@ -1912,6 +1903,27 @@ function CalendarEventPickerSheet({ open, onClose, onConfirm }) {
 // components/chat/SavedAddressPickerSheet.tsx
 var import_react7 = __toESM(require_react());
 
+// lib/userData.ts
+async function getUserData() {
+  const res = await proxyFetch("/agent/user/data");
+  return res.ok ? await res.json() : {};
+}
+async function patchUserData(patch) {
+  const current = await getUserData();
+  const body = { ...current, ...patch };
+  const res = await proxyFetch("/agent/user/data", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) throw new Error(`Save failed: ${res.status}`);
+  return body;
+}
+async function listSavedAddresses() {
+  const data = await getUserData();
+  return Array.isArray(data.addresses) ? data.addresses : [];
+}
+
 // components/chat/SavedAddressPickerSheet.module.css
 var SavedAddressPickerSheet_default = {
   backdrop: "SavedAddressPickerSheet_backdrop",
@@ -1960,7 +1972,7 @@ function SavedAddressPickerSheet({ open, onClose, onConfirm }) {
     setSelectedIds(/* @__PURE__ */ new Set());
     setQuery("");
     setLoading(true);
-    idbListAddresses().then(setAddresses).finally(() => setLoading(false));
+    listSavedAddresses().then(setAddresses).finally(() => setLoading(false));
   }, [open]);
   const filtered = (0, import_react7.useMemo)(() => {
     if (!query.trim()) return addresses;
@@ -2956,10 +2968,6 @@ ${lines.join("\n")}]`;
 
 export {
   idbListSearches,
-  idbListAddresses,
-  idbAddAddress,
-  idbUpdateAddress,
-  idbDeleteAddress,
   idbGetUserPrefs,
   idbSetUserPrefs,
   idbGetAllTaskSchedules,
@@ -2971,10 +2979,10 @@ export {
   idbSaveTaskElapsed,
   idbAddNotification,
   pushUserData,
-  pushUserDataOrThrow,
-  pushPlanningChatSessions,
   pushTasksBackup,
   ReadAloudButton,
+  getUserData,
+  patchUserData,
   subscribeOnDeviceTranscription,
   hasNativeSpeechRecognition,
   prepareOnDeviceTranscription,

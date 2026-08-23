@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Play } from "lucide-react";
-import { idbGetUserPrefs, idbSetUserPrefs } from "@/lib/idb";
-import { pushUserData } from "@/lib/sync";
+import { getUserData, patchUserData } from "@/lib/userData";
 import {
   SOUND_NAMES,
   SOUND_LABELS,
@@ -23,29 +22,26 @@ export function NotificationSoundSection() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    idbGetUserPrefs().then((prefs) => {
-      setSound(normalizeSound(prefs.notificationSound ?? null));
-      setVolume(prefs.notificationVolume ? parseInt(prefs.notificationVolume, 10) : 80);
-      setPitch(prefs.notificationPitch ? (parseInt(prefs.notificationPitch, 10) as PitchOctave) : 0);
+    getUserData().then((data) => {
+      setSound(normalizeSound((data.notificationSound as string) ?? null));
+      setVolume(typeof data.notificationVolume === "number" ? data.notificationVolume : 80);
+      setPitch(typeof data.notificationPitch === "number" ? (data.notificationPitch as PitchOctave) : 0);
     }).catch(() => {}).finally(() => setLoaded(true));
   }, []);
 
   const selectSound = async (name: SoundName) => {
     setSound(name);
-    await idbSetUserPrefs({ notificationSound: name });
-    void pushUserData();
+    await patchUserData({ notificationSound: name });
   };
 
   const changeVolume = async (val: number) => {
     setVolume(val);
-    await idbSetUserPrefs({ notificationVolume: String(val) });
-    void pushUserData();
+    await patchUserData({ notificationVolume: val });
   };
 
   const changePitch = async (val: PitchOctave) => {
     setPitch(val);
-    await idbSetUserPrefs({ notificationPitch: String(val) });
-    void pushUserData();
+    await patchUserData({ notificationPitch: val });
   };
 
   const preview = (name: SoundName) => {

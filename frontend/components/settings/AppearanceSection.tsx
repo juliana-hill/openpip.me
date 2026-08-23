@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { applyTheme, loadSavedTheme, type AccentColor, type ThemeMode } from "@/lib/theme";
-import { pushUserData } from "@/lib/sync";
+import { getUserData, patchUserData } from "@/lib/userData";
 import styles from "./AppearanceSection.module.css";
 
 const ACCENTS: { key: AccentColor; color: string; label: string }[] = [
@@ -17,20 +17,29 @@ export function AppearanceSection() {
   const [accent, setAccent] = useState<AccentColor>("coral");
 
   useEffect(() => {
+    // localStorage paints instantly (layout.hjs already applied it before
+    // React even mounted, to avoid a flash) — Drive is the cross-device
+    // source of truth, so reconcile with it as soon as it's back.
     const saved = loadSavedTheme();
     setMode(saved.mode);
     setAccent(saved.accent);
+    getUserData().then((data) => {
+      const driveMode = data.theme as ThemeMode | undefined;
+      const driveAccent = data.accent as AccentColor | undefined;
+      if (driveMode && driveMode !== saved.mode) { setMode(driveMode); applyTheme(driveMode, driveAccent ?? saved.accent); }
+      if (driveAccent && driveAccent !== saved.accent) { setAccent(driveAccent); applyTheme(driveMode ?? saved.mode, driveAccent); }
+    }).catch(() => {});
   }, []);
 
   function handleMode(m: ThemeMode) {
     setMode(m);
     applyTheme(m, accent);
-    void pushUserData();
+    void patchUserData({ theme: m, accent });
   }
   function handleAccent(a: AccentColor) {
     setAccent(a);
     applyTheme(mode, a);
-    void pushUserData();
+    void patchUserData({ theme: mode, accent: a });
   }
 
   return (

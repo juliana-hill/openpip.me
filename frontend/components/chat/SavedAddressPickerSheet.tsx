@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { Search, Home, Building2, User, MapPin, ArrowRight, X } from "lucide-react";
-import { idbListAddresses, type SavedAddress } from "@/lib/idb";
+import { listSavedAddresses, type SavedAddress } from "@/lib/userData";
 import type { AddressChip } from "@/components/chat/ContextChip";
 import styles from "./SavedAddressPickerSheet.module.css";
 
@@ -31,7 +31,7 @@ export function SavedAddressPickerSheet({ open, onClose, onConfirm }: Props) {
     setSelectedIds(new Set());
     setQuery("");
     setLoading(true);
-    idbListAddresses().then(setAddresses).finally(() => setLoading(false));
+    listSavedAddresses().then(setAddresses).finally(() => setLoading(false));
   }, [open]);
 
   const filtered = useMemo(() => {

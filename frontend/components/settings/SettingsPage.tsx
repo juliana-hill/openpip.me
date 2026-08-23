@@ -4,7 +4,6 @@ import { AppearanceSection } from "./AppearanceSection";
 import { AgentSection } from "./AgentSection";
 import { AddressSection } from "./AddressSection";
 import { ConnectorSection } from "./ConnectorSection";
-import { DataBackupSection } from "./DataBackupSection";
 import { NotificationSoundSection } from "./NotificationSoundSection";
 import { AgentGuidelinesSection } from "./AgentGuidelinesSection";
 import { AppHeader } from "@/components/app-header";
@@ -47,7 +46,6 @@ export function SettingsPage({ userEmail, userName, userImage }: SettingsPagePro
           <AddressSection />
           <ConnectorSection />
           <NotificationSoundSection />
-          <DataBackupSection />
         </div>
 
         <div style={{ marginTop: 48, paddingTop: 32, borderTop: "1px solid var(--color-border)", display: "flex", justifyContent: "flex-start" }}>
