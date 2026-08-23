@@ -286,3 +286,122 @@ async def fetch_gmail_messages(
 
         messages = [message for message in await asyncio.gather(*(fetch_message(ref) for ref in refs)) if message]
         return messages, int(listing.get("resultSizeEstimate", len(messages)))
+
+
+_PEOPLE_FIELDS = "names,emailAddresses,phoneNumbers,organizations,photos"
+
+
+def _normalize_person(person: dict[str, Any]) -> dict[str, Any] | None:
+    resource_name = person.get("resourceName")
+    if not resource_name:
+        return None
+    names = person.get("names") or []
+    emails = person.get("emailAddresses") or []
+    phones = person.get("phoneNumbers") or []
+    orgs = person.get("organizations") or []
+    photos = person.get("photos") or []
+    name = next((str(n["displayName"]) for n in names if n.get("displayName")), None)
+    if not name:
+        return None
+    org = orgs[0] if orgs else {}
+    return {
+        "resourceName": str(resource_name),
+        "name": name,
+        "email": next((str(e["value"]) for e in emails if e.get("value")), None),
+        "phone": next((str(p["value"]) for p in phones if p.get("value")), None),
+        "company": str(org.get("name")) if org.get("name") else None,
+        "role": str(org.get("title")) if org.get("title") else None,
+        "photoUrl": next((str(p["url"]) for p in photos if p.get("url") and not p.get("default")), None),
+    }
+
+
+async def fetch_google_contacts(access_token: str) -> dict[str, dict[str, Any]]:
+    """Fetch the user's Google Contacts (People API), keyed by resourceName.
+
+    Read-only for this call, even though the OAuth scope also grants write:
+    identity data always comes straight from Google — OpenPip only ever
+    layers CRM fields (status, notes, interactions) on top in Drive app data,
+    never mirrors or edits the Google contact itself from this path.
+    """
+    contacts: dict[str, dict[str, Any]] = {}
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        page_token: str | None = None
+        for _ in range(10):  # ~10k contacts ceiling — a personal CRM, not a bulk export
+            payload = await _get_json(
+                client,
+                "https://people.googleapis.com/v1/people/me/connections",
+                access_token,
+                personFields=_PEOPLE_FIELDS,
+                pageSize=1000,
+                **({"pageToken": page_token} if page_token else {}),
+            )
+            for person in payload.get("connections", []):
+                normalized = _normalize_person(person)
+                if normalized:
+                    contacts[normalized["resourceName"]] = normalized
+            page_token = payload.get("nextPageToken")
+            if not page_token:
+                break
+    return contacts
+
+
+async def fetch_google_contact(access_token: str, resource_name: str) -> dict[str, Any] | None:
+    """Fetch a single Google Contact by resourceName (e.g. 'people/c123')."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        try:
+            payload = await _get_json(
+                client,
+                f"https://people.googleapis.com/v1/{quote(resource_name, safe='/')}",
+                access_token,
+                personFields=_PEOPLE_FIELDS,
+            )
+        except GoogleApiError as error:
+            if error.status_code == 404:
+                return None
+            raise
+    return _normalize_person(payload)
+
+
+async def create_google_contact(
+    access_token: str,
+    *,
+    name: str,
+    email: str | None = None,
+    phone: str | None = None,
+    company: str | None = None,
+    role: str | None = None,
+) -> dict[str, Any]:
+    """Create a new Google Contact. Only ever called from an approved proposal's
+    execution — never from a user-facing form; see docs on the proposal pipeline."""
+    body: dict[str, Any] = {"names": [{"unstructuredName": name}]}
+    if email:
+        body["emailAddresses"] = [{"value": email}]
+    if phone:
+        body["phoneNumbers"] = [{"value": phone}]
+    if company or role:
+        org: dict[str, Any] = {}
+        if company:
+            org["name"] = company
+        if role:
+            org["title"] = role
+        body["organizations"] = [org]
+
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        response = await client.post(
+            "https://people.googleapis.com/v1/people:createContact",
+            params={"personFields": _PEOPLE_FIELDS},
+            json=body,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if not response.is_success:
+            try:
+                payload = response.json()
+                detail = payload.get("error", {}).get("message") or payload.get("error") or response.text
+            except ValueError:
+                detail = response.text
+            raise GoogleApiError(response.status_code, str(detail)[:500])
+        created = response.json()
+    normalized = _normalize_person(created)
+    if not normalized:
+        raise GoogleApiError(500, "Google did not return a usable contact")
+    return normalized

@@ -43,7 +43,7 @@ function timeAgo(iso: string): string {
 export function ContactCard({ contact, onClick }: ContactCardProps) {
   const router = useRouter();
   const initials = contact.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-  const lastSeen = contact.lastInteractionDate ?? contact.updatedAt;
+  const lastSeen = contact.lastInteractionDate ?? contact.updatedAt ?? contact.addedAt;
   const handleClick = () => {
     if (onClick) { onClick(contact); return; }
     router.push(`/network/contacts/${contact.id}`);
@@ -72,19 +72,15 @@ export function ContactCard({ contact, onClick }: ContactCardProps) {
 
       <div className={styles.footer}>
         <p className={styles.footerMeta}>Last: {timeAgo(lastSeen)}</p>
-        {contact.linkedInUrl ? (
-          <a
-            href={contact.linkedInUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className={styles.linkedInLink}
-          >
-            LinkedIn →
-          </a>
-        ) : (
-          <span className={styles.footerMeta}>{contact.source.replace("_", " ")}</span>
-        )}
+        <a
+          href={`https://contacts.google.com/person/${contact.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={styles.linkedInLink}
+        >
+          Google Contacts →
+        </a>
       </div>
     </div>
   );

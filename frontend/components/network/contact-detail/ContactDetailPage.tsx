@@ -32,27 +32,18 @@ function formatInteractionDate(iso: string) {
 }
 
 function ContactInfo({ contact, onPatch }: { contact: Contact; onPatch: (u: Partial<Contact>) => void }) {
-  const [email, setEmail] = useState(contact.email ?? "");
-  const [phone, setPhone] = useState(contact.phone ?? "");
+  // Email/phone are read-only here — they belong to the Google Contact, not
+  // to OpenPip's wrapper data. Edit them in Google Contacts directly; this
+  // page reflects whatever's there, it never writes identity fields back.
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "12px", padding: "16px 0" }}>
       <p style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }}>Contact Info</p>
-      <input
-        className={inputStyles.input}
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        onBlur={() => { if (email !== (contact.email ?? "")) onPatch({ email: email.trim() || undefined }); }}
-      />
-      <input
-        className={inputStyles.input}
-        type="tel"
-        placeholder="Phone / text"
-        value={phone}
-        onChange={(e) => setPhone(e.target.value)}
-        onBlur={() => { if (phone !== (contact.phone ?? "")) onPatch({ phone: phone.trim() || undefined }); }}
-      />
+      {contact.email
+        ? <a href={`mailto:${contact.email}`} className={inputStyles.input} style={{ display: "block", textDecoration: "none", color: "var(--color-text)" }}>{contact.email}</a>
+        : <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No email on file in Google Contacts.</p>}
+      {contact.phone
+        ? <a href={`tel:${contact.phone}`} className={inputStyles.input} style={{ display: "block", textDecoration: "none", color: "var(--color-text)" }}>{contact.phone}</a>
+        : <p style={{ fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }}>No phone on file in Google Contacts.</p>}
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
         <p style={{ fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }}>Preferred channel</p>
         <div style={{ display: "flex", gap: "8px" }}>

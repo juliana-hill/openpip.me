@@ -87,7 +87,7 @@ export type ContactStatus =
   | "meeting_scheduled"
   | "followed_up";
 
-export type ContactSource = "find_people" | "trip" | "manual";
+export type ContactSource = "google_contacts";
 
 export type Interaction = {
   id: string;
@@ -95,6 +95,10 @@ export type Interaction = {
   notes?: string;
 };
 
+// Identity fields (name/role/company/email/phone/photoUrl) always come from
+// the user's Google Contacts — this app never stores or edits them. Only the
+// CRM fields below (status/notes/interactions/preferredContact/
+// followUpCadence) are OpenPip's own, kept as wrapper data in Drive app data.
 export type Contact = {
   id: string;
   name: string;
@@ -102,7 +106,7 @@ export type Contact = {
   company: string;
   email?: string;
   phone?: string;
-  linkedInUrl?: string;
+  photoUrl?: string;
   preferredContact?: "email" | "linkedin" | "text";
   source: ContactSource;
   status: ContactStatus;
@@ -110,19 +114,8 @@ export type Contact = {
   lastInteractionDate?: string;
   interactions?: Interaction[];
   followUpCadence?: string;
-  automationId?: string;
-  linkedInProfile?: {
-    name: string | null;
-    headline: string | null;
-    currentRole: string | null;
-    currentCompany: string | null;
-    location: string | null;
-    summary: string | null;
-    scrapedAt: string;
-  };
-  addedAt: string;
-  updatedAt: string;
-  deletedAt?: string;
+  addedAt?: string;
+  updatedAt?: string;
 };
 
 export type TimelineEntryType = "work" | "education" | "certification" | "award" | "club" | "project";

@@ -89,6 +89,13 @@ async def read_drive_app_data(access_token: str) -> dict[str, Any]:
         "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [],
         "messageTags": payload.get("messageTags") if isinstance(payload.get("messageTags"), dict) else {},
         "userData": payload.get("userData") if isinstance(payload.get("userData"), dict) else {},
+        # Keyed by Google People resourceName (e.g. "people/c123...") — CRM
+        # fields layered on top of a Google Contact: status, notes,
+        # interactions, preferredContact, followUpCadence. A contact only
+        # appears here once something has started tracking it; identity
+        # fields (name/email/phone/company) always come from Google itself,
+        # never duplicated into this document.
+        "contacts": payload.get("contacts") if isinstance(payload.get("contacts"), dict) else {},
     }
 
 
@@ -99,6 +106,7 @@ async def write_drive_app_data(access_token: str, data: dict[str, Any]) -> dict[
         "tags": data.get("tags") if isinstance(data.get("tags"), list) else [],
         "messageTags": data.get("messageTags") if isinstance(data.get("messageTags"), dict) else {},
         "userData": data.get("userData") if isinstance(data.get("userData"), dict) else {},
+        "contacts": data.get("contacts") if isinstance(data.get("contacts"), dict) else {},
     }
     encoded = json.dumps(payload, separators=(",", ":"))
     async with _write_lock:

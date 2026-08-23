@@ -1,18 +1,12 @@
 import {
-  Button_default
-} from "./chunk-QLVTPJOM.js";
-import {
-  ExternalLink,
-  Plus,
   User,
-  Users,
   proxyFetch,
   redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-2OHSVDHZ.js";
+} from "./chunk-YQDVQL7K.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -78,7 +72,7 @@ function timeAgo(iso) {
 function ContactCard({ contact, onClick }) {
   const router = useRouter();
   const initials = contact.name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-  const lastSeen = contact.lastInteractionDate ?? contact.updatedAt;
+  const lastSeen = contact.lastInteractionDate ?? contact.updatedAt ?? contact.addedAt;
   const handleClick = () => {
     if (onClick) {
       onClick(contact);
@@ -107,17 +101,17 @@ function ContactCard({ contact, onClick }) {
         "Last: ",
         timeAgo(lastSeen)
       ] }),
-      contact.linkedInUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+      /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
         "a",
         {
-          href: contact.linkedInUrl,
+          href: `https://contacts.google.com/person/${contact.id}`,
           target: "_blank",
           rel: "noopener noreferrer",
           onClick: (e) => e.stopPropagation(),
           className: ContactCard_default.linkedInLink,
-          children: "LinkedIn \u2192"
+          children: "Google Contacts \u2192"
         }
-      ) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: ContactCard_default.footerMeta, children: contact.source.replace("_", " ") })
+      )
     ] })
   ] });
 }
@@ -195,19 +189,6 @@ function ContactsBoard() {
   const [contacts, setContacts] = (0, import_react.useState)([]);
   const [loading, setLoading] = (0, import_react.useState)(true);
   const [activeStatus, setActiveStatus] = (0, import_react.useState)("all");
-  const [adding, setAdding] = (0, import_react.useState)(false);
-  const [newName, setNewName] = (0, import_react.useState)("");
-  const [newRole, setNewRole] = (0, import_react.useState)("");
-  const [newCompany, setNewCompany] = (0, import_react.useState)("");
-  const [newLinkedIn, setNewLinkedIn] = (0, import_react.useState)("");
-  const [newEmail, setNewEmail] = (0, import_react.useState)("");
-  const [saving, setSaving] = (0, import_react.useState)(false);
-  const [searchCompany, setSearchCompany] = (0, import_react.useState)("");
-  const [searchRole, setSearchRole] = (0, import_react.useState)("");
-  const [searching, setSearching] = (0, import_react.useState)(false);
-  const [searchResults, setSearchResults] = (0, import_react.useState)([]);
-  const [searchError, setSearchError] = (0, import_react.useState)(false);
-  const [showSearch, setShowSearch] = (0, import_react.useState)(false);
   const fetchContacts = (0, import_react.useCallback)(async () => {
     try {
       const res = await proxyFetch("/agent/career/contacts");
@@ -221,120 +202,16 @@ function ContactsBoard() {
   (0, import_react.useEffect)(() => {
     fetchContacts();
   }, [fetchContacts]);
-  const handleAdd = (0, import_react.useCallback)(async () => {
-    if (!newName.trim() || !newRole.trim() || !newCompany.trim()) return;
-    setSaving(true);
-    try {
-      const res = await proxyFetch("/agent/career/contacts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newName.trim(),
-          role: newRole.trim(),
-          company: newCompany.trim(),
-          email: newEmail.trim() || void 0,
-          linkedInUrl: newLinkedIn.trim() || void 0,
-          source: "manual"
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.contact) setContacts((prev) => [data.contact, ...prev]);
-        setNewName("");
-        setNewRole("");
-        setNewCompany("");
-        setNewEmail("");
-        setNewLinkedIn("");
-        setAdding(false);
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [newName, newRole, newCompany, newEmail, newLinkedIn]);
-  const handleSaveFromSearch = (0, import_react.useCallback)(async (result) => {
-    const res = await proxyFetch("/agent/career/contacts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: result.name,
-        role: result.title ?? "Unknown role",
-        company: result.company ?? searchCompany,
-        linkedInUrl: result.url ?? void 0,
-        source: "find_people"
-      })
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.contact) setContacts((prev) => [data.contact, ...prev]);
-    }
-  }, [searchCompany]);
-  const handleSearch = (0, import_react.useCallback)(async () => {
-    if (!searchCompany.trim()) return;
-    setSearching(true);
-    setSearchError(false);
-    setSearchResults([]);
-    try {
-      const res = await proxyFetch("/agent/career/find-people", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ company: searchCompany.trim(), role: searchRole.trim() })
-      });
-      if (!res.ok) {
-        setSearchError(true);
-        setSearching(false);
-        return;
-      }
-      const { jobId } = await res.json();
-      const sw = await navigator.serviceWorker.ready;
-      sw.active?.postMessage({ type: "START_FIND_PEOPLE_POLL", jobId });
-      const bc = new BroadcastChannel("route-jobs");
-      bc.addEventListener("message", function onMsg(e) {
-        const msg = e.data;
-        if (msg.type !== "FIND_PEOPLE_UPDATE" || msg.jobId !== jobId) return;
-        if (msg.status === "completed") {
-          setSearchResults((msg.contacts ?? []).slice(0, 8));
-          setSearching(false);
-          bc.removeEventListener("message", onMsg);
-          bc.close();
-        } else if (msg.status === "failed") {
-          setSearchError(true);
-          setSearching(false);
-          bc.removeEventListener("message", onMsg);
-          bc.close();
-        }
-      });
-    } catch {
-      setSearchError(true);
-      setSearching(false);
-    }
-  }, [searchCompany, searchRole]);
   const filtered = activeStatus === "all" ? contacts : contacts.filter((c) => c.status === activeStatus);
   return /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.board, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.topBar, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { className: JobsBoard_default.heading, children: "Contacts" }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.subRow, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: JobsBoard_default.subLabel, children: [
-          contacts.length,
-          " contact",
-          contacts.length !== 1 ? "s" : ""
-        ] }) })
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.actions, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-        "button",
-        {
-          type: "button",
-          className: JobsBoard_default.actionBtn,
-          onClick: () => {
-            setShowSearch((v) => !v);
-            setAdding(false);
-          },
-          children: [
-            /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Users, { style: { width: 14, height: 14 } }),
-            " Network Search"
-          ]
-        }
-      ) })
-    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.topBar, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { children: [
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("h2", { className: JobsBoard_default.heading, children: "Contacts" }),
+      /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.subRow, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { className: JobsBoard_default.subLabel, children: [
+        contacts.length,
+        " contact",
+        contacts.length !== 1 ? "s" : ""
+      ] }) })
+    ] }) }),
     /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.tabs, children: STATUS_FILTERS.map(({ value, label }) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
       "button",
       {
@@ -345,118 +222,9 @@ function ContactsBoard() {
       },
       value
     )) }),
-    showSearch && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addForm, style: { marginBottom: 16 }, children: [
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addFields, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "input",
-          {
-            autoFocus: true,
-            placeholder: "Company name",
-            value: searchCompany,
-            onChange: (e) => setSearchCompany(e.target.value),
-            onKeyDown: (e) => {
-              if (e.key === "Enter") handleSearch();
-            },
-            className: JobsBoard_default.addInput
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "input",
-          {
-            placeholder: "Role (optional)",
-            value: searchRole,
-            onChange: (e) => setSearchRole(e.target.value),
-            onKeyDown: (e) => {
-              if (e.key === "Enter") handleSearch();
-            },
-            className: JobsBoard_default.addInput
-          }
-        )
-      ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addBtns, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(
-          "button",
-          {
-            type: "button",
-            className: `${Button_default.btn} ${Button_default.primary} ${Button_default.sm}`,
-            onClick: handleSearch,
-            disabled: searching || !searchCompany.trim(),
-            children: [
-              /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Users, { size: 13 }),
-              " ",
-              searching ? "Searching\u2026" : "Find People"
-            ]
-          }
-        ),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "button",
-          {
-            type: "button",
-            className: `${Button_default.btn} ${Button_default.ghost} ${Button_default.sm}`,
-            onClick: () => {
-              setShowSearch(false);
-              setSearchResults([]);
-              setSearchCompany("");
-              setSearchRole("");
-            },
-            children: "Cancel"
-          }
-        )
-      ] }),
-      searchError && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { style: { fontSize: "var(--font-size-xs)", color: "#e5383b", margin: "8px 0 0" }, children: "Couldn't find people \u2014 try searching on LinkedIn directly." }),
-      searchResults.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }, children: searchResults.map((r, i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: "var(--color-bg)", borderRadius: 10, border: "1px solid var(--color-border)" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { style: { width: 32, height: 32, borderRadius: 8, background: "var(--color-surface)", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: "var(--font-size-sm)", color: "var(--color-accent)", flexShrink: 0 }, children: r.name.charAt(0).toUpperCase() }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { style: { flex: 1, minWidth: 0 }, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { style: { margin: 0, fontWeight: 700, fontSize: "var(--font-size-sm)", color: "var(--color-text)" }, children: r.name }),
-          r.title && /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("p", { style: { margin: 0, fontSize: "var(--font-size-xs)", color: "var(--color-text-muted)" }, children: [
-            r.title,
-            r.company ? ` \xB7 ${r.company}` : ""
-          ] })
-        ] }),
-        r.url && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("a", { href: r.url, target: "_blank", rel: "noopener noreferrer", style: { color: "var(--color-text-muted)", display: "flex" }, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ExternalLink, { size: 13 }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(
-          "button",
-          {
-            type: "button",
-            className: `${Button_default.btn} ${Button_default.secondary} ${Button_default.sm}`,
-            onClick: () => handleSaveFromSearch(r),
-            children: "Save"
-          }
-        )
-      ] }, i)) })
-    ] }),
     loading ? /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.skeletonGrid, children: [1, 2, 3, 4].map((i) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.skeleton }, i)) }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)(import_jsx_runtime2.Fragment, { children: [
-      !adding ? /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addPrompt, onClick: () => {
-        setAdding(true);
-        setShowSearch(false);
-      }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.addIcon, children: /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(Plus, { style: { width: 16, height: 16 } }) }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { className: JobsBoard_default.addLabel, children: "Add Contact" })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addForm, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addFields, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { autoFocus: true, placeholder: "Name *", value: newName, onChange: (e) => setNewName(e.target.value), className: JobsBoard_default.addInput }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { placeholder: "Role *", value: newRole, onChange: (e) => setNewRole(e.target.value), className: JobsBoard_default.addInput }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { placeholder: "Company *", value: newCompany, onChange: (e) => setNewCompany(e.target.value), className: JobsBoard_default.addInput }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { placeholder: "Email", type: "email", value: newEmail, onChange: (e) => setNewEmail(e.target.value), className: JobsBoard_default.addInput }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("input", { placeholder: "LinkedIn URL", value: newLinkedIn, onChange: (e) => setNewLinkedIn(e.target.value), onKeyDown: (e) => {
-            if (e.key === "Enter") handleAdd();
-            if (e.key === "Escape") setAdding(false);
-          }, className: JobsBoard_default.addInput })
-        ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime2.jsxs)("div", { className: JobsBoard_default.addBtns, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: `${Button_default.btn} ${Button_default.primary} ${Button_default.sm}`, onClick: handleAdd, disabled: saving || !newName.trim() || !newRole.trim() || !newCompany.trim(), children: saving ? "Saving\u2026" : "Add" }),
-          /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("button", { type: "button", className: `${Button_default.btn} ${Button_default.ghost} ${Button_default.sm}`, onClick: () => {
-            setAdding(false);
-            setNewName("");
-            setNewRole("");
-            setNewCompany("");
-            setNewEmail("");
-            setNewLinkedIn("");
-          }, children: "Cancel" })
-        ] })
-      ] }),
       filtered.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("div", { className: JobsBoard_default.jobGrid, children: filtered.map((c) => /* @__PURE__ */ (0, import_jsx_runtime2.jsx)(ContactCard, { contact: c }, c.id)) }),
-      filtered.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { style: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", marginTop: 8 }, children: contacts.length === 0 ? "No contacts yet \u2014 add one or run a network search." : "No contacts with this status." })
+      filtered.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime2.jsx)("p", { style: { color: "var(--color-text-muted)", fontSize: "var(--font-size-sm)", marginTop: 8 }, children: contacts.length === 0 ? "No contacts tracked yet \u2014 the agent will propose adding someone here once it's worth following up with." : "No contacts with this status." })
     ] })
   ] });
 }

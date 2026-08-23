@@ -54,11 +54,15 @@ export function ContactHeader({ contact }: ContactHeaderProps) {
                 {contact.email}
               </a>
             )}
-            {contact.linkedInUrl && (
-              <a href={contact.linkedInUrl} target="_blank" rel="noopener noreferrer" className={styles.urlLink}>
-                <ExternalLink size={13} />
-              </a>
-            )}
+            <a
+              href={`https://contacts.google.com/person/${contact.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.urlLink}
+              title="Open in Google Contacts"
+            >
+              <ExternalLink size={13} />
+            </a>
           </div>
         </div>
         <div className={styles.badges}>

@@ -64,6 +64,13 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/drive.appdata",
+    # Read + write, not contacts.readonly: the Networking tracker treats Google
+    # Contacts as the identity source of truth, and per-contact CRM data
+    # (status/notes/interactions) lives in Drive app data — but adding someone
+    # new is the agent's job (a proposal the user approves, never a form the
+    # user fills out), and executing that proposal means actually creating the
+    # Google Contact via the People API. Read-only would only cover half of that.
+    "https://www.googleapis.com/auth/contacts",
 ]
 
 SESSION_HEADER = "X-OpenPip-Session"

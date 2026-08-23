@@ -1,18 +1,18 @@
 import {
   TrippyIcon
-} from "./chunk-BITHCFMS.js";
+} from "./chunk-2WTVMOSB.js";
 import {
   Input_default
 } from "./chunk-VZUAWI7R.js";
+import {
+  Button_default
+} from "./chunk-QLVTPJOM.js";
 import {
   AppHeader,
   Link,
   Markdown,
   remarkGfm
-} from "./chunk-QENHA2LX.js";
-import {
-  Button_default
-} from "./chunk-QLVTPJOM.js";
+} from "./chunk-ZJ44CDQL.js";
 import {
   ArrowLeft,
   Calendar,
@@ -38,7 +38,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-2OHSVDHZ.js";
+} from "./chunk-YQDVQL7K.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -118,7 +118,17 @@ function ContactHeader({ contact }) {
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "\xB7" }),
           /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: contact.role }),
           contact.email && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: `mailto:${contact.email}`, className: JobHeader_default.urlLink, title: contact.email, children: contact.email }),
-          contact.linkedInUrl && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", { href: contact.linkedInUrl, target: "_blank", rel: "noopener noreferrer", className: JobHeader_default.urlLink, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 13 }) })
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)(
+            "a",
+            {
+              href: `https://contacts.google.com/person/${contact.id}`,
+              target: "_blank",
+              rel: "noopener noreferrer",
+              className: JobHeader_default.urlLink,
+              title: "Open in Google Contacts",
+              children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ExternalLink, { size: 13 })
+            }
+          )
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: JobHeader_default.badges, children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: JobHeader_default.statusBadge, style: { background: statusStyle.bg, color: statusStyle.color }, children: STATUS_LABELS[contact.status] ?? contact.status }) })
@@ -478,36 +488,10 @@ function formatInteractionDate(iso) {
   return d.toLocaleString("en-CA", { dateStyle: "medium", timeStyle: "short" });
 }
 function ContactInfo({ contact, onPatch }) {
-  const [email, setEmail] = (0, import_react5.useState)(contact.email ?? "");
-  const [phone, setPhone] = (0, import_react5.useState)(contact.phone ?? "");
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px 0" }, children: [
     /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }, children: "Contact Info" }),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-      "input",
-      {
-        className: Input_default.input,
-        type: "email",
-        placeholder: "Email",
-        value: email,
-        onChange: (e) => setEmail(e.target.value),
-        onBlur: () => {
-          if (email !== (contact.email ?? "")) onPatch({ email: email.trim() || void 0 });
-        }
-      }
-    ),
-    /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
-      "input",
-      {
-        className: Input_default.input,
-        type: "tel",
-        placeholder: "Phone / text",
-        value: phone,
-        onChange: (e) => setPhone(e.target.value),
-        onBlur: () => {
-          if (phone !== (contact.phone ?? "")) onPatch({ phone: phone.trim() || void 0 });
-        }
-      }
-    ),
+    contact.email ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("a", { href: `mailto:${contact.email}`, className: Input_default.input, style: { display: "block", textDecoration: "none", color: "var(--color-text)" }, children: contact.email }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }, children: "No email on file in Google Contacts." }),
+    contact.phone ? /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("a", { href: `tel:${contact.phone}`, className: Input_default.input, style: { display: "block", textDecoration: "none", color: "var(--color-text)" }, children: contact.phone }) : /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "12px", color: "var(--color-text-muted)", margin: 0 }, children: "No phone on file in Google Contacts." }),
     /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: "6px" }, children: [
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("p", { style: { fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--color-text-muted)", margin: 0 }, children: "Preferred channel" }),
       /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("div", { style: { display: "flex", gap: "8px" }, children: CHANNELS.map(({ value, label }) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(

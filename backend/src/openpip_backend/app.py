@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -17,6 +18,8 @@ from .google_workspace import (
     GoogleApiError,
     fetch_gmail_messages,
     fetch_google_calendars,
+    fetch_google_contact,
+    fetch_google_contacts,
     fetch_google_drive_files,
     fetch_google_notebook_pages,
     fetch_google_tasks,
@@ -374,6 +377,108 @@ async def google_drive_files(
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"files": files}
+
+
+def _contact_resource_name(contact_id: str) -> str:
+    return contact_id if contact_id.startswith("people/") else f"people/{contact_id}"
+
+
+def _merge_contact(resource_name: str, person: dict[str, Any] | None, entry: dict[str, Any]) -> dict[str, Any]:
+    """Combine a Google Contact's identity fields with our own CRM wrapper
+    fields into the shape the frontend's Contact type expects. Identity
+    (name/email/phone/company/role) always wins from Google; everything else
+    (status/notes/interactions/...) always comes from the wrapper entry."""
+    person = person or {}
+    return {
+        "id": resource_name.removeprefix("people/"),
+        "name": person.get("name") or entry.get("name") or "Unknown",
+        "role": person.get("role") or "",
+        "company": person.get("company") or "",
+        "email": person.get("email"),
+        "phone": person.get("phone"),
+        "photoUrl": person.get("photoUrl"),
+        "preferredContact": entry.get("preferredContact"),
+        "source": entry.get("source", "google_contacts"),
+        "status": entry.get("status", "not_contacted"),
+        "notes": entry.get("notes"),
+        "lastInteractionDate": entry.get("lastInteractionDate"),
+        "interactions": entry.get("interactions", []),
+        "followUpCadence": entry.get("followUpCadence"),
+        "addedAt": entry.get("addedAt"),
+        "updatedAt": entry.get("updatedAt"),
+    }
+
+
+@app.get("/agent/career/contacts")
+async def career_contacts(token: str = Depends(get_google_token)):
+    """List the contacts currently being tracked — i.e. every Google Contact
+    that has a CRM wrapper entry in Drive app data. This is deliberately not
+    the user's whole address book: someone becomes "tracked" only once the
+    agent proposes adding them (approved, then executed), never through a
+    form here."""
+    try:
+        google_contacts, data = await asyncio.gather(
+            fetch_google_contacts(token),
+            read_drive_app_data(token),
+        )
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    wrapper = data.get("contacts", {})
+    contacts = [
+        _merge_contact(resource_name, google_contacts.get(resource_name), entry)
+        for resource_name, entry in wrapper.items()
+        if resource_name in google_contacts  # dropped/merged in Google since — nothing to show
+    ]
+    contacts.sort(key=lambda c: c.get("updatedAt") or "", reverse=True)
+    return {"contacts": contacts}
+
+
+@app.patch("/agent/career/contacts/{contact_id}")
+async def update_career_contact(contact_id: str, payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Update CRM wrapper fields only — status, notes, a logged interaction,
+    preferred channel, follow-up cadence. Identity fields are never editable
+    here; they live in Google Contacts."""
+    resource_name = _contact_resource_name(contact_id)
+    try:
+        data = await read_drive_app_data(token)
+        contacts = data.get("contacts", {})
+        entry = contacts.get(resource_name)
+        if entry is None:
+            raise HTTPException(status_code=404, detail="Contact is not being tracked")
+        now = datetime.now(UTC).isoformat()
+        for field in ("status", "notes", "preferredContact", "followUpCadence"):
+            if field in payload:
+                entry[field] = payload[field]
+        interaction = payload.get("addInteraction")
+        if isinstance(interaction, dict):
+            entry.setdefault("interactions", []).append(interaction)
+            entry["lastInteractionDate"] = interaction.get("date") or now
+        entry["updatedAt"] = now
+        contacts[resource_name] = entry
+        data["contacts"] = contacts
+        await write_drive_app_data(token, data)
+        person = await fetch_google_contact(token, resource_name)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"contact": _merge_contact(resource_name, person, entry)}
+
+
+@app.delete("/agent/career/contacts/{contact_id}")
+async def stop_tracking_contact(contact_id: str, token: str = Depends(get_google_token)):
+    """Stop tracking a contact — removes the CRM wrapper entry only. The
+    underlying Google Contact is never touched."""
+    resource_name = _contact_resource_name(contact_id)
+    try:
+        data = await read_drive_app_data(token)
+        contacts = data.get("contacts", {})
+        if resource_name not in contacts:
+            raise HTTPException(status_code=404, detail="Contact is not being tracked")
+        del contacts[resource_name]
+        data["contacts"] = contacts
+        await write_drive_app_data(token, data)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
 
 
 @app.get("/agent/inbox/messages")
