@@ -328,9 +328,13 @@ function DashboardPage({ userName, userImage }) {
       setTasks(top3Urgent);
       setTasksLoading(false);
       const briefTasks = [
-        ...googleTasks.filter((t) => localTaskDate(t.dueDate)?.toDateString() === today2).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" }))
+        ...googleTasks.filter((t) => {
+          const tier = dateUrgencyTier(t.dueDate);
+          return tier === 0 || tier === 1;
+        }).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" }))
       ];
-      return { briefTasks, briefEvents: [] };
+      const briefEvents = (calendarData.calendars ?? []).flatMap((calendarItem) => (calendarItem.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).map((event) => ({ title: event.title ?? "Calendar event", start: event.start })));
+      return { briefTasks, briefEvents };
     }
     async function loadBrief(briefTasks, briefEvents) {
       try {

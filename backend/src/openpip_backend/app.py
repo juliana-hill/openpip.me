@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from .agent import create_briefing
+from .agent import DAILY_QUOTES, create_briefing, discover_quote_via_grounding
 from .executor import ActionExecutor, MockActionExecutor
 from .demo_data import demo_contacts, demo_request
 from .models import BriefingRequest, BriefingResponse, Proposal, ProposalDecision, ProposalStatus, UserContext, UserPreferences
@@ -45,6 +45,7 @@ app.add_middleware(
 )
 _database_path = os.getenv("OPENPIP_DATABASE_PATH", "./data/openpip.sqlite3")
 store = ProposalStore(_database_path)
+store.seed_quotes(list(DAILY_QUOTES))
 oauth_sessions = OAuthSessionStore(_database_path)
 executor: ActionExecutor = MockActionExecutor()
 
@@ -168,6 +169,21 @@ def _google_error(error: GoogleApiError) -> HTTPException:
 def briefing(request: BriefingRequest) -> BriefingResponse:
     text, generated_by, proposals_created = create_briefing(request, store, store.get_user_context())
     return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
+
+
+@app.post("/api/quotes/discover")
+def discover_quote() -> dict[str, Any]:
+    """Ask Nova (Web Grounding enabled) for one real, verifiable quote and add
+    it to the pool if it's new. Deliberately a separate, manually-triggered
+    endpoint — never called as part of a regular Daily Briefing request, so
+    routine briefings never spend a grounding-enabled model call on this.
+    """
+    try:
+        quote, sources = discover_quote_via_grounding()
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"Quote discovery failed: {error}") from error
+    is_new = store.add_quote_if_new(quote, sources)
+    return {"quote": quote, "sources": sources, "is_new": is_new}
 
 
 @app.post("/api/demo/briefing", response_model=BriefingResponse)

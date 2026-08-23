@@ -88,7 +88,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
     async function loadTasks() {
       type GoogleTask = { title: string; priority?: string; dueDate?: string | null };
-      type Calendar = { events?: Array<{ start?: string }> };
+      type Calendar = { events?: Array<{ title?: string; start?: string }> };
       const [googleTasksRes, calendarRes, inboxRes] = await Promise.all([
         proxyFetch("/agent/google/tasks"),
         proxyFetch("/agent/calendars?days=1"),
@@ -161,13 +161,21 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       setTasks(top3Urgent);
       setTasksLoading(false);
 
-      // Build brief payload from the data we already have
+      // Build brief payload from the data we already have. Overdue tasks
+      // (tier 0) belong in the briefing just as much as tasks due today
+      // (tier 1) — a briefing that only looked at "due today" would silently
+      // drop anything overdue, which is exactly the work that most needs
+      // surfacing.
       const briefTasks: BriefTask[] = [
         ...googleTasks
-          .filter((t) => localTaskDate(t.dueDate)?.toDateString() === today)
+          .filter((t) => { const tier = dateUrgencyTier(t.dueDate); return tier === 0 || tier === 1; })
           .map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" })),
       ];
-      return { briefTasks, briefEvents: [] as BriefEvent[] };
+      const briefEvents: BriefEvent[] = (calendarData.calendars ?? [])
+        .flatMap((calendarItem) => (calendarItem.events ?? [])
+          .filter((event) => event.start && new Date(event.start).toDateString() === todayDate)
+          .map((event) => ({ title: event.title ?? "Calendar event", start: event.start! })));
+      return { briefTasks, briefEvents };
     }
 
     async function loadBrief(briefTasks: BriefTask[], briefEvents: BriefEvent[]) {

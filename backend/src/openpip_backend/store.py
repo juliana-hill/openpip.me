@@ -41,6 +41,13 @@ class ProposalStore:
                 agent_name TEXT NOT NULL, agent_icon TEXT, theme TEXT NOT NULL,
                 accent TEXT NOT NULL, updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS quotes (
+                id TEXT PRIMARY KEY,
+                text TEXT NOT NULL UNIQUE,
+                sources_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL,
+                last_shown_at TEXT
+            );
             """
         )
         self._connection.commit()
@@ -122,6 +129,59 @@ class ProposalStore:
         )
         self._connection.commit()
         return self.get_preferences()
+
+    def seed_quotes(self, seed: list[str]) -> None:
+        """Idempotent: only inserts quotes that aren't already present (by
+        exact text). Safe to call on every startup."""
+        now_iso = now().isoformat()
+        for text in seed:
+            self._connection.execute(
+                "INSERT OR IGNORE INTO quotes (id, text, sources_json, created_at) VALUES (?, ?, '[]', ?)",
+                (f"quote_{abs(hash(text))}", text, now_iso),
+            )
+        self._connection.commit()
+
+    def add_quote_if_new(self, text: str, sources: list[str] | None = None) -> bool:
+        """Record a quote the model discovered via web grounding, if it isn't
+        already in the pool. Returns whether it was actually new."""
+        cursor = self._connection.execute(
+            "INSERT OR IGNORE INTO quotes (id, text, sources_json, created_at) VALUES (?, ?, ?, ?)",
+            (f"quote_{abs(hash(text))}", text, json.dumps(sources or []), now().isoformat()),
+        )
+        self._connection.commit()
+        return cursor.rowcount > 0
+
+    def recent_quotes(self, limit: int = 5) -> list[str]:
+        """Most recently shown quotes, for a briefing prompt's own "avoid
+        repeating these" instruction — not the whole pool."""
+        rows = self._connection.execute(
+            "SELECT text FROM quotes WHERE last_shown_at IS NOT NULL ORDER BY last_shown_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [row["text"] for row in rows]
+
+    def pick_random_quote(self, exclude_recent: int = 3) -> str | None:
+        """Random quote from the pool, avoiding the N most recently shown so
+        consecutive briefings don't repeat one back-to-back. No LLM call —
+        this is the path every regular briefing uses."""
+        recent = set(self.recent_quotes(exclude_recent))
+        placeholders = ",".join("?" for _ in recent)
+        query = "SELECT text FROM quotes"
+        params: tuple[str, ...] = ()
+        if recent:
+            query += f" WHERE text NOT IN ({placeholders})"
+            params = tuple(recent)
+        row = self._connection.execute(f"{query} ORDER BY RANDOM() LIMIT 1", params).fetchone()
+        if not row and recent:
+            # Every quote is in the "recently shown" set (a small pool) —
+            # fall back to picking from the full table rather than returning
+            # nothing.
+            row = self._connection.execute("SELECT text FROM quotes ORDER BY RANDOM() LIMIT 1").fetchone()
+        return row["text"] if row else None
+
+    def mark_quote_shown(self, text: str) -> None:
+        self._connection.execute("UPDATE quotes SET last_shown_at = ? WHERE text = ?", (now().isoformat(), text))
+        self._connection.commit()
 
     def audit_events(self, proposal_id: str) -> list[AuditEvent]:
         rows = self._connection.execute(

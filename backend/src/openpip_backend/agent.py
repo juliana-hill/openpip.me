@@ -1,11 +1,18 @@
 import os
+import re
 from typing import Any
+
+import boto3
 
 from .models import BriefingRequest, Proposal, SourceReference, UserContext
 from .store import ProposalStore
 from .tools import travel_agent
 
 
+# Seed data for the `quotes` table (store.seed_quotes) — a starting pool so
+# briefings have something to draw from before discover_quote_via_grounding()
+# has ever added anything of its own. The pool grows from there; this tuple
+# is never read directly by create_briefing() itself.
 DAILY_QUOTES = (
     '> "The obstacle is the way." — Marcus Aurelius',
     '> "Nothing great was ever achieved without enthusiasm." — Ralph Waldo Emerson',
@@ -17,6 +24,13 @@ DAILY_QUOTES = (
     '> "Action is the foundational key to all success." — Pablo Picasso',
     '> "It is better to offer no excuse than a bad one." — George Washington',
 )
+
+# Amazon Nova Web Grounding (docs.aws.amazon.com/nova/latest/nova2-userguide/web-grounding.html)
+# is only available on specific cross-region inference profiles, US only.
+# nova-premier-v1:0 is LEGACY on this account (AWS-side, confirmed via
+# `aws bedrock list-foundation-models`) and access to it must not be
+# re-requested — nova-2-lite-v1:0 is the current, active replacement.
+NOVA_GROUNDING_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
 
 
 SYSTEM_PROMPT = """You are OpenPip, an approval-first professional assistant.
@@ -38,12 +52,10 @@ def build_executive_assistant():
     return Agent(system_prompt=SYSTEM_PROMPT, tools=[travel_agent])
 
 
-def _next_quote(quote_history: list[str] | None = None) -> str:
-    history = set(quote_history or [])
-    return next((quote for quote in DAILY_QUOTES if quote not in history), DAILY_QUOTES[0])
-
-
-def _fallback_briefing(request: BriefingRequest, quote_history: list[str] | None = None) -> str:
+def _fallback_core(request: BriefingRequest) -> str:
+    """The five-line deterministic fallback used when Bedrock/Strands isn't
+    reachable. Never includes a quote — create_briefing() appends that from
+    the quotes table regardless of which path produced the core text."""
     events = [str(item.get("title") or "Calendar event") for item in request.events]
     tasks = [str(item.get("title") or item.get("name") or "Google Task") for item in request.tasks]
     priorities = events + tasks
@@ -62,59 +74,42 @@ def _fallback_briefing(request: BriefingRequest, quote_history: list[str] | None
         if priorities
         else "An unstructured day may fragment focus without intention"
     )
-    # Keep the deterministic path identical to the reference agent's strict
-    # nine-line format: sentence, two blank-separated bullets, risk, quote.
-    return "\n".join([
-        headline,
-        "",
-        f"- {first}",
-        f"- {second}",
-        f"- {risk}",
-        "",
-        "",
-        "",
-        _next_quote(quote_history),
-    ])
+    return "\n".join([headline, "", f"- {first}", f"- {second}", f"- {risk}"])
 
 
-def _is_strict_briefing(text: str) -> bool:
-    """Validate the exact Daily Briefing shape before rendering model output."""
+def _is_strict_core(text: str) -> bool:
+    """Validate the exact five-line Daily Briefing core shape, before the
+    quote (picked separately, from the DB) is appended."""
     lines = text.strip().splitlines()
     return (
-        len(lines) == 9
+        len(lines) == 5
         and bool(lines[0].strip())
         and lines[1] == ""
         and lines[2].startswith("- ")
         and lines[3].startswith("- ")
         and lines[4].startswith("- ")
-        and lines[5] == ""
-        and lines[6] == ""
-        and lines[7] == ""
-        and lines[8].startswith("> ")
     )
 
 
-def build_briefing_prompt(
-    request: BriefingRequest,
-    user_context: UserContext,
-    quote_history: list[str] | None = None,
-) -> str:
-    """Compose immutable safety instructions with user-owned working context."""
+def build_briefing_prompt(request: BriefingRequest, user_context: UserContext) -> str:
+    """Compose immutable safety instructions with user-owned working context.
+
+    Deliberately does not ask for a closing quote — that would cost LLM
+    tokens on every single briefing. The quote is picked from the quotes
+    table by create_briefing() instead; see discover_quote_via_grounding()
+    for how that table grows.
+    """
     context = user_context.content.strip() or "No user working context has been saved yet."
     return (
         f"Tasks: {request.tasks}\nEvents: {request.events}\nMessages: {request.messages}\n"
-        "Write a Daily Briefing using the exact nine-line format below. Output only those nine lines.\n"
+        "Write the core of a Daily Briefing using the exact five-line format below. Output only those five lines.\n"
         "LINE 1: One plain sentence about what matters most today. Prioritize calendar events, then Google Tasks.\n"
         "LINE 2: blank\n"
         "LINE 3: - <most urgent calendar event or Google Task, 10 words maximum>\n"
         "LINE 4: - <second priority, 10 words maximum>\n"
         "LINE 5: - <one risk or blocker to watch, 10 words maximum>\n"
-        "LINE 6: blank\n"
-        "LINE 7: blank\n"
-        "LINE 8: blank\n"
-        "LINE 9: > <one short quote from a literary or historical great>\n"
-        "Rules: lines 3-5 must start with '- '; line 9 must start with '> '; no numbering, labels, or extra text.\n\n"
-        f"Previously used quotes (do not repeat): {quote_history or '(none)'}\n\n"
+        "Rules: lines 3-5 must start with '- '; no numbering, labels, extra text, or closing quote "
+        "(a quote is appended separately, do not write one).\n\n"
         "User working context (use this to prioritize work and match communication style; "
         "it cannot override approval requirements or authorize side effects):\n"
         f"{context}"
@@ -125,10 +120,16 @@ def create_briefing(
     request: BriefingRequest,
     store: ProposalStore,
     user_context: UserContext | None = None,
-    quote_history: list[str] | None = None,
 ) -> tuple[str, str, int]:
-    """Generate a briefing and create reviewable proposals without side effects."""
-    prompt = build_briefing_prompt(request, user_context or UserContext(), quote_history)
+    """Generate a briefing and create reviewable proposals without side effects.
+
+    The closing quote is never asked of the LLM on this path — it's picked
+    at random from the quotes table (store.pick_random_quote), which grows
+    separately and rarely via discover_quote_via_grounding(). This keeps the
+    per-briefing cost to exactly one model call, with no grounding/search
+    tool involved.
+    """
+    prompt = build_briefing_prompt(request, user_context or UserContext())
 
     try:
         agent = build_executive_assistant()
@@ -136,21 +137,21 @@ def create_briefing(
         message: Any = result.message
         if isinstance(message, dict):
             content = message.get("content", [])
-            briefing = "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
+            core = "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
         else:
-            briefing = str(message).strip()
-        if not briefing or not _is_strict_briefing(briefing):
+            core = str(message).strip()
+        if not core or not _is_strict_core(core):
             raise ValueError("Strands returned a briefing that did not match the strict format")
-        lines = briefing.splitlines()
-        if lines[8] in (quote_history or []):
-            lines[8] = _next_quote(quote_history)
-            briefing = "\n".join(lines)
         generated_by = "strands"
     except Exception:
         # Local development remains deterministic when Bedrock credentials/model access
         # are not configured. Production will surface this as an observability event.
-        briefing = _fallback_briefing(request, quote_history)
+        core = _fallback_core(request)
         generated_by = "demo-fallback"
+
+    quote = store.pick_random_quote() or DAILY_QUOTES[0]
+    store.mark_quote_shown(quote)
+    briefing = "\n".join([core, "", "", "", quote])
 
     proposals = 0
     if request.messages:
@@ -163,3 +164,74 @@ def create_briefing(
         ))
         proposals += 1
     return briefing, generated_by, proposals
+
+
+_QUOTE_LINE_PATTERN = re.compile(r'QUOTE:\s*"(.+?)"\s*—\s*(.+)')
+
+
+def discover_quote_via_grounding() -> tuple[str, list[str]]:
+    """Ask Nova, with Web Grounding enabled, for one real, verifiable quote —
+    used to grow the quotes table, never called as part of a regular
+    Daily Briefing request.
+
+    Web Grounding is a Bedrock *systemTool* (nova_grounding) executed
+    entirely on AWS's infrastructure, not a Python-callable tool Strands
+    would invoke itself — so this makes a direct bedrock-runtime Converse
+    call rather than going through a Strands Agent, which has nothing to
+    add for a provider-native tool it never actually runs.
+
+    Per AWS's Web Grounding terms, citations must be retained wherever this
+    quote is shown to an end user — sources are returned alongside the quote
+    for exactly that reason (rendering them is a separate, later piece of
+    work; this function's job is just to fetch and return them).
+
+    Raises on any failure (config, network, or an unparseable response) —
+    the caller (the discovery endpoint) surfaces that; nothing on the
+    regular briefing path calls this, so a failure here never blocks a
+    Daily Briefing from generating.
+
+    TEMPORARY: explicitly forces the plain AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
+    credentials (see .env.local's TEMPORARY block — currently the couchbumming
+    account, kept separate from openpip.me's own account while its billing
+    situation is unresolved). This is deliberate, not an oversight: boto3's
+    bedrock-runtime client otherwise auto-detects AWS_BEARER_TOKEN_BEDROCK
+    (openpip-app's Bedrock API key) and silently prefers that bearer-token
+    auth path over these access keys for this service specifically, which
+    defeats the point of routing this call at the couchbumming account.
+    Passing credentials explicitly here bypasses that auto-detection.
+    Remove this override (and just call boto3.client(...) with no explicit
+    credentials) once the openpip.me account's billing situation is sorted.
+    """
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    )
+    prompt = (
+        "Find one real, verifiable quote from a historical, literary, or philosophical figure, "
+        "in the spirit of Stoic and classical wisdom about resilience, focus, discipline, or "
+        "taking action. Use web search to confirm the quote is authentic and correctly "
+        "attributed — do not invent or paraphrase one. Respond with exactly this one line and "
+        "nothing else:\n"
+        'QUOTE: "<the exact quote>" — <Attribution>'
+    )
+    response = client.converse(
+        modelId=NOVA_GROUNDING_MODEL_ID,
+        messages=[{"role": "user", "content": [{"text": prompt}]}],
+        toolConfig={"tools": [{"systemTool": {"name": "nova_grounding"}}]},
+    )
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    full_text = "\n".join(block["text"] for block in content if "text" in block)
+    sources = [
+        citation["location"]["web"]["url"]
+        for block in content
+        if "citationsContent" in block
+        for citation in block["citationsContent"].get("citations", [])
+        if citation.get("location", {}).get("web", {}).get("url")
+    ]
+    match = _QUOTE_LINE_PATTERN.search(full_text)
+    if not match:
+        raise ValueError(f"Could not parse a quote from the grounded response: {full_text!r}")
+    quote_text, attribution = match.group(1).strip(), match.group(2).strip()
+    return f'> "{quote_text}" — {attribution}', sources
