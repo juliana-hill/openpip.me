@@ -2,9 +2,12 @@ import {
   ModalOverlay_default
 } from "./chunk-H5AG5GHM.js";
 import {
-  AppHeader,
   FloatingAssistant
-} from "./chunk-QDISQZG2.js";
+} from "./chunk-ST6WUVC7.js";
+import "./chunk-GBGSFNN4.js";
+import {
+  AppHeader
+} from "./chunk-ZLOKTPEE.js";
 import "./chunk-OHWNV7E6.js";
 import {
   proxyFetch,
@@ -12,7 +15,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-VIZZYLYO.js";
+} from "./chunk-NPORSBBQ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

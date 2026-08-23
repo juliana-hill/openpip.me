@@ -1,6 +1,6 @@
 import { PocketTTS, StreamingPlayer } from "pocket-tts-js";
 import { speakableText } from "./speakableText";
-import { insertFieldPauses, phraseForSynthesis } from "./speechPhrasing";
+import { insertFieldPauses, phraseForSynthesis, resolveNumericHyphens } from "./speechPhrasing";
 
 /**
  * Read-aloud with a neural voice (Pocket TTS: an ONNX model in a Web Worker),
@@ -194,11 +194,10 @@ function speakWithSystemVoice(spoken: string, callbacks: SpeechCallbacks, run: n
 export async function speakNaturally(text: string, callbacks: SpeechCallbacks = {}): Promise<boolean> {
   if (typeof window === "undefined") return false;
 
-  // Give "field": value pairs (proposal payloads, tool-call results rendered
-  // inline) a real pause between the label and its value before the markdown
-  // stripper or the sentence splitter ever see the text — see speechPhrasing's
-  // insertFieldPauses() for why order matters here.
-  const spoken = speakableText(insertFieldPauses(text));
+  // Both of these need the raw hyphen/quote characters still in place, so
+  // they must run before speakableText() strips them — see speechPhrasing's
+  // insertFieldPauses() and resolveNumericHyphens() for why order matters.
+  const spoken = speakableText(resolveNumericHyphens(insertFieldPauses(text)));
   if (!spoken) return false;
 
   stopSpeaking();

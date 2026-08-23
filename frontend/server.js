@@ -156,6 +156,14 @@ for (const [route, view] of Object.entries(views)) {
   });
 }
 
+// Dynamic-segment pages — the equivalent of Next.js's [id] routes, which this
+// plain Express setup has to register explicitly. There is no file-based
+// router here to infer these from; see compat/navigation.ts's useParams()
+// for how the id itself reaches the page component.
+app.get("/review/:id", (req, res) => renderProtected("review-detail", req.path, req, res));
+app.get("/career/jobs/:id", (req, res) => renderProtected("job-detail", req.path, req, res));
+app.get("/network/contacts/:id", (req, res) => renderProtected("contact-detail", req.path, req, res));
+
 app.use((req, res) => res.status(404).render("not-found", { view: "not-found", path: req.path }));
 
 app.listen(port, () => {

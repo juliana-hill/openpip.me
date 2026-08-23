@@ -1,0 +1,3 @@
+<div id="react-root" data-view="job-detail"><p>Loading connected workspace data…</p></div>
+<link rel="stylesheet" href="/react/job-detail.css" />
+<script type="module" src="/react/job-detail.js"></script>

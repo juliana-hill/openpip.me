@@ -1,27 +1,33 @@
 import {
+  Input_default
+} from "./chunk-VZUAWI7R.js";
+import {
   Dialog_default
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-HCAFC5Y7.js";
+} from "./chunk-4OVOE75H.js";
 import {
-  AppHeader,
   FloatingAssistant,
-  clearAgentIcon,
   idbAddAddress,
   idbDeleteAddress,
   idbGetUserPrefs,
   idbListAddresses,
   idbSetUserPrefs,
   idbUpdateAddress,
-  notifyAgentIdentityChanged,
   pushPlanningChatSessions,
   pushTasksBackup,
   pushUserData,
-  pushUserDataOrThrow,
+  pushUserDataOrThrow
+} from "./chunk-ST6WUVC7.js";
+import "./chunk-GBGSFNN4.js";
+import {
+  AppHeader,
+  clearAgentIcon,
+  notifyAgentIdentityChanged,
   saveAgentIcon,
   setAgentIcon
-} from "./chunk-QDISQZG2.js";
+} from "./chunk-ZLOKTPEE.js";
 import "./chunk-OHWNV7E6.js";
 import {
   Button_default
@@ -48,7 +54,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-VIZZYLYO.js";
+} from "./chunk-NPORSBBQ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -329,11 +335,6 @@ var Card_default = {
   cardAction: "Card_cardAction",
   cardContent: "Card_cardContent",
   cardFooter: "Card_cardFooter"
-};
-
-// components/ui/Input.module.css
-var Input_default = {
-  input: "Input_input"
 };
 
 // components/settings/AddressSection.tsx

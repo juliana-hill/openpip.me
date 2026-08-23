@@ -15,6 +15,7 @@ const aliases = {
 
 const entries = Object.fromEntries([
   "index", "today", "review", "inbox", "calendar", "tasks", "settings", "network", "notebook", "routes", "career",
+  "review-detail", "job-detail", "contact-detail",
 ].map((name) => [name, path.join(root, "react-entries", `${name}.tsx`)]));
 
 // pocket-tts-js's real Worker (`new Worker(new URL("./worker.js", import.meta.url))`)

@@ -15,7 +15,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-VIZZYLYO.js";
+} from "./chunk-NPORSBBQ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

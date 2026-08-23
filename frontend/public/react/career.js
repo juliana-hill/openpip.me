@@ -1,9 +1,9 @@
 import {
   CalendarList
-} from "./chunk-WETGWHER.js";
+} from "./chunk-4N4LPUSH.js";
 import {
   TrippyIcon
-} from "./chunk-GNQIUSN6.js";
+} from "./chunk-HWKTRTVM.js";
 import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
@@ -12,17 +12,20 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-HCAFC5Y7.js";
+} from "./chunk-4OVOE75H.js";
 import {
-  AppHeader,
   FloatingAssistant,
-  Markdown,
   idbListChatSessions,
   idbReadChatSession,
-  normalizeSkill,
+  normalizeSkill
+} from "./chunk-ST6WUVC7.js";
+import "./chunk-GBGSFNN4.js";
+import {
+  AppHeader,
+  Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-QDISQZG2.js";
+} from "./chunk-ZLOKTPEE.js";
 import "./chunk-OHWNV7E6.js";
 import {
   JobsBoard_default
@@ -54,7 +57,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-VIZZYLYO.js";
+} from "./chunk-NPORSBBQ.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

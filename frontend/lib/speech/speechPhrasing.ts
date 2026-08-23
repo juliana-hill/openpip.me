@@ -76,6 +76,27 @@ export function insertFieldPauses(text: string): string {
   return text.replace(FIELD_LABEL, (_match, rawKey: string) => `\n${humanizeFieldLabel(rawKey)}.\n`);
 }
 
+/**
+ * Disambiguates a hyphen between two numbers before speakableText() turns it
+ * into a bare space (its rule is "never nothing", not "figure out which of
+ * these two very different things it means") — a bare space leaves "1-35"
+ * and "1, -35" indistinguishable, both reading as "one, thirty five".
+ *
+ * A comma directly before the hyphen is the signal that this is a second,
+ * separate number that happens to be negative, not a range — a range is
+ * never comma-separated from its own start: "1, -35" -> "1, negative 35".
+ *
+ * Anything else — "1-35", "1 - 35", "1- 35", "1 -35", "$50,000-$70,000" —
+ * reads as a range: "1 to 35". Order matters: the comma case is resolved
+ * first so its hyphen is gone before the plain range pattern below would
+ * otherwise also match it.
+ */
+export function resolveNumericHyphens(text: string): string {
+  return text
+    .replace(/,\s*-(\d)/g, ", negative $1")
+    .replace(/(\d)\s*-\s*(\$?\d)/g, "$1 to $2");
+}
+
 function expandNumbers(text: string): string {
   return (
     text
