@@ -62,7 +62,12 @@ export function GroupedEmailList({ groups, loading, selected, tags, onToggleSele
 
         const page = getPage(key);
         const totalPages = Math.ceil(group.emails.length / PAGE_SIZE);
-        const pageEmails = group.emails.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+        // Grouped mode paginates each sender independently. In the normal
+        // list, the parent InboxTab pager controls the server-fetched page,
+        // so render that entire page and do not add a second pager here.
+        const pageEmails = grouped
+          ? group.emails.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+          : group.emails;
 
         return (
           <div key={key} className={styles.group}>
@@ -91,7 +96,7 @@ export function GroupedEmailList({ groups, loading, selected, tags, onToggleSele
                     indented={grouped}
                   />
                 ))}
-                {totalPages > 1 && (
+                {grouped && totalPages > 1 && (
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", borderTop: "1px solid var(--color-border)", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
                     <button
                       onClick={() => setPage(key, page - 1)}

@@ -2,7 +2,7 @@ import {
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-EYLK6625.js";
+} from "./chunk-XIKOZ5LE.js";
 import {
   ArrowRight,
   ArrowUp,
@@ -39,7 +39,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-EEKIOSJK.js";
+} from "./chunk-Y73BQP5V.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -460,7 +460,7 @@ function resampleLinear(data, sourceRate, targetRate) {
 
 // lib/speech/speakableText.ts
 function speakableText(input) {
-  return input.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/```[\s\S]*?```/g, " ").replace(/`/g, "").replace(/^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, " ").replace(/^[ \t]*[#>]+[ \t]*/gm, "").replace(/^[ \t]*[-*+][ \t]+/gm, "").replace(/[*_~]/g, "").replace(/^[ \t]*\|?[ \t:|-]*\|[ \t:|-]*$/gm, "").replace(/\|/g, " ").replace(/-/g, " ").replace(/[ \t]{2,}/g, " ").split("\n").map((line) => line.trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return input.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\b(?:https?|ftp):\/\/[^\s<>'")]+/gi, "").replace(/\bwww\.[^\s<>'")]+/gi, "").replace(/\u00a0/g, " ").replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u034f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "").replace(/```[\s\S]*?```/g, " ").replace(/`/g, "").replace(/^[ \t]*([-*_])(?:[ \t]*\1){2,}[ \t]*$/gm, " ").replace(/^[ \t]*[#>]+[ \t]*/gm, "").replace(/^[ \t]*[-*+][ \t]+/gm, "").replace(/[*_~]/g, "").replace(/^[ \t]*\|?[ \t:|-]*\|[ \t:|-]*$/gm, "").replace(/\|/g, " ").replace(/-/g, " ").replace(/[ \t]{2,}/g, " ").split("\n").map((line) => line.trim()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 // lib/speech/speechPhrasing.ts

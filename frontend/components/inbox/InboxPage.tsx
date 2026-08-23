@@ -1,10 +1,9 @@
 "use client";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
 import { InboxTab } from "./inbox/InboxTab";
-import type { Tag, Email } from "./inbox/InboxTab";
-import { TagsCard } from "./sidebar/TagsCard";
+import type { Tag } from "./inbox/InboxTab";
 import { CampaignsCard } from "./sidebar/CampaignsCard";
 import { TemplatesCard } from "./sidebar/TemplatesCard";
 import { ComposeModal } from "./compose/ComposeModal";
@@ -17,21 +16,10 @@ export function InboxPage({ userName, userImage }: { userName: string; userImage
   const [composeOpen, setComposeOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [tags, setTags] = useState<Tag[]>([]);
-  const [activeTag, setActiveTag] = useState("All");
-  const [emails, setEmails] = useState<Email[]>([]);
+  const [activeTag, setActiveTag] = useState("Unread");
 
   const handleUnreadChange = useCallback((n: number) => setUnreadCount(n), []);
   const handleTagsLoaded = useCallback((t: Tag[]) => setTags(t), []);
-
-  const tagCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const email of emails) {
-      for (const name of email.tags) {
-        map.set(name, (map.get(name) ?? 0) + 1);
-      }
-    }
-    return map;
-  }, [emails]);
 
   return (
     <div className={styles.shell}>
@@ -47,19 +35,11 @@ export function InboxPage({ userName, userImage }: { userName: string; userImage
             activeTag={activeTag}
             onActiveTagChange={setActiveTag}
             onTagsLoaded={handleTagsLoaded}
-            onEmailsLoaded={setEmails}
             initialMessageId={searchParams.get("messageId") ?? undefined}
           />
         </div>
 
         <aside className={styles.sidebar}>
-          <TagsCard
-            tags={tags}
-            tagCounts={tagCounts}
-            activeTag={activeTag}
-            onTagClick={setActiveTag}
-            onTagsChanged={handleTagsLoaded}
-          />
           <CampaignsCard />
           <TemplatesCard />
         </aside>

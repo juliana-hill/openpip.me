@@ -24,6 +24,12 @@ function formatDate(iso: string) {
 
 const isHtml = (s: string) => /<\s*[a-z][\s\S]*>/i.test(s);
 
+function htmlInnerText(html: string): string {
+  if (typeof DOMParser === "undefined") return "";
+  const document = new DOMParser().parseFromString(html, "text/html");
+  return document.body?.innerText || document.body?.textContent || "";
+}
+
 function HtmlEmailFrame({ html, frameRef, onTextLoaded }: { html: string; frameRef: RefObject<HTMLIFrameElement | null>; onTextLoaded: (text: string) => void }) {
   const src = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
     body { margin: 0; padding: 16px; font-family: -apple-system, sans-serif; background: #ffffff; color: #111111; }
@@ -41,7 +47,8 @@ function HtmlEmailFrame({ html, frameRef, onTextLoaded }: { html: string; frameR
         const root = iframe.contentDocument?.documentElement;
         const h = root?.scrollHeight;
         if (h) iframe.style.height = `${h + 32}px`;
-        onTextLoaded(root?.innerText ?? "");
+        const body = iframe.contentDocument?.body;
+        onTextLoaded(body?.innerText || body?.textContent || root?.innerText || "");
       }}
     />
   );
@@ -53,11 +60,31 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
   const [draft, setDraft] = useState<string | null>(null);
   const [draftLoading, setDraftLoading] = useState(email.hasDraft ?? false);
   const [showOriginal, setShowOriginal] = useState(!(email.hasDraft ?? false));
+  const [detailLoading, setDetailLoading] = useState(!email.body);
   const emailFrameRef = useRef<HTMLIFrameElement>(null);
   const [renderedEmailSpeechText, setRenderedEmailSpeechText] = useState<{ emailId: string; text: string }>({ emailId: "", text: "" });
 
   const assignedTags = tags.filter((t) => t.name !== "Draft" && currentEmail.tags.includes(t.name));
   const unassignedTags = tags.filter((t) => t.name !== "Draft" && !currentEmail.tags.includes(t.name));
+
+  useEffect(() => {
+    let cancelled = false;
+    setCurrentEmail(email);
+    if (email.body) {
+      setDetailLoading(false);
+      return () => { cancelled = true; };
+    }
+
+    setDetailLoading(true);
+    void proxyFetch(`/agent/inbox/message/${encodeURIComponent(email.id)}`)
+      .then(async (res) => res.ok ? await res.json() as { message?: Email } : {})
+      .then((data) => {
+        if (!cancelled && data.message) setCurrentEmail((current) => ({ ...current, ...data.message }));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    return () => { cancelled = true; };
+  }, [email.id, email.body]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,12 +102,13 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
 
   const emailSpeechText = useMemo(() => {
     const raw = currentEmail.body ?? currentEmail.snippet ?? "";
-    if (!isHtml(raw) || typeof DOMParser === "undefined") return raw;
-    const fallbackText = new DOMParser().parseFromString(raw, "text/html").documentElement.innerText;
+    if (!isHtml(raw)) return raw;
     return renderedEmailSpeechText.emailId === currentEmail.id && renderedEmailSpeechText.text
       ? renderedEmailSpeechText.text
-      : fallbackText;
+      : htmlInnerText(raw);
   }, [currentEmail.body, currentEmail.id, currentEmail.snippet, renderedEmailSpeechText]);
+
+  const canReadEmailAloud = Boolean(currentEmail.body && (!isHtml(currentEmail.body) || emailSpeechText.trim()));
 
   const handleAssignTag = async (tagId: string) => {
     const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
@@ -177,7 +205,7 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
           </div>
           <div className={styles.headerActions}>
             <button className={styles.replyBtn} onClick={onReply}>↩ Reply</button>
-            {currentEmail.body && (
+            {canReadEmailAloud && (
               <ReadAloudButton
                 text={emailSpeechText}
                 style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: "4px 6px", display: "flex", alignItems: "center" }}
@@ -206,7 +234,9 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
           )}
           {(!currentEmail.hasDraft || showOriginal) && (
             <>
-              {currentEmail.body && isHtml(currentEmail.body) ? (
+              {detailLoading ? (
+                <p className={styles.snippet}>Loading full message…</p>
+              ) : currentEmail.body && isHtml(currentEmail.body) ? (
                 <div className={styles.emailFrameWrapper}>
                   <HtmlEmailFrame
                     html={currentEmail.body}

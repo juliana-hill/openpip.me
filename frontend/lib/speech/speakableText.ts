@@ -20,6 +20,16 @@ export function speakableText(input: string): string {
     input
       // A spoken URL is noise, so keep the link's label and drop its target.
       .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      // Email bodies often expose the raw destination in footer copy (for
+      // example, "web: https://..."). Keep the surrounding words but never
+      // make the voice read a long URL character by character.
+      .replace(/\b(?:https?|ftp):\/\/[^\s<>'")]+/gi, "")
+      .replace(/\bwww\.[^\s<>'")]+/gi, "")
+      // Marketing emails frequently insert zero-width tracking characters and
+      // non-breaking spaces between words. They are invisible in the iframe
+      // but can cause neural TTS to vocalize individual characters.
+      .replace(/\u00a0/g, " ")
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u034f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/g, "")
       // Code blocks are not prose and reading them aloud helps nobody.
       .replace(/```[\s\S]*?```/g, " ")
       .replace(/`/g, "")

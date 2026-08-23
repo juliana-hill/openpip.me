@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 from datetime import UTC, date, datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
@@ -22,9 +23,45 @@ GOOGLE_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 async def _get_json(client: httpx.AsyncClient, url: str, access_token: str, **params: Any) -> dict[str, Any]:
-    response = await client.get(
+    response: httpx.Response | None = None
+    for attempt in range(3):
+        response = await client.get(
+            url,
+            params=params,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if response.status_code != 429 or attempt == 2:
+            break
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(0.25, min(float(retry_after or 0.5), 3.0))
+        except ValueError:
+            delay = 0.5 * (2 ** attempt)
+        await asyncio.sleep(delay)
+    assert response is not None
+    if not response.is_success:
+        try:
+            payload = response.json()
+            detail = payload.get("error", {}).get("message") or payload.get("error") or response.text
+        except ValueError:
+            detail = response.text
+        raise GoogleApiError(response.status_code, str(detail)[:500])
+    return response.json()
+
+
+async def _request_json(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    access_token: str,
+    *,
+    json_body: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Call a Google JSON endpoint and normalize API errors."""
+    response = await client.request(
+        method,
         url,
-        params=params,
+        json=json_body,
         headers={"Authorization": f"Bearer {access_token}"},
     )
     if not response.is_success:
@@ -34,6 +71,8 @@ async def _get_json(client: httpx.AsyncClient, url: str, access_token: str, **pa
         except ValueError:
             detail = response.text
         raise GoogleApiError(response.status_code, str(detail)[:500])
+    if not response.content:
+        return {}
     return response.json()
 
 
@@ -227,33 +266,247 @@ def _gmail_date(internal_date: str | None, header_date: str) -> str:
     return header_date or datetime.now(UTC).isoformat()
 
 
+def _decode_gmail_body(data: str) -> str:
+    """Decode Gmail's URL-safe base64 body representation safely."""
+    try:
+        padded = data + "=" * (-len(data) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8", errors="replace")
+    except (ValueError, UnicodeError):
+        return ""
+
+
+def _extract_gmail_content(payload: dict[str, Any]) -> tuple[str, list[dict[str, str]]]:
+    """Extract the best readable MIME part and attachment names from Gmail."""
+    html_parts: list[str] = []
+    text_parts: list[str] = []
+    attachments: list[dict[str, str]] = []
+
+    def visit(part: dict[str, Any]) -> None:
+        filename = str(part.get("filename") or "").strip()
+        body = part.get("body") if isinstance(part.get("body"), dict) else {}
+        if filename:
+            attachments.append({"name": filename})
+        data = body.get("data")
+        if isinstance(data, str) and data:
+            decoded = _decode_gmail_body(data)
+            mime_type = str(part.get("mimeType") or "").lower()
+            if mime_type == "text/html":
+                html_parts.append(decoded)
+            elif mime_type == "text/plain":
+                text_parts.append(decoded)
+        for child in part.get("parts", []) or []:
+            if isinstance(child, dict):
+                visit(child)
+
+    visit(payload)
+    return (html_parts[0] if html_parts else ("\n\n".join(text_parts) if text_parts else ""), attachments)
+
+
+def _normalize_gmail_message(detail: dict[str, Any], *, include_body: bool = False) -> dict[str, Any]:
+    message_id = str(detail.get("id") or "")
+    payload = detail.get("payload") if isinstance(detail.get("payload"), dict) else {}
+    headers = payload.get("headers", []) if isinstance(payload.get("headers"), list) else []
+    from_header = _gmail_header(headers, "From")
+    from_name, from_email = parseaddr(from_header)
+    result: dict[str, Any] = {
+        "id": f"gmail_{message_id}",
+        "subject": _gmail_header(headers, "Subject") or "(no subject)",
+        "snippet": detail.get("snippet", ""),
+        "from": from_name or from_email or from_header,
+        "fromEmail": from_email,
+        "date": _gmail_date(str(detail.get("internalDate", "")), _gmail_header(headers, "Date")),
+        "unread": "UNREAD" in detail.get("labelIds", []),
+        "source": "gmail",
+        "tags": [],
+        # Kept briefly in the API response so the app layer can map Gmail's
+        # labels to their names without another request per message.
+        "labelIds": [str(label_id) for label_id in detail.get("labelIds", []) if label_id],
+        "archived": False,
+        "attachments": [],
+    }
+    if include_body:
+        body, attachments = _extract_gmail_content(payload)
+        result["body"] = body
+        result["attachments"] = attachments
+    return result
+
+
+async def fetch_gmail_message(access_token: str, message_id: str) -> dict[str, Any]:
+    """Fetch one Gmail message with its complete readable body."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        detail = await _get_json(
+            client,
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}",
+            access_token,
+            format="full",
+            metadataHeaders=["From", "Subject", "Date"],
+        )
+    return _normalize_gmail_message(detail, include_body=True)
+
+
+async def trash_gmail_messages(access_token: str, message_ids: list[str]) -> None:
+    """Move Gmail messages to Trash, matching the inbox delete action."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        for message_id in message_ids:
+            response = await client.post(
+                f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}/trash",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if not response.is_success:
+                try:
+                    payload = response.json()
+                    detail = payload.get("error", {}).get("message") or payload.get("error") or response.text
+                except ValueError:
+                    detail = response.text
+                raise GoogleApiError(response.status_code, str(detail)[:500])
+
+
+def _fallback_gmail_label_color(label_id: str) -> str:
+    palette = ("#f47560", "#45dfa4", "#1877f2", "#9b72cf", "#f4a261", "#6b9e6b")
+    return palette[sum(ord(char) for char in label_id) % len(palette)]
+
+
+def _normalize_gmail_label(label: dict[str, Any]) -> dict[str, Any] | None:
+    label_id = str(label.get("id") or "").strip()
+    name = str(label.get("name") or "").strip()
+    # System labels are folders managed by Gmail (Inbox, Sent, Trash, etc.).
+    # The inbox tag UI should expose the user's actual Gmail labels only.
+    if not label_id or not name or label.get("type") != "user":
+        return None
+    color = label.get("color") if isinstance(label.get("color"), dict) else {}
+    return {
+        "id": label_id,
+        "name": name,
+        "color": str(color.get("backgroundColor") or _fallback_gmail_label_color(label_id)),
+        "createdAt": "",
+        "updatedAt": "",
+    }
+
+
+async def fetch_gmail_labels(access_token: str) -> list[dict[str, Any]]:
+    """Fetch the signed-in user's Gmail labels (not OpenPip's Drive tags)."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        payload = await _get_json(
+            client,
+            "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+            access_token,
+        )
+    return [normalized for item in payload.get("labels", []) if (normalized := _normalize_gmail_label(item))]
+
+
+async def create_gmail_label(access_token: str, name: str) -> dict[str, Any]:
+    """Create a user Gmail label and return it in the inbox tag shape."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        label = await _request_json(
+            client,
+            "POST",
+            "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+            access_token,
+            json_body={"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"},
+        )
+    return _normalize_gmail_label(label) or {"id": str(label.get("id") or ""), "name": name, "color": _fallback_gmail_label_color(name), "createdAt": "", "updatedAt": ""}
+
+
+async def update_gmail_label(access_token: str, label_id: str, name: str) -> dict[str, Any]:
+    """Rename a user Gmail label and return it in the inbox tag shape."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        label = await _request_json(
+            client,
+            "PUT",
+            f"https://gmail.googleapis.com/gmail/v1/users/me/labels/{quote(label_id, safe='')}",
+            access_token,
+            json_body={"name": name},
+        )
+    return _normalize_gmail_label(label) or {"id": label_id, "name": name, "color": _fallback_gmail_label_color(label_id), "createdAt": "", "updatedAt": ""}
+
+
+async def delete_gmail_label(access_token: str, label_id: str) -> None:
+    """Delete a user Gmail label."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        await _request_json(
+            client,
+            "DELETE",
+            f"https://gmail.googleapis.com/gmail/v1/users/me/labels/{quote(label_id, safe='')}",
+            access_token,
+        )
+
+
+async def modify_gmail_message_labels(
+    access_token: str,
+    message_id: str,
+    *,
+    add_label_ids: list[str] | None = None,
+    remove_label_ids: list[str] | None = None,
+) -> None:
+    """Add/remove Gmail labels on a message (the Gmail source of truth)."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        await _request_json(
+            client,
+            "POST",
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}/modify",
+            access_token,
+            json_body={
+                "addLabelIds": add_label_ids or [],
+                "removeLabelIds": remove_label_ids or [],
+            },
+        )
+
+
 async def fetch_gmail_messages(
     access_token: str,
     *,
     local_date: str | None = None,
+    label_id: str | None = None,
+    unread_only: bool = False,
+    page: int = 1,
     page_size: int = 50,
 ) -> tuple[list[dict[str, Any]], int]:
-    """Read Inbox messages from Gmail without touching local or SES stores."""
+    """Read Gmail messages, optionally scoped to a label.
+
+    The default remains the Inbox. Supplying a label ID intentionally removes
+    the Inbox/date restriction so a label can retrieve read and archived mail.
+    """
     query: dict[str, Any] = {
-        "labelIds": "INBOX",
+        "labelIds": label_id or "INBOX",
         "includeSpamTrash": "false",
-        "maxResults": max(1, min(page_size, 100)),
+        # Gmail's resultSizeEstimate is explicitly approximate. Fetch the
+        # message references across all result pages so the UI can display an
+        # exact folder total and apply the requested page consistently.
+        "maxResults": 100,
     }
-    if local_date:
+    query_parts: list[str] = []
+    if unread_only:
+        query_parts.append("is:unread")
+    if local_date and not label_id:
         try:
             day = date.fromisoformat(local_date)
         except ValueError as error:
             raise ValueError("localDate must be an ISO date (YYYY-MM-DD)") from error
-        query["q"] = f"after:{day:%Y/%m/%d} before:{day + timedelta(days=1):%Y/%m/%d}"
+        query_parts.append(f"after:{day:%Y/%m/%d} before:{day + timedelta(days=1):%Y/%m/%d}")
+    if query_parts:
+        query["q"] = " ".join(query_parts)
 
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        listing = await _get_json(
-            client,
-            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
-            access_token,
-            **query,
-        )
-        refs = listing.get("messages", [])
+        refs: list[dict[str, Any]] = []
+        next_page_token: str | None = None
+        while True:
+            request_query = dict(query)
+            if next_page_token:
+                request_query["pageToken"] = next_page_token
+            listing = await _get_json(
+                client,
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                access_token,
+                **request_query,
+            )
+            refs.extend(item for item in listing.get("messages", []) if isinstance(item, dict))
+            next_page_token = listing.get("nextPageToken")
+            if not next_page_token or not listing.get("messages"):
+                break
+
+        total = len(refs)
+        start = (max(1, page) - 1) * max(1, min(page_size, 100))
+        page_refs = refs[start:start + max(1, min(page_size, 100))]
 
         async def fetch_message(ref: dict[str, Any]) -> dict[str, Any] | None:
             message_id = ref.get("id")
@@ -266,26 +519,10 @@ async def fetch_gmail_messages(
                 format="metadata",
                 metadataHeaders=["From", "Subject", "Date"],
             )
-            headers = detail.get("payload", {}).get("headers", [])
-            from_header = _gmail_header(headers, "From")
-            from_name, from_email = parseaddr(from_header)
-            subject = _gmail_header(headers, "Subject") or "(no subject)"
-            return {
-                "id": f"gmail_{message_id}",
-                "subject": subject,
-                "snippet": detail.get("snippet", ""),
-                "from": from_name or from_email or from_header,
-                "fromEmail": from_email,
-                "date": _gmail_date(str(detail.get("internalDate", "")), _gmail_header(headers, "Date")),
-                "unread": "UNREAD" in detail.get("labelIds", []),
-                "source": "gmail",
-                "tags": [],
-                "archived": False,
-                "attachments": [],
-            }
+            return _normalize_gmail_message(detail)
 
-        messages = [message for message in await asyncio.gather(*(fetch_message(ref) for ref in refs)) if message]
-        return messages, int(listing.get("resultSizeEstimate", len(messages)))
+        messages = [message for message in await asyncio.gather(*(fetch_message(ref) for ref in page_refs)) if message]
+        return messages, total
 
 
 _PEOPLE_FIELDS = "names,emailAddresses,phoneNumbers,organizations,photos"

@@ -1,11 +1,24 @@
 .strip {
   display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.staticPill,
+.manageBtn {
+  flex: 0 0 auto;
+}
+
+.scrollArea {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   gap: 8px;
-  padding-bottom: 4px;
   scrollbar-width: none;
 }
-.strip::-webkit-scrollbar { display: none; }
+.scrollArea::-webkit-scrollbar { display: none; }
 
 .pill {
   display: flex;
@@ -80,7 +93,6 @@
   font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
-  margin-left: auto;
   transition: border-color 150ms, color 150ms;
 }
 .manageBtn:hover {

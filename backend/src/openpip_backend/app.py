@@ -16,7 +16,14 @@ from .providers import connector_statuses
 from .store import ProposalStore
 from .google_workspace import (
     GoogleApiError,
+    create_gmail_label,
+    delete_gmail_label,
+    fetch_gmail_message,
+    fetch_gmail_labels,
     fetch_gmail_messages,
+    modify_gmail_message_labels,
+    trash_gmail_messages,
+    update_gmail_label,
     fetch_google_calendars,
     fetch_google_contact,
     fetch_google_contacts,
@@ -514,7 +521,7 @@ async def google_notebook_pages(token: str = Depends(get_google_token)):
 @app.get("/agent/drive/files")
 @app.get("/api/google/drive/files")
 async def google_drive_files(
-    page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
+    page_size: int = Query(default=20, alias="pageSize", ge=1, le=100),
     token: str = Depends(get_google_token),
 ):
     try:
@@ -630,36 +637,75 @@ async def stop_tracking_contact(contact_id: str, token: str = Depends(get_google
 @app.get("/api/google/gmail/messages")
 async def google_gmail_messages(
     local_date: str | None = Query(default=None, alias="localDate"),
+    label_id: str | None = Query(default=None, alias="labelId"),
+    unread_only: bool = Query(default=False, alias="unreadOnly"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, alias="pageSize", ge=1, le=100),
     token: str = Depends(get_google_token),
 ):
     try:
-        messages, total = await fetch_gmail_messages(token, local_date=local_date, page_size=page_size)
-        # Gmail remains readable if the optional OpenPip app-data document has
-        # not been created yet or Drive is temporarily unavailable. In that
-        # case messages simply have no app-owned tags yet.
-        try:
-            app_data = await read_drive_app_data(token)
-        except Exception:
-            app_data = {"tags": [], "messageTags": {}}
-        tags_by_id = {
-            str(tag.get("id")): str(tag.get("name"))
-            for tag in app_data.get("tags", [])
-            if isinstance(tag, dict) and tag.get("id") and tag.get("name")
+        fetch_kwargs: dict[str, Any] = {
+            "local_date": local_date,
+            "label_id": label_id,
+            "unread_only": unread_only,
+            "page_size": page_size,
         }
-        message_tags = app_data.get("messageTags", {})
+        # Keep the default call shape compatible with lightweight adapters;
+        # real Gmail pagination is applied when the client requests page 2+.
+        if page > 1:
+            fetch_kwargs["page"] = page
+        messages, total = await fetch_gmail_messages(token, **fetch_kwargs)
+        labels = await fetch_gmail_labels(token)
+        labels_by_id = {str(label["id"]): str(label["name"]) for label in labels}
         for message in messages:
             message["tags"] = [
-                tags_by_id[tag_id]
-                for tag_id in message_tags.get(message.get("id", ""), [])
-                if tag_id in tags_by_id
+                labels_by_id[label_id]
+                for label_id in message.get("labelIds", [])
+                if label_id in labels_by_id
             ]
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"messages": messages, "total": total, "page": page, "pageSize": page_size}
+
+
+@app.get("/agent/inbox/message/{message_id}")
+@app.get("/api/google/gmail/message/{message_id}")
+async def google_gmail_message(message_id: str, token: str = Depends(get_google_token)):
+    """Fetch one Gmail message with its complete readable MIME body."""
+    raw_id = message_id.removeprefix("gmail_")
+    if not raw_id:
+        raise HTTPException(status_code=400, detail="Gmail message id is required")
+    try:
+        message = await fetch_gmail_message(token, raw_id)
+        labels = await fetch_gmail_labels(token)
+        labels_by_id = {str(label["id"]): str(label["name"]) for label in labels}
+        message["tags"] = [
+            labels_by_id[label_id]
+            for label_id in message.get("labelIds", [])
+            if label_id in labels_by_id
+        ]
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"message": message}
+
+
+@app.delete("/agent/inbox/message")
+@app.delete("/api/google/gmail/message")
+async def delete_gmail_messages(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Move the selected Gmail inbox messages to Trash."""
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(item, str) and item.strip() for item in ids):
+        raise HTTPException(status_code=400, detail="ids must be a non-empty array of message ids")
+    gmail_ids = [item.strip().removeprefix("gmail_") for item in ids]
+    if not all(gmail_ids):
+        raise HTTPException(status_code=400, detail="Gmail message ids are required")
+    try:
+        await trash_gmail_messages(token, gmail_ids)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True, "deleted": ids}
 
 
 @app.get("/agent/inbox/count")
@@ -678,73 +724,54 @@ async def google_gmail_count(
 
 
 @app.get("/agent/inbox/tags")
+@app.get("/api/google/gmail/labels")
 async def inbox_tags(token: str = Depends(get_google_token)):
     try:
-        data = await read_drive_app_data(token)
+        return await fetch_gmail_labels(token)
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return [tag for tag in data.get("tags", []) if isinstance(tag, dict)]
 
 
 @app.post("/agent/inbox/tags")
+@app.post("/api/google/gmail/labels")
 async def create_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
     name = str(payload.get("name", "")).strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tag name is required")
-    now = datetime.now(UTC).isoformat()
-    tag = {
-        "id": f"tag_{uuid4().hex}",
-        "name": name,
-        "color": str(payload.get("color") or "#f47560"),
-        "createdAt": now,
-        "updatedAt": now,
-    }
     try:
-        data = await read_drive_app_data(token)
-        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
-        if any(str(item.get("name", "")).casefold() == name.casefold() for item in tags):
-            raise HTTPException(status_code=409, detail="A tag with that name already exists")
-        data["tags"] = [*tags, tag]
-        await write_drive_app_data(token, data)
+        labels = await fetch_gmail_labels(token)
+        if any(str(label.get("name", "")).casefold() == name.casefold() for label in labels):
+            raise HTTPException(status_code=409, detail="A Gmail label with that name already exists")
+        return await create_gmail_label(token, name)
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return tag
 
 
 @app.put("/agent/inbox/tags/{tag_id}")
+@app.put("/api/google/gmail/labels/{tag_id}")
 async def update_inbox_tag(tag_id: str, payload: dict[str, Any], token: str = Depends(get_google_token)):
     name = str(payload.get("name", "")).strip()
     if not name:
         raise HTTPException(status_code=400, detail="Tag name is required")
     try:
-        data = await read_drive_app_data(token)
-        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
-        tag = next((item for item in tags if str(item.get("id")) == tag_id), None)
-        if tag is None:
-            raise HTTPException(status_code=404, detail="Tag not found")
-        if any(str(item.get("id")) != tag_id and str(item.get("name", "")).casefold() == name.casefold() for item in tags):
-            raise HTTPException(status_code=409, detail="A tag with that name already exists")
-        tag.update({"name": name, "color": str(payload.get("color") or tag.get("color") or "#f47560"), "updatedAt": datetime.now(UTC).isoformat()})
-        data["tags"] = tags
-        await write_drive_app_data(token, data)
+        labels = await fetch_gmail_labels(token)
+        if not any(str(label.get("id")) == tag_id for label in labels):
+            raise HTTPException(status_code=404, detail="Gmail label not found")
+        if any(str(label.get("id")) != tag_id and str(label.get("name", "")).casefold() == name.casefold() for label in labels):
+            raise HTTPException(status_code=409, detail="A Gmail label with that name already exists")
+        return await update_gmail_label(token, tag_id, name)
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return tag
 
 
 @app.delete("/agent/inbox/tags/{tag_id}")
+@app.delete("/api/google/gmail/labels/{tag_id}")
 async def delete_inbox_tag(tag_id: str, token: str = Depends(get_google_token)):
     try:
-        data = await read_drive_app_data(token)
-        tags = [item for item in data.get("tags", []) if isinstance(item, dict)]
-        if not any(str(item.get("id")) == tag_id for item in tags):
-            raise HTTPException(status_code=404, detail="Tag not found")
-        data["tags"] = [item for item in tags if str(item.get("id")) != tag_id]
-        data["messageTags"] = {
-            message_id: [item for item in tag_ids if item != tag_id]
-            for message_id, tag_ids in data.get("messageTags", {}).items()
-        }
-        await write_drive_app_data(token, data)
+        labels = await fetch_gmail_labels(token)
+        if not any(str(label.get("id")) == tag_id for label in labels):
+            raise HTTPException(status_code=404, detail="Gmail label not found")
+        await delete_gmail_label(token, tag_id)
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"ok": True}
@@ -755,18 +782,19 @@ async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool)
     tag_id = str(payload.get("tagId", "")).strip()
     if not message_id or not tag_id:
         raise HTTPException(status_code=400, detail="messageId and tagId are required")
+    raw_message_id = message_id.removeprefix("gmail_")
+    if not raw_message_id:
+        raise HTTPException(status_code=400, detail="A Gmail message id is required")
     try:
-        data = await read_drive_app_data(token)
-        valid_ids = {str(item.get("id")) for item in data.get("tags", []) if isinstance(item, dict)}
-        if tag_id not in valid_ids:
-            raise HTTPException(status_code=404, detail="Tag not found")
-        message_tags = data.setdefault("messageTags", {})
-        current = [str(item) for item in message_tags.get(message_id, [])]
-        if remove:
-            message_tags[message_id] = [item for item in current if item != tag_id]
-        elif tag_id not in current:
-            message_tags[message_id] = [*current, tag_id]
-        await write_drive_app_data(token, data)
+        labels = await fetch_gmail_labels(token)
+        if not any(str(label.get("id")) == tag_id for label in labels):
+            raise HTTPException(status_code=404, detail="Gmail label not found")
+        await modify_gmail_message_labels(
+            token,
+            raw_message_id,
+            remove_label_ids=[tag_id] if remove else None,
+            add_label_ids=[tag_id] if not remove else None,
+        )
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"ok": True}

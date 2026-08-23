@@ -22389,6 +22389,7 @@ var X = createLucideIcon("x", __iconNode52);
 
 export {
   require_react,
+  require_react_dom,
   require_client,
   clearSession,
   proxyFetch,

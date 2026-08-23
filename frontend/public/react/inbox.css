@@ -453,12 +453,23 @@
 /* components/inbox/inbox/TagFilterStrip.module.css */
 .TagFilterStrip_strip {
   display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+.TagFilterStrip_staticPill,
+.TagFilterStrip_manageBtn {
+  flex: 0 0 auto;
+}
+.TagFilterStrip_scrollArea {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow-x: auto;
   gap: 8px;
-  padding-bottom: 4px;
   scrollbar-width: none;
 }
-.TagFilterStrip_strip::-webkit-scrollbar {
+.TagFilterStrip_scrollArea::-webkit-scrollbar {
   display: none;
 }
 .TagFilterStrip_pill {
@@ -532,7 +543,6 @@
   font-size: 0.7rem;
   font-weight: 600;
   cursor: pointer;
-  margin-left: auto;
   transition: border-color 150ms, color 150ms;
 }
 .TagFilterStrip_manageBtn:hover {
@@ -1537,65 +1547,6 @@
   color: var(--color-accent);
 }
 
-/* components/inbox/sidebar/TagsCard.module.css */
-.TagsCard_manageBtn {
-  background: none;
-  border: none;
-  color: var(--color-accent);
-  font-size: 0.7rem;
-  font-weight: 600;
-  cursor: pointer;
-  padding: 0;
-}
-.TagsCard_manageBtn:hover {
-  text-decoration: underline;
-}
-.TagsCard_tagList {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.TagsCard_tagRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 7px 10px;
-  border-radius: 10px;
-  border: none;
-  background: none;
-  cursor: pointer;
-  transition: background 150ms;
-  text-align: left;
-  color: var(--color-text);
-}
-.TagsCard_tagRow:hover {
-  background: var(--color-bg);
-}
-.TagsCard_tagRow.TagsCard_active {
-  background: var(--color-bg);
-  font-weight: 700;
-}
-.TagsCard_dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.TagsCard_tagName {
-  flex: 1;
-  font-size: 0.82rem;
-}
-.TagsCard_count {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--color-text-muted);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 1px 7px;
-}
-
 /* components/inbox/campaigns/CreateCampaignModal.module.css */
 .CreateCampaignModal_overlay {
   position: fixed;
@@ -1959,72 +1910,6 @@
 }
 .TemplateModal_visualEditor:focus {
   border-color: var(--color-accent);
-}
-.TemplateModal_ytCard {
-  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-bg));
-  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
-  border-radius: 12px;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.TemplateModal_ytTitle {
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  color: var(--color-accent);
-  letter-spacing: 0.02em;
-}
-.TemplateModal_ytRow {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-}
-.TemplateModal_ytRow .TemplateModal_input {
-  flex: 1;
-  min-width: 0;
-}
-.TemplateModal_ytBtn {
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: none;
-  background: var(--color-accent);
-  color: #fff;
-  font-size: var(--font-size-xs);
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: opacity 150ms ease;
-}
-.TemplateModal_ytBtn:hover {
-  opacity: 0.88;
-}
-.TemplateModal_ytResult {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.TemplateModal_ytUrl {
-  font-size: var(--font-size-xs);
-  font-family: monospace;
-  color: var(--color-text);
-  flex: 1;
-  word-break: break-all;
-}
-.TemplateModal_copyBtn {
-  padding: 4px 12px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: color 150ms ease;
-}
-.TemplateModal_copyBtn:hover {
-  color: var(--color-text);
 }
 .TemplateModal_error {
   font-size: var(--font-size-xs);

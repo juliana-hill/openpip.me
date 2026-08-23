@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useState } from "react";
 import { proxyFetch } from "@/lib/proxy";
 import type { Tag } from "./InboxTab";
 import styles from "./TagManagerModal.module.css";
@@ -16,11 +17,14 @@ type Props = {
 
 export function TagManagerModal({ tags: initialTags, onClose }: Props) {
   const [tags, setTags] = useState<Tag[]>(initialTags);
+  const [mounted, setMounted] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PRESET_COLORS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => setMounted(true), []);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -65,11 +69,19 @@ export function TagManagerModal({ tags: initialTags, onClose }: Props) {
     finally { setSaving(false); }
   };
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal((
     <div className={styles.overlay} onClick={() => onClose(tags)}>
-      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        className={styles.modal}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="manage-tags-title"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className={styles.header}>
-          <h3 className={styles.title}>Manage Tags</h3>
+          <h3 className={styles.title} id="manage-tags-title">Manage Tags</h3>
           <button className={styles.closeBtn} onClick={() => onClose(tags)}>×</button>
         </div>
 
@@ -120,7 +132,7 @@ export function TagManagerModal({ tags: initialTags, onClose }: Props) {
         </div>
       </div>
     </div>
-  );
+  ), document.body);
 }
 
 function TagRow({

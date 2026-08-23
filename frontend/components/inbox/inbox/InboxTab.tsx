@@ -68,9 +68,10 @@ type Props = {
 export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChange, onTagsLoaded, onEmailsLoaded, initialMessageId }: Props) {
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 20;
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<"date" | "sender" | "count">("date");
   const [grouped, setGrouped] = useState(true);
@@ -81,12 +82,21 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   const [triage, setTriage] = useState<TriageProgress | null>(null);
   const triagePoll = useRef<ReturnType<typeof setInterval> | null>(null);
   const openedSourceMessage = useRef(false);
+  const tagsRef = useRef(tags);
+  tagsRef.current = tags;
 
-  const loadTags = useCallback(async () => {
+  const loadTags = useCallback(async (): Promise<Tag[]> => {
     try {
       const res = await proxyFetch("/agent/inbox/tags");
-      if (res.ok) onTagsLoaded((await res.json() as Tag[]).filter((tag) => tag.name !== "Draft"));
-    } catch { /* silent */ }
+      if (!res.ok) return tagsRef.current;
+      const nextTags = (await res.json() as Tag[]).filter((tag) => tag.name !== "Draft");
+      // Keep the ref in sync immediately. A user can click a label rendered
+      // from the first message response before React commits the parent
+      // state update from this request.
+      tagsRef.current = nextTags;
+      onTagsLoaded(nextTags);
+      return nextTags;
+    } catch { return tagsRef.current; }
   }, [onTagsLoaded]);
 
   const stopTriagePolling = useCallback(() => {
@@ -124,9 +134,27 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
 
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
+    setError(null);
     try {
-      const localDate = new Date().toISOString().slice(0, 10);
-      const res = await proxyFetch(`/agent/inbox/messages?source=gmail&localDate=${localDate}&page=${p}&pageSize=${PAGE_SIZE}`);
+      let availableTags = tagsRef.current;
+      if (activeTag !== "Unread" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
+        // Labels can be painted from the message payload before the separate
+        // Gmail-label request finishes. Make the first click wait for that
+        // request instead of falling back to the date-scoped inbox query.
+        availableTags = await loadTags();
+      }
+      const selectedLabel = activeTag !== "Unread" && activeTag !== "Untagged"
+        ? availableTags.find((tag) => tag.name === activeTag)
+        : undefined;
+      const params = new URLSearchParams({ source: "gmail", page: String(p), pageSize: String(PAGE_SIZE) });
+      if (selectedLabel) {
+        // Label views intentionally include read and archived mail.
+        params.set("labelId", selectedLabel.id);
+      } else {
+        params.set("localDate", new Date().toISOString().slice(0, 10));
+        if (activeTag === "Unread") params.set("unreadOnly", "true");
+      }
+      const res = await proxyFetch(`/agent/inbox/messages?${params.toString()}`);
       if (res.ok) {
         const data = await res.json() as { messages: Email[]; total: number; page: number; pageSize: number };
         const draftRes = await proxyFetch("/agent/inbox/network/drafts");
@@ -159,9 +187,16 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
           }
         }
       }
-    } catch { /* silent */ }
+      else throw new Error("Inbox request failed");
+    } catch {
+      // Do not leave the previous folder's count beside an empty filtered
+      // list when Gmail temporarily rejects a request.
+      setEmails([]);
+      setTotal(0);
+      setError("Unable to load this folder. Please try again.");
+    }
     setLoading(false);
-  }, [initialMessageId, onEmailsLoaded, pollTriage]);
+  }, [activeTag, initialMessageId, loadTags, onEmailsLoaded]);
 
   const load = useCallback(() => fetchPage(1), [fetchPage]);
 
@@ -174,6 +209,8 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     onUnreadChange(emails.filter((e) => e.unread).length);
   }, [emails, onUnreadChange]);
 
+  const visibleTags = useMemo(() => tags.filter((tag) => tag.name !== "Draft"), [tags]);
+
   const allTags = useMemo(() => {
     const tagCounts = new Map<string, number>();
     for (const email of emails) {
@@ -181,24 +218,31 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
         tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
       }
     }
-    return tagCounts;
-  }, [emails]);
-
-  const visibleTags = useMemo(() => tags.filter((tag) => tag.name !== "Draft"), [tags]);
+    // Keep the filter strip in the order returned by Gmail rather than the
+    // order labels happen to appear in the currently selected message page.
+    const orderedTags = new Map<string, number>();
+    for (const tag of visibleTags) {
+      orderedTags.set(tag.name, tagCounts.get(tag.name) ?? 0);
+    }
+    // Preserve any message labels that were not included by the labels
+    // endpoint, without allowing them to disturb the stable Gmail order.
+    for (const [tag, count] of tagCounts) {
+      if (!orderedTags.has(tag)) orderedTags.set(tag, count);
+    }
+    return orderedTags;
+  }, [emails, visibleTags]);
 
   const filtered = useMemo(() => {
     let list = emails;
-    if (activeTag === "Archived") {
-      list = list.filter((e) => e.archived);
-    } else if (activeTag !== "All") {
+    if (activeTag === "Unread") {
+      list = list.filter((e) => !e.archived && e.unread);
+    } else {
       list = list.filter((e) => !e.archived);
       if (activeTag === "Untagged") {
         list = list.filter((e) => e.tags.length === 0);
       } else {
         list = list.filter((e) => e.tags.includes(activeTag));
       }
-    } else {
-      list = list.filter((e) => !e.archived);
     }
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -232,9 +276,24 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   };
 
   const handleDelete = async (ids: string[]) => {
-    await proxyFetch("/agent/inbox/message", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids }) });
+    const previousEmails = emails;
+    const removedCount = previousEmails.filter((email) => ids.includes(email.id)).length;
+    // Optimistically hide deleted messages so the inbox responds immediately.
     setEmails((prev) => prev.filter((e) => !ids.includes(e.id)));
+    setTotal((prev) => Math.max(0, prev - removedCount));
     setSelected(new Set());
+    try {
+      const response = await proxyFetch("/agent/inbox/message", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids }),
+      });
+      if (!response.ok) throw new Error("Delete request failed");
+    } catch {
+      // Restore the row if the server could not move it to Gmail Trash.
+      setEmails(previousEmails);
+      setTotal((prev) => prev + removedCount);
+    }
   };
 
   const handleBlockSender = async (messageIds: string[], senderEmails: string[]) => {
@@ -314,7 +373,6 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
         tagObjects={visibleTags}
         active={activeTag}
         onChange={onActiveTagChange}
-        archivedCount={emails.filter((e) => e.archived).length}
         onManageTags={loadTags}
         selectedEmails={emails.filter((e) => selected.has(e.id))}
         onArchive={() => handleArchive(Array.from(selected))}
@@ -326,29 +384,33 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
           {`${total} email${total !== 1 ? "s" : ""}`}
         </p>
       )}
-      <GroupedEmailList
-        groups={grouped ? groups : [{ sender: "All", senderEmail: "", emails: filtered, latestDate: "" }]}
-        loading={loading}
-        selected={selected}
-        tags={visibleTags}
-        onToggleSelect={toggleSelect}
-        onArchive={(id) => handleArchive([id])}
-        onDelete={(id) => handleDelete([id])}
-        onReply={(email) => { void openReply(email); }}
-        onTagsChanged={(updatedEmail) => setEmails((prev) => {
-          const next = prev.map((e) => e.id === updatedEmail.id ? updatedEmail : e);
-          onEmailsLoaded?.(next);
-          return next;
-        })}
-        onView={(email) => {
-          setViewEmail(email);
-          if (email.unread) {
-            setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, unread: false } : e));
-            proxyFetch("/agent/inbox/mark-read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [email.id] }) }).catch(() => {});
-          }
-        }}
-        grouped={grouped}
-      />
+      {error ? (
+        <p style={{ color: "var(--color-danger, #b42318)", fontSize: "var(--font-size-sm)" }}>{error}</p>
+      ) : (
+        <GroupedEmailList
+          groups={grouped ? groups : [{ sender: "All", senderEmail: "", emails: filtered, latestDate: "" }]}
+          loading={loading}
+          selected={selected}
+          tags={visibleTags}
+          onToggleSelect={toggleSelect}
+          onArchive={(id) => handleArchive([id])}
+          onDelete={(id) => handleDelete([id])}
+          onReply={(email) => { void openReply(email); }}
+          onTagsChanged={(updatedEmail) => setEmails((prev) => {
+            const next = prev.map((e) => e.id === updatedEmail.id ? updatedEmail : e);
+            onEmailsLoaded?.(next);
+            return next;
+          })}
+          onView={(email) => {
+            setViewEmail(email);
+            if (email.unread) {
+              setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, unread: false } : e));
+              proxyFetch("/agent/inbox/mark-read", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: [email.id] }) }).catch(() => {});
+            }
+          }}
+          grouped={grouped}
+        />
+      )}
       {!loading && total > PAGE_SIZE && (
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 4px", fontSize: "var(--font-size-sm)", color: "var(--color-text-muted)" }}>
           <button
