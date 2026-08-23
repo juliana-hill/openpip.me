@@ -102,6 +102,9 @@ def build_briefing_prompt(request: BriefingRequest, user_context: UserContext) -
     context = user_context.content.strip() or "No user working context has been saved yet."
     return (
         f"Tasks: {request.tasks}\nEvents: {request.events}\nMessages: {request.messages}\n"
+        "Tasks are already ordered most pressing first (closest due date, then highest "
+        "priority) — treat earlier tasks in that list as more urgent than later ones, don't "
+        "re-rank them by any other signal.\n"
         "Write the core of a Daily Briefing using the exact five-line format below. Output only those five lines.\n"
         "LINE 1: One plain sentence about what matters most today. Prioritize calendar events, then Google Tasks.\n"
         "LINE 2: blank\n"

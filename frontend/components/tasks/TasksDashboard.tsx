@@ -185,8 +185,20 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
 
       const today = localToday();
       const now = localNow();
-      const tasks = currentTasks
-        .map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: t.projectName }));
+      // Most-pressing-first: same combined priority + earliest-due/scheduled
+      // ordering the visible task list already sorts by (PRIORITY_ORDER,
+      // toTaskStartMs above), so the briefing leads with what's actually
+      // closest to due, not whatever order the tasks happened to load in.
+      // dueDate is included so the model has the real date to reason about,
+      // not just a priority label with no timeframe attached to it.
+      const tasks = [...currentTasks]
+        .sort((a, b) => {
+          const pa = PRIORITY_ORDER[a.priority];
+          const pb = PRIORITY_ORDER[b.priority];
+          if (pa !== pb) return pa - pb;
+          return toTaskStartMs(a) - toTaskStartMs(b);
+        })
+        .map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: t.projectName, dueDate: t.dueDate }));
 
       const res = await proxyFetch("/agent/briefing", {
         method: "POST",

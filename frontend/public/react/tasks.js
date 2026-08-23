@@ -717,7 +717,12 @@ function TasksDashboard({ userName, userImage }) {
       }
       const today = localToday();
       const now = localNow();
-      const tasks2 = currentTasks.map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: t.projectName }));
+      const tasks2 = [...currentTasks].sort((a, b) => {
+        const pa = PRIORITY_ORDER[a.priority];
+        const pb = PRIORITY_ORDER[b.priority];
+        if (pa !== pb) return pa - pb;
+        return toTaskStartMs(a) - toTaskStartMs(b);
+      }).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: t.projectName, dueDate: t.dueDate }));
       const res = await proxyFetch("/agent/briefing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

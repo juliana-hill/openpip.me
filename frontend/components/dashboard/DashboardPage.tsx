@@ -15,7 +15,7 @@ import { useAgentIdentity } from "@/lib/agentIdentity";
 import { postToSW } from "@/lib/sw";
 import { AgentRunHistoryModal, type AgentRun } from "./AgentRunHistoryModal";
 
-type BriefTask = { title: string; priority: string; projectName: string | null; source?: string };
+type BriefTask = { title: string; priority: string; projectName: string | null; source?: string; dueDate?: string | null };
 type BriefEvent = { title: string; start: string };
 type TaskSnapshot = { title: string; priority: number; source: string }[];
 type RouteSnapshot = { origin: string; destination: string; date: string } | null;
@@ -164,10 +164,16 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       // (tier 1) — a briefing that only looked at "due today" would silently
       // drop anything overdue, which is exactly the work that most needs
       // surfacing.
+      // Sorted, not just filtered — the backend prompt tells the LLM these
+      // arrive in urgency order (closest due date, then highest priority)
+      // and treats earlier entries as more urgent without re-ranking them
+      // itself, so that ordering has to actually hold here.
       const briefTasks: BriefTask[] = [
         ...googleTasks
-          .filter((t) => { const tier = dateUrgencyTier(t.dueDate); return tier === 0 || tier === 1; })
-          .map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" })),
+          .map((t) => ({ t, tier: dateUrgencyTier(t.dueDate) }))
+          .filter((x): x is { t: GoogleTask; tier: number } => x.tier === 0 || x.tier === 1)
+          .sort((a, b) => a.tier - b.tier || namedPriorityToNumber(a.t.priority) - namedPriorityToNumber(b.t.priority))
+          .map(({ t }) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google", dueDate: t.dueDate ?? null })),
       ];
       const briefEvents: BriefEvent[] = (calendarData.calendars ?? [])
         .flatMap((calendarItem) => (calendarItem.events ?? [])

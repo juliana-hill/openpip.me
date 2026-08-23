@@ -334,10 +334,7 @@ function DashboardPage({ userName, userImage }) {
       setTasks(top3Urgent);
       setTasksLoading(false);
       const briefTasks = [
-        ...googleTasks.filter((t) => {
-          const tier = dateUrgencyTier(t.dueDate);
-          return tier === 0 || tier === 1;
-        }).map((t) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google" }))
+        ...googleTasks.map((t) => ({ t, tier: dateUrgencyTier(t.dueDate) })).filter((x) => x.tier === 0 || x.tier === 1).sort((a, b) => a.tier - b.tier || namedPriorityToNumber(a.t.priority) - namedPriorityToNumber(b.t.priority)).map(({ t }) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google", dueDate: t.dueDate ?? null }))
       ];
       const briefEvents = (calendarData.calendars ?? []).flatMap((calendarItem) => (calendarItem.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).map((event) => ({ title: event.title ?? "Calendar event", start: event.start })));
       return { briefTasks, briefEvents };
