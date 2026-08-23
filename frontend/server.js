@@ -61,37 +61,16 @@ async function proxy(req, res, upstream) {
   }
 }
 
-async function authStatus(req) {
-  try {
-    const response = await fetch(new URL("/auth/me", authUpstream), {
-      method: "GET",
-      headers: req.headers.cookie ? { cookie: req.headers.cookie } : {},
-    });
-    return response.status;
-  } catch {
-    return 0;
-  }
-}
-
-async function renderProtected(view, route, req, res) {
-  const status = await authStatus(req);
-  if (status === 401 || status === 403) {
-    const next = `${route}${req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : ""}`;
-    res.setHeader("Set-Cookie", `openpip_return=${encodeURIComponent(next)}; Path=/login; Max-Age=600; SameSite=Lax`);
-    return res.redirect("/login");
-  }
+// No cookies, anywhere. The session lives in the browser's sessionStorage
+// and is sent as the X-OpenPip-Session header (see lib/session.ts,
+// lib/proxy.ts) — invisible to this server, by design. Express can no
+// longer gate rendering server-side (it has nothing to check), so every
+// route just renders the page shell; the client-side JS in each
+// react-entries/*.tsx bundle does the real auth check via
+// proxyFetch("/auth/me") (which attaches the header) and redirects to
+// /login itself if that comes back 401.
+function renderProtected(view, route, req, res) {
   return res.render(view, { view, path: route, next: "/" });
-}
-
-function readLoginReturn(req) {
-  const match = req.headers.cookie?.match(/(?:^|;\s*)openpip_return=([^;]+)/);
-  if (!match) return "/";
-  try {
-    const value = decodeURIComponent(match[1]);
-    return value.startsWith("/") && !value.startsWith("//") ? value : "/";
-  } catch {
-    return "/";
-  }
 }
 
 app.use("/auth", (req, res) => proxy(req, res, authUpstream));
@@ -152,13 +131,14 @@ app.get("/routes", (req, res) => {
 for (const [route, view] of Object.entries(views)) {
   app.get(route, (req, res) => {
     if (view === "login") {
-      if (typeof req.query.next === "string" && req.query.next.startsWith("/") && !req.query.next.startsWith("//")) {
-        res.setHeader("Set-Cookie", `openpip_return=${encodeURIComponent(req.query.next)}; Path=/login; Max-Age=600; SameSite=Lax`);
-        return res.redirect("/login");
-      }
-      const requested = readLoginReturn(req);
-      res.setHeader("Set-Cookie", "openpip_return=; Path=/login; Max-Age=0; SameSite=Lax");
-      return res.render(view, { view, path: route, next: requested });
+      // No cookie round-trip: `next` is just carried straight through as a
+      // query param into the rendered page, which passes it to
+      // proxyLoginUrl(next) -> /auth/login?next=... -> the signed OAuth
+      // `state` param -> back out of /auth/callback's redirect target.
+      const next = typeof req.query.next === "string" && req.query.next.startsWith("/") && !req.query.next.startsWith("//")
+        ? req.query.next
+        : "/";
+      return res.render(view, { view, path: route, next });
     }
     return renderProtected(view, route, req, res);
   });

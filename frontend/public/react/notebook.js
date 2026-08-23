@@ -4,14 +4,15 @@ import {
 import {
   AppHeader,
   FloatingAssistant
-} from "./chunk-Z4VWHJHU.js";
+} from "./chunk-ECSCCBAX.js";
 import {
   __toESM,
   proxyFetch,
+  redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-LGZOQ3JO.js";
+} from "./chunk-7EDR7T7A.js";
 
 // react-entries/notebook.tsx
 var import_client = __toESM(require_client());
@@ -687,7 +688,10 @@ function NotebookDashboard({ userName, userImage }) {
 var import_jsx_runtime7 = __toESM(require_jsx_runtime());
 async function mount() {
   const r = await proxyFetch("/auth/me");
-  if (!r.ok) return;
+  if (!r.ok) {
+    redirectToLogin();
+    return;
+  }
   const u = await r.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime7.jsx)(NotebookDashboard, { userName: u.name ?? "", userImage: u.picture ?? "" }));
 }

@@ -21768,6 +21768,13 @@ function proxyFetch(path, init) {
     headers: { ...sessionHeaders(), ...init?.headers ?? {} }
   });
 }
+function proxyLoginUrl(next = "/") {
+  return `${PROXY_URL}/auth/login?next=${encodeURIComponent(next)}`;
+}
+function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  window.location.href = proxyLoginUrl(`${window.location.pathname}${window.location.search}`);
+}
 
 // compat/navigation.ts
 var import_react = __toESM(require_react());
@@ -22414,6 +22421,7 @@ export {
   require_client,
   clearSession,
   proxyFetch,
+  redirectToLogin,
   require_jsx_runtime,
   useSearchParams,
   useRouter,

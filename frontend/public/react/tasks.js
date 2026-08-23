@@ -1,6 +1,6 @@
 import {
   TrippyIcon
-} from "./chunk-VBVRCLDK.js";
+} from "./chunk-X4GABOL2.js";
 import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
@@ -9,7 +9,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-DYEATH4V.js";
+} from "./chunk-XYH2BRMG.js";
 import {
   AppHeader,
   FloatingAssistant,
@@ -29,7 +29,7 @@ import {
   pushTasksBackup,
   pushUserData,
   remarkGfm
-} from "./chunk-Z4VWHJHU.js";
+} from "./chunk-ECSCCBAX.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -46,10 +46,11 @@ import {
   X,
   __toESM,
   proxyFetch,
+  redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-LGZOQ3JO.js";
+} from "./chunk-7EDR7T7A.js";
 
 // react-entries/tasks.tsx
 var import_client = __toESM(require_client());
@@ -973,7 +974,10 @@ function getGreeting() {
 var import_jsx_runtime10 = __toESM(require_jsx_runtime());
 async function mount() {
   const r = await proxyFetch("/auth/me");
-  if (!r.ok) return;
+  if (!r.ok) {
+    redirectToLogin();
+    return;
+  }
   const u = await r.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime10.jsx)(TasksDashboard, { userName: u.name ?? "", userImage: u.picture ?? "" }));
 }

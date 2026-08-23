@@ -14,15 +14,16 @@ import {
   pushUserData,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-Z4VWHJHU.js";
+} from "./chunk-ECSCCBAX.js";
 import {
   X,
   __toESM,
   proxyFetch,
+  redirectToLogin,
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-LGZOQ3JO.js";
+} from "./chunk-7EDR7T7A.js";
 
 // react-entries/index.tsx
 var import_client = __toESM(require_client());
@@ -566,7 +567,10 @@ function DashboardPage({ userName, userImage }) {
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 async function mount() {
   const response = await proxyFetch("/auth/me");
-  if (!response.ok) return;
+  if (!response.ok) {
+    redirectToLogin();
+    return;
+  }
   const user = await response.json();
   (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DashboardPage, { userName: user.name ?? "", userImage: user.picture ?? "" }));
 }

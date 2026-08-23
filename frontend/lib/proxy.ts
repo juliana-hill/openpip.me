@@ -21,3 +21,13 @@ export function proxyFetch(path: string, init?: RequestInit): Promise<Response> 
 export function proxyLoginUrl(next = "/") {
   return `${PROXY_URL}/auth/login?next=${encodeURIComponent(next)}`;
 }
+
+// server.js no longer gates protected routes server-side (it can't — no
+// cookie exists for it to check). Each page bundle's own /auth/me check is
+// now the only auth gate; on 401 it must send the browser to /login itself,
+// carrying the current path as `next` so /auth/callback returns here after
+// signing in.
+export function redirectToLogin() {
+  if (typeof window === "undefined") return;
+  window.location.href = proxyLoginUrl(`${window.location.pathname}${window.location.search}`);
+}

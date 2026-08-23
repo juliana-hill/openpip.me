@@ -37,7 +37,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-LGZOQ3JO.js";
+} from "./chunk-7EDR7T7A.js";
 
 // node_modules/inline-style-parser/cjs/index.js
 var require_cjs = __commonJS({
