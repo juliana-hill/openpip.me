@@ -12,7 +12,7 @@ import {
 } from "./chunk-QLVTPJOM.js";
 import {
   FloatingAssistant
-} from "./chunk-KMANJ7L3.js";
+} from "./chunk-RDJA3UUM.js";
 import {
   AppHeader
 } from "./chunk-EYLK6625.js";

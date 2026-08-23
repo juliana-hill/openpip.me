@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { ArrowUp, Mic, MicOff, X, History, ChevronLeft, SquarePen, Trash2, RotateCcw } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { idbSetTaskSchedule, idbListChatSessions, idbReadChatSession, idbWriteChatSession, idbWriteChatMessage, idbDeleteChatSession, type ChatMessage, type ChatSession } from "@/lib/idb";
+import { idbListChatSessions, idbReadChatSession, idbWriteChatSession, idbWriteChatMessage, idbDeleteChatSession, type ChatMessage, type ChatSession } from "@/lib/idb";
 import { pushUserData, loadAndRestoreUserData, pushPlanningChatSessions, loadAndRestorePlanningChat, pushTasksBackup, loadAndRestoreTasksBackup } from "@/lib/sync";
+import { patchTaskSchedule } from "@/lib/taskStorage";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { normalizeSkill, SKILL_LABELS, type SkillId } from "@/lib/skills";
 import { RouteComparisonCard } from "@/components/routes/RouteComparisonCard";
@@ -228,7 +229,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
           onUnflagTask?.();
         } else if (update.uiAction?.type === "schedule_task") {
           const { taskId, scheduledFor } = update.uiAction;
-          void idbSetTaskSchedule(taskId, scheduledFor).then(() => onScheduleTask?.(taskId, scheduledFor));
+          void patchTaskSchedule(taskId, { scheduledFor }).then(() => onScheduleTask?.(taskId, scheduledFor));
         }
         pushPlanningChatSessions().catch((error) => console.warn("[assistant] failed to push chat history:", error));
         void Promise.all([loadAndRestoreUserData(), loadAndRestoreTasksBackup(), loadAndRestorePlanningChat()]);

@@ -49,20 +49,7 @@ var idbListSearches = async () => [];
 var idbGetUserPrefs = async () => ({});
 var idbSetUserPrefs = async (_prefs) => {
 };
-var idbGetAllTaskSchedules = async () => [];
-var idbGetTaskSchedule = async (_id) => null;
-var idbDeleteTaskSchedule = async (_id) => {
-};
-var idbGetPersistedActiveTask = async () => null;
-var idbSetPersistedActiveTask = async (_value) => {
-};
-var idbClearPersistedActiveTask = async () => {
-};
-var idbSaveTaskElapsed = async (_id, _value) => {
-};
 var idbAddNotification = async (_value) => {
-};
-var idbSetTaskSchedule = async (_id, _value) => {
 };
 var idbListChatSessions = async () => [];
 var idbReadChatSession = async (_id) => null;
@@ -86,6 +73,53 @@ var pushPlanningChatSessions = async () => {
 };
 var pushTasksBackup = async () => {
 };
+
+// lib/taskStorage.ts
+async function getPersistedActiveTask() {
+  const res = await proxyFetch("/agent/tasks/active");
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.active ?? null;
+}
+async function setPersistedActiveTask(value) {
+  await proxyFetch("/agent/tasks/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value)
+  }).catch(() => {
+  });
+}
+async function clearPersistedActiveTask() {
+  await proxyFetch("/agent/tasks/active", { method: "DELETE" }).catch(() => {
+  });
+}
+async function getAllTaskSchedules() {
+  const res = await proxyFetch("/agent/tasks/schedules");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Object.entries(data.schedules ?? {}).map(([taskId, entry]) => ({ taskId, ...entry }));
+}
+async function getTaskSchedule(taskId) {
+  const res = await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.schedule ?? null;
+}
+async function patchTaskSchedule(taskId, patch) {
+  await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  }).catch(() => {
+  });
+}
+async function saveTaskElapsed(taskId, elapsedMs) {
+  return patchTaskSchedule(taskId, { elapsedMs });
+}
+async function deleteTaskSchedule(taskId) {
+  await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`, { method: "DELETE" }).catch(() => {
+  });
+}
 
 // components/ui/ReadAloudButton.tsx
 var import_react = __toESM(require_react());
@@ -2482,7 +2516,7 @@ function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, onAgentAc
           onUnflagTask?.();
         } else if (update.uiAction?.type === "schedule_task") {
           const { taskId, scheduledFor } = update.uiAction;
-          void idbSetTaskSchedule(taskId, scheduledFor).then(() => onScheduleTask?.(taskId, scheduledFor));
+          void patchTaskSchedule(taskId, { scheduledFor }).then(() => onScheduleTask?.(taskId, scheduledFor));
         }
         pushPlanningChatSessions().catch((error) => console.warn("[assistant] failed to push chat history:", error));
         void Promise.all([loadAndRestoreUserData(), loadAndRestoreTasksBackup(), loadAndRestorePlanningChat()]);
@@ -2970,16 +3004,15 @@ export {
   idbListSearches,
   idbGetUserPrefs,
   idbSetUserPrefs,
-  idbGetAllTaskSchedules,
-  idbGetTaskSchedule,
-  idbDeleteTaskSchedule,
-  idbGetPersistedActiveTask,
-  idbSetPersistedActiveTask,
-  idbClearPersistedActiveTask,
-  idbSaveTaskElapsed,
   idbAddNotification,
   pushUserData,
-  pushTasksBackup,
+  getPersistedActiveTask,
+  setPersistedActiveTask,
+  clearPersistedActiveTask,
+  getAllTaskSchedules,
+  getTaskSchedule,
+  saveTaskElapsed,
+  deleteTaskSchedule,
   ReadAloudButton,
   getUserData,
   patchUserData,

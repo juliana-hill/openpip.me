@@ -16,20 +16,18 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton,
+  clearPersistedActiveTask,
+  deleteTaskSchedule,
+  getAllTaskSchedules,
+  getPersistedActiveTask,
+  getTaskSchedule,
   idbAddNotification,
-  idbClearPersistedActiveTask,
-  idbDeleteTaskSchedule,
-  idbGetAllTaskSchedules,
-  idbGetPersistedActiveTask,
-  idbGetTaskSchedule,
   idbGetUserPrefs,
-  idbSaveTaskElapsed,
-  idbSetPersistedActiveTask,
   idbSetUserPrefs,
   postToSW,
-  pushTasksBackup,
-  pushUserData
-} from "./chunk-KMANJ7L3.js";
+  saveTaskElapsed,
+  setPersistedActiveTask
+} from "./chunk-RDJA3UUM.js";
 import {
   AppHeader,
   Markdown,
@@ -740,7 +738,6 @@ function TasksDashboard({ userName, userImage }) {
         const text = data.briefing ?? null;
         if (text) {
           await idbSetUserPrefs({ dailyBriefing: { text, createdAtDate: today, createdAtTime: now } });
-          Promise.all([pushUserData(), pushTasksBackup()]);
         }
         setBriefing(text);
         setBriefingAt(now);
@@ -752,7 +749,7 @@ function TasksDashboard({ userName, userImage }) {
     }
   }, []);
   const loadSchedules = (0, import_react4.useCallback)(async () => {
-    const entries = await idbGetAllTaskSchedules();
+    const entries = await getAllTaskSchedules();
     setScheduleMap(new Map(entries.map((e) => [e.taskId, { scheduledFor: e.scheduledFor, scheduledStartTime: e.scheduledStartTime, scheduledEndTime: e.scheduledEndTime }])));
   }, []);
   (0, import_react4.useEffect)(() => {
@@ -808,7 +805,6 @@ function TasksDashboard({ userName, userImage }) {
       if (newTasksJson !== tasksSnapshotRef.current || newEventsJson !== eventsSnapshotRef.current) {
         tasksSnapshotRef.current = newTasksJson;
         eventsSnapshotRef.current = newEventsJson;
-        await Promise.all([pushUserData(), pushTasksBackup()]);
       }
       checkReminders(newTasks, newEvents, activeTask !== null);
     };
@@ -820,7 +816,7 @@ function TasksDashboard({ userName, userImage }) {
   }, [fetchTasks, fetchEvents, loadSchedules]);
   (0, import_react4.useEffect)(() => {
     if (loading) return;
-    idbGetPersistedActiveTask().then((persisted) => {
+    getPersistedActiveTask().then((persisted) => {
       if (!persisted) return;
       const remoteTask = tasks.find((t) => t.id === persisted.taskId && t.source === persisted.source);
       if (remoteTask) {
@@ -837,43 +833,38 @@ function TasksDashboard({ userName, userImage }) {
   }, [loading]);
   const handleFlag = (0, import_react4.useCallback)(async (task) => {
     if (activeTask?.task.id === task.id) {
-      idbClearPersistedActiveTask();
+      clearPersistedActiveTask();
       setActiveTask(null);
-      Promise.all([pushUserData(), pushTasksBackup()]);
       return;
     }
-    const entry = await idbGetTaskSchedule(task.id);
+    const entry = await getTaskSchedule(task.id);
     const baseElapsedMs = entry?.elapsedMs ?? 0;
     const flowRate = computeFlowRate(task);
     const startedAt = Date.now();
-    idbSetPersistedActiveTask({ taskId: task.id, source: task.source, startedAt, flowRate, baseElapsedMs });
+    setPersistedActiveTask({ taskId: task.id, source: task.source, startedAt, flowRate, baseElapsedMs });
     setActiveTask({ task, startedAt, flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
   }, [activeTask]);
   const handleTimerPause = (0, import_react4.useCallback)((baseElapsedMs) => {
     if (!activeTask) return;
-    idbSetPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: activeTask.startedAt, flowRate: activeTask.flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
+    setPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: activeTask.startedAt, flowRate: activeTask.flowRate, baseElapsedMs });
   }, [activeTask]);
   const handleTimerResume = (0, import_react4.useCallback)((newStartedAt, baseElapsedMs) => {
     if (!activeTask) return;
-    idbSetPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: newStartedAt, flowRate: activeTask.flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
+    setPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: newStartedAt, flowRate: activeTask.flowRate, baseElapsedMs });
   }, [activeTask]);
   const handleUnflag = (0, import_react4.useCallback)((elapsedMs) => {
     if (elapsedMs !== void 0 && activeTask) {
-      idbSaveTaskElapsed(activeTask.task.id, elapsedMs);
+      saveTaskElapsed(activeTask.task.id, elapsedMs);
     }
-    idbClearPersistedActiveTask();
+    clearPersistedActiveTask();
     setActiveTask(null);
-    Promise.all([pushUserData(), pushTasksBackup()]);
   }, [activeTask]);
   const handleComplete = (0, import_react4.useCallback)(async (taskId) => {
     const task = tasks.find((t) => t.id === taskId);
     if (!task) return;
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     if (activeTask?.task.id === taskId) {
-      idbClearPersistedActiveTask();
+      clearPersistedActiveTask();
       setActiveTask(null);
     }
     try {
@@ -892,7 +883,7 @@ function TasksDashboard({ userName, userImage }) {
   const annotatedTasks = tasks.map((t) => {
     const sched = scheduleMap.get(t.id);
     if (!t.scheduledFor && sched?.scheduledFor) {
-      idbDeleteTaskSchedule(t.id).then(() => {
+      deleteTaskSchedule(t.id).then(() => {
         setScheduleMap((prev) => {
           const next = new Map(prev);
           next.delete(t.id);

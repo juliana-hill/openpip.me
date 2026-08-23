@@ -24,7 +24,13 @@ from .google_workspace import (
     fetch_google_notebook_pages,
     fetch_google_tasks,
 )
-from .google_drive_docs import get_or_create_document
+from .google_drive_docs import (
+    delete_json_file,
+    get_or_create_document,
+    list_json_files,
+    read_json_file,
+    write_json_file,
+)
 from .google_drive_store import read_drive_app_data, write_drive_app_data
 from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
 from .google_oauth import (
@@ -387,6 +393,86 @@ async def goals_n_guidelines(skill: str, token: str = Depends(get_google_token))
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"driveUrl": drive_url, "content": content}
+
+
+TASKS_FOLDER = "OpenPip/tasks"
+TASK_SCHEDULES_FOLDER = f"{TASKS_FOLDER}/schedules"
+
+
+@app.get("/agent/tasks/active")
+async def get_active_task(token: str = Depends(get_google_token)):
+    """The currently-flagged "Working On" task, if any — a singleton, unlike
+    the per-task files below (only one task can be active at a time)."""
+    try:
+        active = await read_json_file(token, TASKS_FOLDER, "active.json")
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"active": active}
+
+
+@app.put("/agent/tasks/active")
+async def set_active_task(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    try:
+        await write_json_file(token, TASKS_FOLDER, "active.json", payload)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
+
+
+@app.delete("/agent/tasks/active")
+async def clear_active_task(token: str = Depends(get_google_token)):
+    try:
+        await delete_json_file(token, TASKS_FOLDER, "active.json")
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
+
+
+@app.get("/agent/tasks/schedules")
+async def list_task_schedules(token: str = Depends(get_google_token)):
+    """Every task's local record (accumulated timer elapsed-ms, and/or a
+    manually-set scheduledFor/scheduledStartTime/scheduledEndTime) — one real
+    Drive file per task (OpenPip/tasks/schedules/{taskId}.json), since tasks
+    are an unbounded, ever-growing collection, unlike Settings' fixed set of
+    fields in the single appDataFolder document."""
+    try:
+        entries = await list_json_files(token, TASK_SCHEDULES_FOLDER)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"schedules": entries}
+
+
+@app.get("/agent/tasks/schedules/{task_id}")
+async def get_task_schedule(task_id: str, token: str = Depends(get_google_token)):
+    try:
+        schedule = await read_json_file(token, TASK_SCHEDULES_FOLDER, f"{task_id}.json")
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"schedule": schedule}
+
+
+@app.put("/agent/tasks/schedules/{task_id}")
+async def patch_task_schedule(task_id: str, payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Merges `payload` onto the task's existing record rather than replacing
+    it outright — the timer (elapsedMs) and manual scheduling
+    (scheduledFor/scheduledStartTime/scheduledEndTime) are set independently
+    from different UI flows, and neither should clobber the other."""
+    try:
+        current = await read_json_file(token, TASK_SCHEDULES_FOLDER, f"{task_id}.json") or {}
+        merged = {**current, **payload}
+        await write_json_file(token, TASK_SCHEDULES_FOLDER, f"{task_id}.json", merged)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"schedule": merged}
+
+
+@app.delete("/agent/tasks/schedules/{task_id}")
+async def delete_task_schedule(task_id: str, token: str = Depends(get_google_token)):
+    try:
+        await delete_json_file(token, TASK_SCHEDULES_FOLDER, f"{task_id}.json")
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
 
 
 @app.get("/agent/google/tasks")

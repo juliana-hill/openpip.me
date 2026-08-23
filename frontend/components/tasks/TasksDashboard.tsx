@@ -9,8 +9,16 @@ import { TodayAtAGlanceCard } from "./TodayAtAGlanceCard";
 import { ActiveTaskCard } from "./ActiveTaskCard";
 import { TaskList } from "./TaskList";
 import { FloatingAssistant } from "./FloatingAssistant";
-import { idbGetAllTaskSchedules, idbGetTaskSchedule, idbDeleteTaskSchedule, idbGetPersistedActiveTask, idbSetPersistedActiveTask, idbClearPersistedActiveTask, idbSaveTaskElapsed, idbGetUserPrefs, idbSetUserPrefs, idbAddNotification } from "@/lib/idb";
-import { pushUserData, pushTasksBackup } from "@/lib/sync";
+import { idbGetUserPrefs, idbSetUserPrefs, idbAddNotification } from "@/lib/idb";
+import {
+  getAllTaskSchedules,
+  getTaskSchedule,
+  deleteTaskSchedule,
+  getPersistedActiveTask,
+  setPersistedActiveTask,
+  clearPersistedActiveTask,
+  saveTaskElapsed,
+} from "@/lib/taskStorage";
 import { postToSW } from "@/lib/sw";
 import type { Task, CalendarEvent, UnifiedItem, ActiveTask, Priority, TaskSection } from "@/types/tasks";
 import dashStyles from "./TasksDashboard.module.css";
@@ -219,7 +227,6 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
         const text = data.briefing ?? null;
         if (text) {
           await idbSetUserPrefs({ dailyBriefing: { text, createdAtDate: today, createdAtTime: now } });
-          Promise.all([pushUserData(), pushTasksBackup()]);
         }
         setBriefing(text);
         setBriefingAt(now);
@@ -232,7 +239,7 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadSchedules = useCallback(async () => {
-    const entries = await idbGetAllTaskSchedules();
+    const entries = await getAllTaskSchedules();
     setScheduleMap(new Map(entries.map((e) => [e.taskId, { scheduledFor: e.scheduledFor, scheduledStartTime: e.scheduledStartTime, scheduledEndTime: e.scheduledEndTime }])));
   }, []);
 
@@ -302,7 +309,6 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
       if (newTasksJson !== tasksSnapshotRef.current || newEventsJson !== eventsSnapshotRef.current) {
         tasksSnapshotRef.current = newTasksJson;
         eventsSnapshotRef.current = newEventsJson;
-        await Promise.all([pushUserData(), pushTasksBackup()]);
       }
       checkReminders(newTasks, newEvents, activeTask !== null);
     };
@@ -315,10 +321,10 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
     };
   }, [fetchTasks, fetchEvents, loadSchedules]);
 
-  // Restore active task from IDB after Google Tasks load
+  // Restore active task from Drive (OpenPip/tasks/active.json) after Google Tasks load
   useEffect(() => {
     if (loading) return;
-    idbGetPersistedActiveTask().then((persisted) => {
+    getPersistedActiveTask().then((persisted) => {
       if (!persisted) return;
       const remoteTask = tasks.find((t) => t.id === persisted.taskId && t.source === persisted.source);
       if (remoteTask) {
@@ -338,39 +344,34 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
 
   const handleFlag = useCallback(async (task: Task) => {
     if (activeTask?.task.id === task.id) {
-      idbClearPersistedActiveTask();
+      clearPersistedActiveTask();
       setActiveTask(null);
-      Promise.all([pushUserData(), pushTasksBackup()]);
       return;
     }
-    const entry = await idbGetTaskSchedule(task.id);
+    const entry = await getTaskSchedule(task.id);
     const baseElapsedMs = entry?.elapsedMs ?? 0;
     const flowRate = computeFlowRate(task);
     const startedAt = Date.now();
-    idbSetPersistedActiveTask({ taskId: task.id, source: task.source, startedAt, flowRate, baseElapsedMs });
+    setPersistedActiveTask({ taskId: task.id, source: task.source, startedAt, flowRate, baseElapsedMs });
     setActiveTask({ task, startedAt, flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
   }, [activeTask]);
 
   const handleTimerPause = useCallback((baseElapsedMs: number) => {
     if (!activeTask) return;
-    idbSetPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: activeTask.startedAt, flowRate: activeTask.flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
+    setPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: activeTask.startedAt, flowRate: activeTask.flowRate, baseElapsedMs });
   }, [activeTask]);
 
   const handleTimerResume = useCallback((newStartedAt: number, baseElapsedMs: number) => {
     if (!activeTask) return;
-    idbSetPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: newStartedAt, flowRate: activeTask.flowRate, baseElapsedMs });
-    Promise.all([pushUserData(), pushTasksBackup()]);
+    setPersistedActiveTask({ taskId: activeTask.task.id, source: activeTask.task.source, startedAt: newStartedAt, flowRate: activeTask.flowRate, baseElapsedMs });
   }, [activeTask]);
 
   const handleUnflag = useCallback((elapsedMs?: number) => {
     if (elapsedMs !== undefined && activeTask) {
-      idbSaveTaskElapsed(activeTask.task.id, elapsedMs);
+      saveTaskElapsed(activeTask.task.id, elapsedMs);
     }
-    idbClearPersistedActiveTask();
+    clearPersistedActiveTask();
     setActiveTask(null);
-    Promise.all([pushUserData(), pushTasksBackup()]);
   }, [activeTask]);
 
 
@@ -381,7 +382,7 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
     // Optimistic removal
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     if (activeTask?.task.id === taskId) {
-      idbClearPersistedActiveTask();
+      clearPersistedActiveTask();
       setActiveTask(null);
     }
 
@@ -402,9 +403,9 @@ export function TasksDashboard({ userName, userImage }: TasksDashboardProps) {
   // Merge local schedule annotations onto Google Tasks.
   const annotatedTasks = tasks.map((t) => {
     const sched = scheduleMap.get(t.id);
-    // If the API says this task is unscheduled, evict any stale IDB entry and trust the API.
+    // If the API says this task is unscheduled, evict any stale Drive schedule file and trust the API.
     if (!t.scheduledFor && sched?.scheduledFor) {
-      idbDeleteTaskSchedule(t.id).then(() => {
+      deleteTaskSchedule(t.id).then(() => {
         setScheduleMap((prev) => { const next = new Map(prev); next.delete(t.id); return next; });
       });
       return t;
