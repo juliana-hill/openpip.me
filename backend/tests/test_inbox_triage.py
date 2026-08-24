@@ -21,6 +21,48 @@ def test_no_reply_senders_do_not_get_drafts() -> None:
     assert not inbox_triage._is_no_reply_sender("person@example.com")
 
 
+def test_refund_notifications_are_filing_suggestions_not_tasks() -> None:
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_refund",
+        "from": "Temu",
+        "fromEmail": "orders@temu.com",
+        "subject": "Your Temu order has been partially refunded due to price adjustment",
+        "snippet": "Your refund has been issued.",
+    })
+
+    assert suggestion is not None
+    assert suggestion["kind"] == "file"
+    assert suggestion["deleteSuggested"] is True
+    assert suggestion["action"] == "Review deletion suggestion"
+
+
+def test_appointment_scheduling_is_a_task_suggestion() -> None:
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_appointment",
+        "from": "Dr. Morgan's office",
+        "fromEmail": "office@example.com",
+        "subject": "Schedule your follow-up appointment",
+        "snippet": "Please choose a time for your next visit.",
+    })
+
+    assert suggestion is not None
+    assert suggestion["kind"] == "task"
+    assert suggestion["taskSuggested"] is True
+
+
+def test_message_text_ignores_sender_name_and_address(monkeypatch) -> None:
+    # A sender address/name alone must never trigger a classification — only
+    # actual message content (subject/snippet) should.
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_from_marketing_address",
+        "from": "Rewards Program",
+        "fromEmail": "marketing@agency.com",
+        "subject": "Project update",
+        "snippet": "Here is the status you asked for.",
+    })
+    assert suggestion is None
+
+
 def test_tone_profile_reuses_greeting_closing_and_length() -> None:
     profile = inbox_triage._tone_profile([
         {"body": "Hello Alex,\n\n" + ("Thanks for the detailed update. " * 30) + "\n\nRegards,"},
@@ -66,9 +108,6 @@ def test_triage_logs_new_contact_email_once(monkeypatch) -> None:
     async def fake_labels(_token: str):
         return []
 
-    async def fake_create_label(_token: str, name: str):
-        return {"id": f"label-{name.rsplit('/', 1)[-1].lower()}"}
-
     async def fake_modify_labels(_token: str, message_id: str, *, add_label_ids=None, remove_label_ids=None):
         label_writes.append((message_id, (add_label_ids or [""])[0]))
 
@@ -85,7 +124,6 @@ def test_triage_logs_new_contact_email_once(monkeypatch) -> None:
     monkeypatch.setattr(inbox_triage, "write_json_file", fake_write_triage)
     monkeypatch.setattr(inbox_triage, "write_contact_interaction", fake_write_interaction)
     monkeypatch.setattr(inbox_triage, "fetch_gmail_labels", fake_labels)
-    monkeypatch.setattr(inbox_triage, "create_gmail_label", fake_create_label)
     monkeypatch.setattr(inbox_triage, "modify_gmail_message_labels", fake_modify_labels)
     monkeypatch.setattr(inbox_triage, "_historical_sender_label_counts", fake_history)
     monkeypatch.setattr(inbox_triage, "_historical_sender_tone", fake_tone)
@@ -107,11 +145,108 @@ def test_triage_logs_new_contact_email_once(monkeypatch) -> None:
 
     assert job["status"] == "completed"
     assert job["interactionsTracked"] == 1
-    assert job["labelsApplied"] == 2
-    assert len([entry for entry in label_writes if entry[1]]) == 2
-    assert job["readMarked"] == 2
+    assert job["labelsApplied"] == 0
+    assert label_writes == []
+    assert job["readMarked"] == 0
     assert len(interaction_writes) == 1
     resource_name, interaction = interaction_writes[0]
     assert resource_name == "people/contact-1"
     assert interaction["messageId"] == "gmail_new"
     assert not any(kind == "app" for kind, _ in writes)
+
+
+def test_apply_triage_changes_requires_explicit_selection(monkeypatch) -> None:
+    saved = {
+        "currentRun": {
+            "id": "run-1",
+            "suggestions": [
+                {"messageId": "gmail_delete", "deleteSuggested": True, "kind": "file"},
+                {"messageId": "gmail_file", "deleteSuggested": False, "kind": "file", "label": "Orders"},
+            ],
+        },
+        "history": [],
+        "suggestions": {},
+    }
+    writes: list[dict[str, object]] = []
+    trashed: list[list[str]] = []
+    modified: list[tuple[str, list[str], list[str]]] = []
+
+    async def fake_read(_token: str, _folder: str, _filename: str):
+        return saved
+
+    async def fake_write(_token: str, _folder: str, _filename: str, data: dict[str, object]):
+        writes.append(data)
+
+    async def fake_labels(_token: str):
+        return [{"id": "label-orders", "name": "Orders"}]
+
+    async def fake_trash(_token: str, message_ids: list[str]):
+        trashed.append(message_ids)
+
+    async def fake_modify(_token: str, message_id: str, *, add_label_ids=None, remove_label_ids=None):
+        modified.append((message_id, add_label_ids or [], remove_label_ids or []))
+
+    monkeypatch.setattr(inbox_triage, "read_json_file", fake_read)
+    monkeypatch.setattr(inbox_triage, "write_json_file", fake_write)
+    monkeypatch.setattr(inbox_triage, "fetch_gmail_labels", fake_labels)
+    monkeypatch.setattr(inbox_triage, "trash_gmail_messages", fake_trash)
+    monkeypatch.setattr(inbox_triage, "modify_gmail_message_labels", fake_modify)
+
+    result = asyncio.run(inbox_triage.apply_saved_triage_changes(
+        "oauth-token",
+        {"runId": "run-1", "messageIds": ["gmail_delete", "gmail_file"]},
+    ))
+
+    assert result["ok"] is True
+    assert {entry["action"] for entry in result["applied"]} == {"deleted", "labeled"}
+    assert trashed == [["delete"]]
+    assert ("file", ["label-orders"], []) in modified
+    assert ("delete", [], ["UNREAD"]) in modified
+    assert ("file", [], ["UNREAD"]) in modified
+    assert writes
+
+
+def test_apply_triage_changes_reviews_unlabeled_reply_and_task_without_creating_a_label(monkeypatch) -> None:
+    """reply/task suggestions with no historical label have nothing to file
+    under — applying them must never create an OpenPip-owned Gmail label."""
+    saved = {
+        "currentRun": {
+            "id": "run-1",
+            "suggestions": [
+                {"messageId": "gmail_reply", "kind": "reply"},
+                {"messageId": "gmail_task", "kind": "task"},
+            ],
+        },
+        "history": [],
+        "suggestions": {},
+    }
+    modified: list[tuple[str, list[str], list[str]]] = []
+
+    async def fake_read(_token: str, _folder: str, _filename: str):
+        return saved
+
+    async def fake_write(_token: str, _folder: str, _filename: str, data: dict[str, object]):
+        pass
+
+    async def fake_labels(_token: str):
+        return []
+
+    async def fake_modify(_token: str, message_id: str, *, add_label_ids=None, remove_label_ids=None):
+        modified.append((message_id, add_label_ids or [], remove_label_ids or []))
+
+    monkeypatch.setattr(inbox_triage, "read_json_file", fake_read)
+    monkeypatch.setattr(inbox_triage, "write_json_file", fake_write)
+    monkeypatch.setattr(inbox_triage, "fetch_gmail_labels", fake_labels)
+    monkeypatch.setattr(inbox_triage, "modify_gmail_message_labels", fake_modify)
+
+    result = asyncio.run(inbox_triage.apply_saved_triage_changes(
+        "oauth-token",
+        {"runId": "run-1", "messageIds": ["gmail_reply", "gmail_task"]},
+    ))
+
+    assert result["ok"] is True
+    assert {entry["action"] for entry in result["applied"]} == {"reviewed"}
+    # Only ever an UNREAD removal — no add_label_ids call for either message.
+    assert all(not add for _message_id, add, _remove in modified)
+    assert ("reply", [], ["UNREAD"]) in modified
+    assert ("task", [], ["UNREAD"]) in modified

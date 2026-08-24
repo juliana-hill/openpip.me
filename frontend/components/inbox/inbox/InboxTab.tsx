@@ -8,7 +8,7 @@ import { TagFilterStrip } from "./TagFilterStrip";
 import { GroupedEmailList } from "./GroupedEmailList";
 import { ReplyModal } from "./ReplyModal";
 import { ViewEmailModal } from "./ViewEmailModal";
-import { TriageDetailsModal, type TriageSuggestion } from "./TriageDetailsModal";
+import { TriageDetailsModal, type TriageRun, type TriageSuggestion } from "./TriageDetailsModal";
 
 export type Tag = {
   id: string;
@@ -90,6 +90,8 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   const [viewEmail, setViewEmail] = useState<Email | null>(null);
   const [triage, setTriage] = useState<TriageProgress | null>(null);
   const [triageSuggestions, setTriageSuggestions] = useState<TriageSuggestion[]>([]);
+  const [triageCurrentRun, setTriageCurrentRun] = useState<TriageRun | null>(null);
+  const [triageHistory, setTriageHistory] = useState<TriageRun[]>([]);
   const [triageDetailsOpen, setTriageDetailsOpen] = useState(false);
   const [showTriageCard, setShowTriageCard] = useState(false);
   const triagePoll = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -162,7 +164,7 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
       if (activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged" && !availableTags.some((tag) => tag.name === activeTag)) {
         // Labels can be painted from the message payload before the separate
         // Gmail-label request finishes. Make the first click wait for that
-        // request instead of falling back to the date-scoped inbox query.
+        // request instead of resolving to no label at all.
         availableTags = await loadTags();
       }
       const selectedLabel = activeTag !== "Unread" && activeTag !== "Drafts" && activeTag !== "Untagged"
@@ -177,10 +179,14 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
       } else if (selectedLabel) {
         // Label views intentionally include read and archived mail.
         params.set("labelId", selectedLabel.id);
-      } else {
-        params.set("localDate", new Date().toISOString().slice(0, 10));
-        if (activeTag === "Unread") params.set("unreadOnly", "true");
+      } else if (activeTag === "Unread") {
+        // Unread means every unread message in the Inbox, not just today's —
+        // no date restriction here (see backend fetch_gmail_messages: no
+        // local_date means no after/before query at all).
+        params.set("unreadOnly", "true");
       }
+      // "Untagged" falls through with neither localDate nor unreadOnly set —
+      // it means every untagged Inbox message, read or unread, any date.
       const res = await proxyFetch(`/agent/inbox/messages?${params.toString()}`);
       if (res.ok) {
         const data = await res.json() as { messages: Email[]; total: number; page: number; pageSize: number };
@@ -345,17 +351,50 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     } catch { /* silent */ }
   };
 
-  const openTriageDetails = async () => {
+  const loadTriageDetails = useCallback(async () => {
     try {
       const res = await proxyFetch("/agent/inbox/network/details");
       if (res.ok) {
-        const data = await res.json() as { suggestions?: TriageSuggestion[] };
-        setTriageSuggestions(data.suggestions ?? []);
+        const data = await res.json() as { suggestions?: TriageSuggestion[]; currentRun?: TriageRun; history?: TriageRun[] };
+        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
+        setTriageCurrentRun(currentRun);
+        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
+        setTriageHistory(data.history ?? []);
       }
-    } finally {
-      setTriageDetailsOpen(true);
-    }
+    } catch { /* history is optional until the first completed run */ }
+  }, []);
+
+  const openTriageDetails = async () => {
+    await loadTriageDetails();
+    setTriageDetailsOpen(true);
   };
+
+  const saveTriageChanges = async (runId: string, messageIds: string[]) => {
+    const res = await proxyFetch("/agent/inbox/network/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runId, messageIds }),
+    });
+    if (!res.ok) throw new Error("Unable to save triage changes");
+    // The backend returns 200 even when every item failed (a bulk operation
+    // with per-item results, not an all-or-nothing transaction) — the actual
+    // outcome is in the body, not the HTTP status.
+    const data = await res.json() as { applied?: { messageId: string }[]; failures?: { messageId: string; error: string }[] };
+    await Promise.all([load(), loadTriageDetails()]);
+    return { applied: data.applied ?? [], failures: data.failures ?? [] };
+  };
+
+  const markTriageMessagesUnread = async (messageIds: string[]) => {
+    const res = await proxyFetch("/agent/inbox/mark-unread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: messageIds }),
+    });
+    if (!res.ok) throw new Error("Unable to mark triage messages unread");
+    await loadTriageDetails();
+  };
+
+  useEffect(() => { void loadTriageDetails(); }, [loadTriageDetails]);
 
   const openReply = async (email: Email) => {
     try {
@@ -397,8 +436,12 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
                   ? "Your assistant has prepared suggestions for you to review."
                   : "We could not finish reviewing every email. You can try again when you are ready."}
             </p>
-            {triage.status !== "running" && <button type="button" className={styles.triageReviewBtn} onClick={() => { void openTriageDetails(); }}>Review details</button>}
           </div>
+          {triage.status !== "running" && (
+            <div className={styles.triageActions}>
+              <button type="button" className={styles.triageReviewBtn} onClick={() => { void openTriageDetails(); }}>Review details</button>
+            </div>
+          )}
           <div className={styles.triageProgress}>
             <div className={styles.triageLabel}>
               <span>{triage.status === "running" ? "Review in progress" : "Review summary"}</span>
@@ -429,6 +472,11 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
           <div className={styles.triageActions}>
             <button className={styles.triageRunBtn} onClick={runTriage}>{reviewButtonLabel}</button>
             <p className={styles.triageTrust}>Nothing is sent or changed without your review.</p>
+            {triageHistory.length > 0 && (
+              <button type="button" className={styles.triageHistoryLink} onClick={() => { void openTriageDetails(); }}>
+                Review History
+              </button>
+            )}
           </div>
         </section>
       ))}
@@ -513,6 +561,9 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
           onReply={() => { void openReply(viewEmail); setViewEmail(null); }}
           onDelete={() => { handleDelete([viewEmail.id]); setViewEmail(null); }}
           onBlockSender={() => { handleBlockSender([viewEmail.id], [viewEmail.fromEmail]); setViewEmail(null); }}
+          onMarkUnread={() => {
+            setEmails((prev) => prev.map((item) => item.id === viewEmail.id ? { ...item, unread: true } : item));
+          }}
           onTagsChanged={(updatedEmail) => setEmails((prev) => {
             const next = prev.map((e) => e.id === updatedEmail.id ? updatedEmail : e);
             onEmailsLoaded?.(next);
@@ -523,6 +574,10 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
       <TriageDetailsModal
         open={triageDetailsOpen}
         suggestions={triageSuggestions}
+        currentRun={triageCurrentRun}
+        history={triageHistory}
+        onSaveChanges={saveTriageChanges}
+        onMarkUnread={markTriageMessagesUnread}
         onClose={() => setTriageDetailsOpen(false)}
       />
     </>

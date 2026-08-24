@@ -1,6 +1,6 @@
 import {
   FloatingAssistant
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   Link

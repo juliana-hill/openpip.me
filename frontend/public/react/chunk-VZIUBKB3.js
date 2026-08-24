@@ -1858,7 +1858,8 @@ function CalendarEventPickerSheet({ open, onClose, onConfirm }) {
     setSelectedIds(/* @__PURE__ */ new Set());
     setQuery("");
     setLoading(true);
-    proxyFetch("/agent/calendars?days=7").then((r) => r.json()).then((data) => {
+    const from = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
+    proxyFetch(`/agent/calendars?days=7&from=${from}`).then((r) => r.json()).then((data) => {
       const seen = /* @__PURE__ */ new Set();
       const flat = [];
       for (const cal of data.calendars ?? []) {

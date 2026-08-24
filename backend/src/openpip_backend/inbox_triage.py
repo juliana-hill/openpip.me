@@ -18,16 +18,17 @@ from uuid import uuid4
 from .google_drive_docs import list_json_files, read_json_file, write_json_file
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
-    create_gmail_label,
     fetch_gmail_labels,
     fetch_gmail_messages,
     fetch_gmail_message,
     fetch_google_contacts,
     modify_gmail_message_labels,
+    trash_gmail_messages,
 )
 
 TRIAGE_FOLDER = "OpenPip/inbox"
 TRIAGE_FILE = "triage.json"
+TRIAGE_HISTORY_LIMIT = 10
 CONTACTS_FOLDER = "OpenPip/contacts"
 CONTACT_PROFILE_FILE = "profile.json"
 PAGE_SIZE = 100
@@ -41,8 +42,11 @@ _jobs: dict[str, dict[str, Any]] = {}
 _active_jobs: dict[str, str] = {}
 
 _REPLY_TERMS = re.compile(r"\b(reply|respond|question|could you|can you|let me know|available|meeting|schedule|follow up|following up|request)\b", re.I)
-_FILE_TERMS = re.compile(r"\b(unsubscribe|newsletter|promotion|sale|receipt|order confirmation|shipping|tracking|notification|alert|marketing)\b", re.I)
-_TASK_TERMS = re.compile(r"\b(action required|deadline|due|invoice|payment|renewal|proposal|quote|review|approve|confirm|complete|submit)\b", re.I)
+_FILE_TERMS = re.compile(r"\b(unsubscribe|newsletter|promotion|promotional|sale|offer|discount|coupon|promo|deal|receipt|order confirmation|shipping|tracking|notification|alert|marketing|rewards|membership|benefit|refund|refunded|price adjustment|credit received|uber|lyft|doordash)\b", re.I)
+_TASK_TERMS = re.compile(
+    r"\b(action required|deadline|due date|invoice due|payment due|renewal required|proposal|quote|review required|please review|approve|approval required|please confirm|confirm by|complete|submit|schedule (?:an?|your|the) appointment|book (?:an?|your|the) appointment|make (?:an?|your|the) appointment|follow[- ]up appointment)\b",
+    re.I,
+)
 
 
 def contact_id_from_resource(resource_name: str) -> str:
@@ -170,6 +174,10 @@ async def _all_unread_messages(access_token: str) -> list[dict[str, Any]]:
 
 
 def _message_text(message: dict[str, Any]) -> str:
+    # Only the actual content — a sender address or display name containing a
+    # bare classification word (e.g. "marketing@agency.com", a "Rewards"
+    # program) must not by itself make an otherwise ordinary message look
+    # promotional, actionable, or reply-worthy.
     return " ".join(
         str(message.get(field) or "")
         for field in ("subject", "snippet")
@@ -277,55 +285,39 @@ def _suggestion(message: dict[str, Any]) -> dict[str, Any] | None:
         "subject": str(message.get("subject") or "(no subject)"),
         "sender": str(message.get("from") or message.get("fromEmail") or "Unknown sender"),
         "fromEmail": str(message.get("fromEmail") or ""),
+        "date": str(message.get("date") or ""),
     }
-    if _FILE_TERMS.search(text) and not _REPLY_TERMS.search(text):
+    # Transactional/promotional mail wins over generic action words such as
+    # "due" or "confirm" so receipts and refunds do not become tasks.
+    if _FILE_TERMS.search(text):
         return {
             **context,
             "kind": "file",
-            "label": TRIAGE_LABEL_NAMES["file"],
             "action": "Review deletion suggestion",
             "reason": "This looks like a receipt, notification, promotion, or other low-priority update that may no longer be needed.",
             "deleteSuggested": True,
             "createdAt": datetime.now(UTC).isoformat(),
         }
+    if _TASK_TERMS.search(text):
+        return {
+            **context,
+            "kind": "task",
+            "action": "Review task suggestion",
+            "reason": "This message appears to contain an action, deadline, approval, or follow-up.",
+            "createdAt": datetime.now(UTC).isoformat(),
+            "taskSuggested": True,
+        }
     if _REPLY_TERMS.search(text):
         return {
             **context,
             "kind": "reply",
-            "label": TRIAGE_LABEL_NAMES["reply"],
             "action": "Review reply suggestion",
             "reason": "This message appears to contain a question, request, or follow-up that may need a response.",
             "createdAt": datetime.now(UTC).isoformat(),
             "draft": _draft_reply(message),
             "taskSuggested": bool(_TASK_TERMS.search(text)),
         }
-    if _TASK_TERMS.search(text):
-        return {
-            **context,
-            "kind": "task",
-            "label": TRIAGE_LABEL_NAMES["task"],
-            "action": "Review task suggestion",
-            "reason": "This message appears to contain an action, deadline, approval, or follow-up.",
-            "createdAt": datetime.now(UTC).isoformat(),
-            "taskSuggested": True,
-        }
     return None
-
-
-async def _ensure_triage_labels(access_token: str, kinds: set[str]) -> dict[str, str]:
-    """Resolve the Gmail label ids used by triage, creating them once if needed."""
-    labels = await fetch_gmail_labels(access_token)
-    by_name = {str(label.get("name") or "").casefold(): str(label.get("id") or "") for label in labels}
-    resolved: dict[str, str] = {}
-    for kind in kinds:
-        name = TRIAGE_LABEL_NAMES[kind]
-        label_id = by_name.get(name.casefold())
-        if not label_id:
-            created = await create_gmail_label(access_token, name)
-            label_id = str(created.get("id") or "")
-        if label_id:
-            resolved[kind] = label_id
-    return resolved
 
 
 async def _historical_sender_label_counts(
@@ -383,7 +375,12 @@ def _historical_label(
 async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages: list[dict[str, Any]]) -> None:
     try:
         saved = await read_json_file(access_token, TRIAGE_FOLDER, TRIAGE_FILE) or {}
-        suggestions = saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {}
+        previous_suggestions = saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {}
+        saved_history = saved.get("history") if isinstance(saved.get("history"), list) else []
+        previous_current_run = saved.get("currentRun") if isinstance(saved.get("currentRun"), dict) else None
+        # A run is its own review snapshot. Keep the prior snapshot in history
+        # rather than merging it into the new run's details.
+        suggestions: dict[str, dict[str, Any]] = {}
         drafts = saved.get("drafts") if isinstance(saved.get("drafts"), dict) else {}
         # Networking is a Drive-backed CRM overlay on top of Google Contacts.
         # A failure to read it should not prevent inbox suggestions from being
@@ -403,16 +400,6 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
             if candidate_id and candidate_suggestion:
                 suggestions_by_message[candidate_id] = candidate_suggestion
         try:
-            triage_label_ids = await _ensure_triage_labels(
-                access_token,
-                {str(suggestion.get("kind")) for suggestion in suggestions_by_message.values() if suggestion.get("kind") in TRIAGE_LABEL_NAMES},
-            )
-        except Exception:
-            # Suggestions remain available even if Gmail label setup is
-            # temporarily unavailable; no message is deleted or otherwise
-            # mutated in that case.
-            triage_label_ids = {}
-        try:
             label_catalog = await fetch_gmail_labels(access_token)
             user_labels = {
                 str(label.get("id") or ""): str(label.get("name") or "")
@@ -424,7 +411,6 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
             user_labels = {}
         sender_history: dict[str, tuple[int, Counter[str]]] = {}
         sender_tones: dict[str, dict[str, str]] = {}
-        completed_message_ids: list[str] = []
         contacts_by_email: dict[str, tuple[str, dict[str, Any], dict[str, Any]]] = {}
         contact_interactions: dict[str, list[dict[str, Any]]] = {}
         for resource_name, entry in tracked_contacts.items():
@@ -455,7 +441,6 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
             try:
                 message_id = str(message.get("id") or "")
                 suggestion = suggestions_by_message.get(message_id)
-                email_success = True
                 if suggestion:
                     sender_email = str(message.get("fromEmail") or "").strip().lower()
                     if suggestion.get("kind") == "reply":
@@ -475,7 +460,6 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                                 suggestion.update({
                                     "kind": "task",
                                     "action": "Review task suggestion",
-                                    "label": TRIAGE_LABEL_NAMES["task"],
                                 })
                             else:
                                 suggestion = None
@@ -499,7 +483,7 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                                 sender_history[sender_email] = (0, Counter())
                         history_count, history_counts = sender_history[sender_email]
                         history_label = _historical_label(history_count, history_counts, user_labels)
-                        if history_label:
+                        if history_label and suggestion.get("kind") == "file":
                             label_id, label_name = history_label
                             suggestion["label"] = label_name
                             suggestion["labelSource"] = "sender_history"
@@ -507,21 +491,7 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                                 suggestion["deleteSuggested"] = False
                                 suggestion["action"] = "Review filing suggestion"
                                 suggestion["reason"] = f"You usually keep messages from this sender under the “{label_name}” label."
-                        else:
-                            label_id = triage_label_ids.get(str(suggestion.get("kind") or ""))
-                            suggestion["labelSource"] = "openpip_triage"
                         suggestions[message_id] = suggestion
-                        if label_id:
-                            try:
-                                await modify_gmail_message_labels(
-                                    access_token,
-                                    message_id.removeprefix("gmail_"),
-                                    add_label_ids=[label_id],
-                                )
-                                job["labelsApplied"] += 1
-                            except Exception:
-                                job["labelFailures"] += 1
-                                email_success = False
                         if suggestion.get("kind") == "file":
                             job["fileSuggestions"] += 1
                         if suggestion.get("kind") == "task" or suggestion.get("taskSuggested"):
@@ -561,19 +531,63 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                         changed_profiles[resource_name] = contact_entry
                         job["interactionsTracked"] += 1
                 job["processed"] += 1
-                if email_success and message_id:
-                    completed_message_ids.append(message_id.removeprefix("gmail_"))
+                # An email with no recommendation was not completed. Keep it
+                # unread so the user can see it again on the next run.
+                # Suggestions are approval requests. The message remains
+                # unread until the user saves a selected deletion or label
+                # change through apply_saved_triage_changes.
             except Exception:
                 job["failed"] += 1
             finally:
                 job["attempted"] += 1
+
+        completed_at = datetime.now(UTC).isoformat()
+        current_suggestions = [
+            suggestion for suggestion in suggestions.values()
+            if isinstance(suggestion, dict)
+        ]
+        current_run = {
+            "id": str(job["id"]),
+            "completedAt": completed_at,
+            "status": "failed" if job["failed"] else "completed",
+            "total": job["total"],
+            "processed": job["processed"],
+            "fileSuggestions": job["fileSuggestions"],
+            "tasksCreated": job["tasksCreated"],
+            "draftsCreated": job["draftsCreated"],
+            "labelsApplied": job["labelsApplied"],
+            "readMarked": job["readMarked"],
+            "suggestions": current_suggestions,
+        }
+        history = [
+            item for item in saved_history
+            if isinstance(item, dict) and item.get("id") != current_run["id"]
+        ]
+        # Migrate the pre-history format once, so the first History view still
+        # exposes the suggestions that were previously merged into triage.json.
+        if not history:
+            legacy = previous_current_run
+            if not legacy and previous_suggestions:
+                legacy = {
+                    "id": f"legacy-{hashlib.sha256(str(saved.get('updatedAt', '')).encode('utf-8')).hexdigest()[:12]}",
+                    "completedAt": saved.get("updatedAt") or completed_at,
+                    "status": "completed",
+                    "total": len(previous_suggestions),
+                    "processed": len(previous_suggestions),
+                    "suggestions": [item for item in previous_suggestions.values() if isinstance(item, dict)],
+                }
+            if legacy and legacy.get("suggestions"):
+                history.append(legacy)
+        history = [current_run, *history][:TRIAGE_HISTORY_LIMIT]
         await write_json_file(
             access_token,
             TRIAGE_FOLDER,
             TRIAGE_FILE,
             {
-                "version": 1,
-                "updatedAt": datetime.now(UTC).isoformat(),
+                "version": 2,
+                "updatedAt": completed_at,
+                "currentRun": current_run,
+                "history": history,
                 "suggestions": suggestions,
                 "drafts": drafts,
             },
@@ -591,20 +605,6 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                 )
                 for resource_name, profile in changed_profiles.items()
             ))
-        if completed_message_ids:
-            async def mark_read(message_id: str) -> None:
-                try:
-                    await modify_gmail_message_labels(
-                        access_token,
-                        message_id,
-                        remove_label_ids=["UNREAD"],
-                    )
-                    job["readMarked"] += 1
-                except Exception:
-                    job["readFailures"] += 1
-                    job["failed"] += 1
-
-            await asyncio.gather(*(mark_read(message_id) for message_id in completed_message_ids))
         job["status"] = "failed" if job["failed"] else "completed"
         if job["failed"]:
             job["error"] = f"{job['failed']} email{'' if job['failed'] == 1 else 's'} could not be reviewed"
@@ -685,11 +685,115 @@ async def get_saved_draft(access_token: str, message_id: str) -> str | None:
     return str(draft) if isinstance(draft, str) else None
 
 
-async def get_saved_triage_details(access_token: str) -> list[dict[str, Any]]:
+async def get_saved_triage_details(access_token: str) -> dict[str, Any]:
     saved = await read_json_file(access_token, TRIAGE_FOLDER, TRIAGE_FILE) or {}
-    suggestions = saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {}
-    return [
-        suggestion
-        for suggestion in suggestions.values()
-        if isinstance(suggestion, dict)
-    ]
+    current_run = saved.get("currentRun") if isinstance(saved.get("currentRun"), dict) else None
+    if current_run is None:
+        suggestions = saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {}
+        current_run = {
+            "id": "latest",
+            "completedAt": saved.get("updatedAt"),
+            "status": "completed",
+            "total": len(suggestions),
+            "processed": len(suggestions),
+            "suggestions": [item for item in suggestions.values() if isinstance(item, dict)],
+        }
+    history = [item for item in (saved.get("history") if isinstance(saved.get("history"), list) else []) if isinstance(item, dict)]
+    return {"currentRun": current_run, "history": history[1:] if history and history[0].get("id") == current_run.get("id") else history}
+
+
+async def apply_saved_triage_changes(access_token: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Apply only the suggestions explicitly checked in the review modal."""
+    run_id = str(payload.get("runId") or "latest")
+    raw_ids = payload.get("messageIds")
+    if not isinstance(raw_ids, list) or not raw_ids or not all(isinstance(item, str) and item.strip() for item in raw_ids):
+        raise ValueError("messageIds must be a non-empty array of message ids")
+
+    saved = await read_json_file(access_token, TRIAGE_FOLDER, TRIAGE_FILE) or {}
+    current_run = saved.get("currentRun") if isinstance(saved.get("currentRun"), dict) else None
+    history = saved.get("history") if isinstance(saved.get("history"), list) else []
+    if run_id == "latest":
+        run_id = str(current_run.get("id") if current_run else "latest")
+    target_run = current_run if current_run and str(current_run.get("id")) == run_id else next(
+        (item for item in history if isinstance(item, dict) and str(item.get("id")) == run_id),
+        None,
+    )
+    if not target_run:
+        raise ValueError("Triage review not found")
+
+    suggestions = {
+        str(item.get("messageId")): item
+        for item in target_run.get("suggestions", [])
+        if isinstance(item, dict) and item.get("messageId")
+    }
+    labels = await fetch_gmail_labels(access_token)
+    labels_by_name = {
+        str(label.get("name") or "").casefold(): str(label.get("id") or "")
+        for label in labels
+        if label.get("name") and label.get("id")
+    }
+    async def apply_one(message_id: str) -> dict[str, Any]:
+        suggestion = suggestions.get(message_id)
+        if not suggestion:
+            return {"messageId": message_id, "ok": False, "error": "Suggestion not found in this review"}
+        if suggestion.get("appliedAction"):
+            return {"messageId": message_id, "ok": False, "error": "This suggestion was already applied"}
+        try:
+            raw_message_id = message_id.removeprefix("gmail_")
+            label_name = str(suggestion.get("label") or "").strip()
+            if suggestion.get("deleteSuggested"):
+                await trash_gmail_messages(access_token, [raw_message_id])
+                action = "deleted"
+            elif label_name:
+                # A label is only ever assigned from a sender's own existing,
+                # historically-consistent Gmail label (see _historical_label)
+                # — this never creates a new OpenPip-owned label.
+                label_id = labels_by_name.get(label_name.casefold())
+                if not label_id:
+                    raise ValueError(f"Gmail label not found: {label_name}")
+                await modify_gmail_message_labels(access_token, raw_message_id, add_label_ids=[label_id])
+                action = "labeled"
+            else:
+                # "reply"/"task" suggestions with no historical label have no
+                # filing action to take — actually replying or creating a task
+                # happens through their own explicit UI (the Reply button,
+                # Google Tasks), never invented here. Applying just
+                # acknowledges the review.
+                action = "reviewed"
+            await modify_gmail_message_labels(access_token, raw_message_id, remove_label_ids=["UNREAD"])
+            suggestion["appliedAction"] = action
+            suggestion["appliedAt"] = datetime.now(UTC).isoformat()
+            return {"messageId": message_id, "ok": True, "action": action}
+        except Exception as error:
+            return {"messageId": message_id, "ok": False, "error": str(error)}
+
+    # Each message's Gmail calls are independent of every other message's, so
+    # run them concurrently rather than one round trip at a time.
+    results = await asyncio.gather(*(
+        apply_one(message_id) for message_id in dict.fromkeys(str(item).strip() for item in raw_ids)
+    ))
+    applied: list[dict[str, Any]] = [{"messageId": r["messageId"], "action": r["action"]} for r in results if r["ok"]]
+    failures: list[dict[str, str]] = [{"messageId": r["messageId"], "error": r["error"]} for r in results if not r["ok"]]
+
+    if applied:
+        suggestions_by_id = {str(item.get("messageId")): item for item in target_run.get("suggestions", []) if isinstance(item, dict)}
+        target_run["suggestions"] = list(suggestions_by_id.values())
+        target_run["lastAppliedAt"] = datetime.now(UTC).isoformat()
+        if current_run and str(current_run.get("id")) == run_id:
+            for index, item in enumerate(history):
+                if isinstance(item, dict) and str(item.get("id")) == run_id:
+                    history[index] = current_run.copy()
+                    break
+        await write_json_file(
+            access_token,
+            TRIAGE_FOLDER,
+            TRIAGE_FILE,
+            {
+                **saved,
+                "updatedAt": datetime.now(UTC).isoformat(),
+                "currentRun": current_run,
+                "history": history,
+                "suggestions": saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {},
+            },
+        )
+    return {"ok": not failures, "runId": run_id, "applied": applied, "failures": failures, "readMarked": len(applied)}

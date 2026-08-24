@@ -14,7 +14,7 @@ import {
   FloatingAssistant,
   getUserData,
   patchUserData
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   clearAgentIcon,

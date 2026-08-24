@@ -13,6 +13,7 @@ type Props = {
   onReply: () => void;
   onDelete?: () => void;
   onBlockSender?: () => void;
+  onMarkUnread?: () => void;
   onTagsChanged?: (updated: Email) => void;
 };
 
@@ -54,11 +55,12 @@ function HtmlEmailFrame({ html, frameRef, onTextLoaded }: { html: string; frameR
   );
 }
 
-export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender, onTagsChanged }: Props) {
+export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender, onMarkUnread, onTagsChanged }: Props) {
   const [currentEmail, setCurrentEmail] = useState<Email>(email);
   const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
   const [draft, setDraft] = useState<string | null>(null);
   const [draftLoading, setDraftLoading] = useState(email.hasDraft ?? false);
+  const [markingUnread, setMarkingUnread] = useState(false);
   const [showOriginal, setShowOriginal] = useState(!(email.hasDraft ?? false));
   const [detailLoading, setDetailLoading] = useState(!email.body);
   const emailFrameRef = useRef<HTMLIFrameElement>(null);
@@ -142,6 +144,24 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
     }
   };
 
+  const handleMarkUnread = async () => {
+    if (markingUnread) return;
+    setMarkingUnread(true);
+    try {
+      const res = await proxyFetch("/agent/inbox/mark-unread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [currentEmail.id] }),
+      });
+      if (res.ok) {
+        setCurrentEmail((current) => ({ ...current, unread: true }));
+        onMarkUnread?.();
+      }
+    } finally {
+      setMarkingUnread(false);
+    }
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -199,6 +219,11 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
                   style={{ color: "#e53e3e", borderColor: "color-mix(in srgb, #e53e3e 40%, transparent)" }}
                 >
                   🚫 Block sender
+                </button>
+              )}
+              {onMarkUnread && (
+                <button className={styles.addTagBtn} onClick={() => { void handleMarkUnread(); }} disabled={markingUnread}>
+                  {markingUnread ? "Marking…" : "↩ Mark unread"}
                 </button>
               )}
             </div>

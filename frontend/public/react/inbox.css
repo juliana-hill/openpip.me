@@ -180,6 +180,24 @@
   margin: 0;
   text-align: right;
 }
+.InboxTab_triageHistoryLink {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  justify-self: end;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.InboxTab_triageHistoryLink:hover {
+  color: var(--color-text);
+}
+.InboxTab_triageHistoryLink:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
 .InboxTab_triageProgress {
   grid-column: 1 / -1;
   display: grid;
@@ -218,7 +236,6 @@
   outline-offset: 3px;
 }
 .InboxTab_triageReviewBtn {
-  align-self: flex-start;
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: 999px;
@@ -226,7 +243,7 @@
   cursor: pointer;
   font-size: var(--font-size-xs);
   font-weight: 800;
-  margin-top: 10px;
+  margin-top: 0;
   padding: 7px 12px;
 }
 .InboxTab_triageReviewBtn:hover {
@@ -1638,6 +1655,65 @@
   font-size: var(--font-size-xs);
   text-transform: uppercase;
 }
+.TriageDetailsModal_historyControls {
+  position: relative;
+  margin-top: 12px;
+}
+.TriageDetailsModal_historyButton {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  padding: 7px 12px;
+}
+.TriageDetailsModal_historyButton:hover {
+  background: var(--color-accent-light);
+}
+.TriageDetailsModal_historyButton:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+.TriageDetailsModal_historyMenu {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  display: grid;
+  gap: 2px;
+  left: 0;
+  margin-top: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 5px;
+  position: absolute;
+  top: 100%;
+  width: min(320px, 100%);
+  z-index: 3;
+}
+.TriageDetailsModal_historyItem,
+.TriageDetailsModal_historyItemActive {
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  color: var(--color-text);
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  text-align: left;
+}
+.TriageDetailsModal_historyItem:hover,
+.TriageDetailsModal_historyItemActive {
+  background: var(--color-accent-light);
+}
+.TriageDetailsModal_historyItem span,
+.TriageDetailsModal_historyItemActive span {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
 .TriageDetailsModal_scrollArea {
   flex: 1;
   min-height: 0;
@@ -1647,43 +1723,87 @@
 }
 .TriageDetailsModal_list {
   display: grid;
-  gap: 10px;
   list-style: none;
   margin: 0;
   padding: 0;
 }
 .TriageDetailsModal_item {
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 13px 14px;
+  align-items: center;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  padding: 12px 10px;
 }
-.TriageDetailsModal_itemHeader {
+.TriageDetailsModal_item:first-child {
+  border-top: 1px solid var(--color-border);
+  border-radius: 10px 10px 0 0;
+}
+.TriageDetailsModal_item:last-child {
+  border-radius: 0 0 10px 10px;
+}
+.TriageDetailsModal_historyItemRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.TriageDetailsModal_selectRow {
+  align-items: center;
+  color: var(--color-text-muted);
+  display: flex;
+  justify-content: center;
+  margin: 0;
+}
+.TriageDetailsModal_selectRow input {
+  accent-color: var(--color-accent);
+  height: 15px;
+  width: 15px;
+}
+.TriageDetailsModal_rowMain {
+  min-width: 0;
+}
+.TriageDetailsModal_rowTop {
   align-items: center;
   display: flex;
   gap: 8px;
-  justify-content: space-between;
-}
-.TriageDetailsModal_itemHeader strong {
-  color: var(--color-text);
-  font-size: var(--font-size-sm);
+  min-width: 0;
 }
 .TriageDetailsModal_subject {
   color: var(--color-text);
   font-size: var(--font-size-sm);
   font-weight: 700;
-  margin-top: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .TriageDetailsModal_sender {
+  color: var(--color-text);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.TriageDetailsModal_snippet {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
-  margin-top: 2px;
+  line-height: 1.35;
+  margin-top: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.TriageDetailsModal_item p {
+.TriageDetailsModal_rowMeta {
+  align-items: end;
   color: var(--color-text-muted);
-  font-size: var(--font-size-sm);
-  line-height: 1.45;
-  margin: 6px 0 0;
+  display: grid;
+  font-size: var(--font-size-xs);
+  gap: 4px;
+  justify-items: end;
+  white-space: nowrap;
+}
+.TriageDetailsModal_rowMeta strong {
+  color: var(--color-accent);
+  font-size: var(--font-size-xs);
 }
 .TriageDetailsModal_label {
   background: var(--color-accent-light);
@@ -1694,11 +1814,7 @@
   padding: 4px 8px;
 }
 .TriageDetailsModal_messageId {
-  color: var(--color-text-muted);
-  display: block;
-  font-size: var(--font-size-xs);
-  margin-top: 9px;
-  overflow-wrap: anywhere;
+  display: none;
 }
 .TriageDetailsModal_draft {
   background: var(--color-surface);
@@ -1715,6 +1831,56 @@
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   padding: 16px 0;
+}
+.TriageDetailsModal_footer {
+  align-items: center;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 8px;
+  padding-top: 14px;
+}
+.TriageDetailsModal_saveMessage {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  margin-right: auto;
+}
+.TriageDetailsModal_saveButton {
+  background: var(--color-accent);
+  border: none;
+  border-radius: 9px;
+  color: #fff;
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-weight: 750;
+  padding: 9px 14px;
+}
+.TriageDetailsModal_saveButton:disabled {
+  cursor: default;
+  opacity: .45;
+}
+.TriageDetailsModal_saveButton:focus-visible {
+  outline: 2px solid var(--color-text);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .TriageDetailsModal_item {
+    grid-template-columns: 24px minmax(0, 1fr);
+  }
+  .TriageDetailsModal_historyItemRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .TriageDetailsModal_rowMeta {
+    align-items: center;
+    display: flex;
+    gap: 8px;
+    grid-column: 2;
+    justify-content: space-between;
+  }
+  .TriageDetailsModal_historyItemRow .TriageDetailsModal_rowMeta {
+    grid-column: 1;
+  }
 }
 
 /* components/inbox/sidebar/SidebarCard.module.css */

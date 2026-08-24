@@ -44,6 +44,7 @@ from .inbox_triage import (
     ensure_contact_profile,
     get_inbox_triage_progress,
     get_saved_triage_details,
+    apply_saved_triage_changes,
     get_saved_draft,
     list_saved_draft_ids,
     queue_and_attach,
@@ -250,7 +251,17 @@ async def inbox_triage_drafts(token: str = Depends(get_google_token)):
 @app.get("/agent/inbox/network/details")
 async def inbox_triage_details(token: str = Depends(get_google_token)):
     try:
-        return {"suggestions": await get_saved_triage_details(token)}
+        return await get_saved_triage_details(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.post("/agent/inbox/network/apply")
+async def apply_inbox_triage_changes(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    try:
+        return await apply_saved_triage_changes(token, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except GoogleApiError as error:
         raise _google_error(error) from error
 
@@ -440,8 +451,8 @@ async def agent_file(token: str = Depends(get_google_token)):
     """Get-or-create "OpenPip/agent.md" in the user's real Drive and return
     its content + a link to open it there. See google_drive_docs.py — this is
     a real, visible file (drive.file scope), not the hidden appDataFolder
-    /agent/user/data uses. Its content is also what load_context_documents()
-    in agent.py folds into the Daily Briefing prompt as "Assistant Identity"."""
+    /agent/user/data uses. The document remains available to explicit assistant
+    actions; routine Daily Briefings are deterministic and do not load it."""
     try:
         drive_url, content = await get_or_create_document(token, "OpenPip", "agent.md", AGENT_MD_SAMPLE)
     except GoogleApiError as error:
@@ -925,6 +936,26 @@ async def mark_inbox_messages_read(payload: dict[str, Any], token: str = Depends
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"ok": True, "markedRead": ids}
+
+
+@app.post("/agent/inbox/mark-unread")
+@app.post("/api/google/gmail/mark-unread")
+async def mark_inbox_messages_unread(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    ids = payload.get("ids")
+    if not isinstance(ids, list) or not ids or not all(isinstance(item, str) and item.strip() for item in ids):
+        raise HTTPException(status_code=400, detail="ids must be a non-empty array of message ids")
+    try:
+        await asyncio.gather(*(
+            modify_gmail_message_labels(
+                token,
+                message_id.strip().removeprefix("gmail_"),
+                add_label_ids=["UNREAD"],
+            )
+            for message_id in ids
+        ))
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True, "markedUnread": ids}
 
 
 @app.post("/agent/inbox/messages/remove-tag")

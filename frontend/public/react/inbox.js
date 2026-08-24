@@ -4,7 +4,7 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   Link
@@ -28,10 +28,10 @@ import {
 var import_client = __toESM(require_client());
 
 // components/inbox/InboxPage.tsx
-var import_react13 = __toESM(require_react());
+var import_react14 = __toESM(require_react());
 
 // components/inbox/inbox/InboxTab.tsx
-var import_react7 = __toESM(require_react());
+var import_react8 = __toESM(require_react());
 
 // components/inbox/inbox/InboxTab.module.css
 var InboxTab_default = {
@@ -45,6 +45,7 @@ var InboxTab_default = {
   triageTrust: "InboxTab_triageTrust",
   triageSummary: "InboxTab_triageSummary",
   triageActions: "InboxTab_triageActions",
+  triageHistoryLink: "InboxTab_triageHistoryLink",
   triageProgress: "InboxTab_triageProgress",
   triageLabel: "InboxTab_triageLabel",
   triageRunBtn: "InboxTab_triageRunBtn",
@@ -1130,11 +1131,12 @@ function HtmlEmailFrame({ html, frameRef, onTextLoaded }) {
     }
   );
 }
-function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender, onTagsChanged }) {
+function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender, onMarkUnread, onTagsChanged }) {
   const [currentEmail, setCurrentEmail] = (0, import_react6.useState)(email);
   const [tagDropdownOpen, setTagDropdownOpen] = (0, import_react6.useState)(false);
   const [draft, setDraft] = (0, import_react6.useState)(null);
   const [draftLoading, setDraftLoading] = (0, import_react6.useState)(email.hasDraft ?? false);
+  const [markingUnread, setMarkingUnread] = (0, import_react6.useState)(false);
   const [showOriginal, setShowOriginal] = (0, import_react6.useState)(!(email.hasDraft ?? false));
   const [detailLoading, setDetailLoading] = (0, import_react6.useState)(!email.body);
   const emailFrameRef = (0, import_react6.useRef)(null);
@@ -1215,6 +1217,23 @@ function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender
       onTagsChanged?.(updated);
     }
   };
+  const handleMarkUnread = async () => {
+    if (markingUnread) return;
+    setMarkingUnread(true);
+    try {
+      const res = await proxyFetch("/agent/inbox/mark-unread", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [currentEmail.id] })
+      });
+      if (res.ok) {
+        setCurrentEmail((current) => ({ ...current, unread: true }));
+        onMarkUnread?.();
+      }
+    } finally {
+      setMarkingUnread(false);
+    }
+  };
   (0, import_react6.useEffect)(() => {
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
@@ -1268,7 +1287,10 @@ function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender
                 style: { color: "#e53e3e", borderColor: "color-mix(in srgb, #e53e3e 40%, transparent)" },
                 children: "\u{1F6AB} Block sender"
               }
-            )
+            ),
+            onMarkUnread && /* @__PURE__ */ (0, import_jsx_runtime10.jsx)("button", { className: ViewEmailModal_default.addTagBtn, onClick: () => {
+              void handleMarkUnread();
+            }, disabled: markingUnread, children: markingUnread ? "Marking\u2026" : "\u21A9 Mark unread" })
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime10.jsxs)("div", { className: ViewEmailModal_default.headerActions, children: [
@@ -1322,28 +1344,130 @@ function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender
   ] });
 }
 
+// components/inbox/inbox/TriageDetailsModal.tsx
+var import_react7 = __toESM(require_react());
+
 // components/inbox/inbox/TriageDetailsModal.module.css
 var TriageDetailsModal_default = {
   content: "TriageDetailsModal_content",
   eyebrow: "TriageDetailsModal_eyebrow",
   boundary: "TriageDetailsModal_boundary",
+  historyControls: "TriageDetailsModal_historyControls",
+  historyButton: "TriageDetailsModal_historyButton",
+  historyMenu: "TriageDetailsModal_historyMenu",
+  historyItem: "TriageDetailsModal_historyItem",
+  historyItemActive: "TriageDetailsModal_historyItemActive",
   scrollArea: "TriageDetailsModal_scrollArea",
   list: "TriageDetailsModal_list",
   item: "TriageDetailsModal_item",
-  itemHeader: "TriageDetailsModal_itemHeader",
+  historyItemRow: "TriageDetailsModal_historyItemRow",
+  selectRow: "TriageDetailsModal_selectRow",
+  rowMain: "TriageDetailsModal_rowMain",
+  rowTop: "TriageDetailsModal_rowTop",
   subject: "TriageDetailsModal_subject",
   sender: "TriageDetailsModal_sender",
+  snippet: "TriageDetailsModal_snippet",
+  rowMeta: "TriageDetailsModal_rowMeta",
   label: "TriageDetailsModal_label",
   messageId: "TriageDetailsModal_messageId",
   draft: "TriageDetailsModal_draft",
-  empty: "TriageDetailsModal_empty"
+  empty: "TriageDetailsModal_empty",
+  footer: "TriageDetailsModal_footer",
+  saveMessage: "TriageDetailsModal_saveMessage",
+  saveButton: "TriageDetailsModal_saveButton"
 };
 
 // components/inbox/inbox/TriageDetailsModal.tsx
 var import_jsx_runtime11 = __toESM(require_jsx_runtime());
-function TriageDetailsModal({ open, suggestions, onClose }) {
+function formatRunDate(value) {
+  if (!value) return "Previous review";
+  try {
+    return new Date(value).toLocaleString(void 0, { dateStyle: "medium", timeStyle: "short" });
+  } catch {
+    return "Previous review";
+  }
+}
+function formatMessageDate(value) {
+  if (!value) return "";
+  try {
+    return new Date(value).toLocaleDateString(void 0, { month: "short", day: "numeric" });
+  } catch {
+    return "";
+  }
+}
+function displaySuggestionLabel(suggestion) {
+  if (suggestion.deleteSuggested) return "Delete";
+  if (suggestion.kind === "task" || suggestion.taskSuggested) return "Task";
+  if (suggestion.kind === "reply") return "Reply";
+  const label = suggestion.label;
+  if (!label) return "";
+  if (label === "OpenPip/Triage/Filed") return "Delete";
+  if (label === "OpenPip/Triage/Reply") return "Reply";
+  return label;
+}
+function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSaveChanges, onMarkUnread, onClose }) {
+  const [selectedRunId, setSelectedRunId] = (0, import_react7.useState)(currentRun?.id ?? "latest");
+  const [historyOpen, setHistoryOpen] = (0, import_react7.useState)(false);
+  const [selectedMessageIds, setSelectedMessageIds] = (0, import_react7.useState)(/* @__PURE__ */ new Set());
+  const [saving, setSaving] = (0, import_react7.useState)(false);
+  const [markingUnread, setMarkingUnread] = (0, import_react7.useState)(false);
+  const [saveMessage, setSaveMessage] = (0, import_react7.useState)(null);
+  (0, import_react7.useEffect)(() => {
+    if (open) {
+      setSelectedRunId(currentRun?.id ?? "latest");
+      setHistoryOpen(false);
+      setSelectedMessageIds(/* @__PURE__ */ new Set());
+      setSaveMessage(null);
+      setMarkingUnread(false);
+    }
+  }, [open, currentRun?.id]);
   if (!open) return null;
-  const deletions = suggestions.filter((item) => item.deleteSuggested);
+  const selectedRun = selectedRunId === (currentRun?.id ?? "latest") ? currentRun : history.find((run) => run.id === selectedRunId);
+  const displayedSuggestions = selectedRun?.suggestions ?? suggestions;
+  const deletions = displayedSuggestions.filter((item) => item.deleteSuggested);
+  const isCurrentRun = selectedRunId === (currentRun?.id ?? "latest");
+  const selectedRunKey = selectedRun?.id ?? currentRun?.id ?? "latest";
+  const toggleMessage = (messageId) => {
+    setSelectedMessageIds((current) => {
+      const next = new Set(current);
+      if (next.has(messageId)) next.delete(messageId);
+      else next.add(messageId);
+      return next;
+    });
+  };
+  const saveChanges = async () => {
+    if (!onSaveChanges || !selectedMessageIds.size || saving) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      const { applied, failures } = await onSaveChanges(selectedRunKey, Array.from(selectedMessageIds));
+      if (failures.length && !applied.length) {
+        setSaveMessage(`Could not save ${failures.length === 1 ? "that change" : `any of the ${failures.length} changes`}: ${failures[0].error}`);
+      } else if (failures.length) {
+        setSaveMessage(`${applied.length} change${applied.length === 1 ? "" : "s"} saved, ${failures.length} could not be saved.`);
+      } else {
+        setSaveMessage(`${applied.length} change${applied.length === 1 ? "" : "s"} saved.`);
+      }
+      setSelectedMessageIds(/* @__PURE__ */ new Set());
+    } catch {
+      setSaveMessage("Some changes could not be saved. Nothing was deleted automatically.");
+    } finally {
+      setSaving(false);
+    }
+  };
+  const markAllUnread = async () => {
+    if (!onMarkUnread || !displayedSuggestions.length || markingUnread) return;
+    setMarkingUnread(true);
+    setSaveMessage(null);
+    try {
+      await onMarkUnread(displayedSuggestions.map((item) => item.messageId));
+      setSaveMessage(`${displayedSuggestions.length} message${displayedSuggestions.length === 1 ? "" : "s"} marked unread.`);
+    } catch {
+      setSaveMessage("Some messages could not be marked unread.");
+    } finally {
+      setMarkingUnread(false);
+    }
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)(import_jsx_runtime11.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: Dialog_default.overlay, onClick: onClose }),
     /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("section", { className: `${Dialog_default.content} ${TriageDetailsModal_default.content}`, role: "dialog", "aria-modal": "true", "aria-labelledby": "triage-details-title", children: [
@@ -1353,10 +1477,33 @@ function TriageDetailsModal({ open, suggestions, onClose }) {
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("h2", { className: Dialog_default.title, id: "triage-details-title", children: "Review details" }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("p", { className: Dialog_default.description, children: [
           "The assistant found ",
-          suggestions.length,
+          displayedSuggestions.length,
           " item",
-          suggestions.length === 1 ? "" : "s",
-          " to review. Nothing has been deleted."
+          displayedSuggestions.length === 1 ? "" : "s",
+          " in this review. Nothing has been deleted."
+        ] }),
+        history.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.historyControls, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: TriageDetailsModal_default.historyButton, onClick: () => setHistoryOpen((openState) => !openState), "aria-expanded": historyOpen, children: [
+            "History (",
+            history.length,
+            ")"
+          ] }),
+          historyOpen && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.historyMenu, role: "menu", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: selectedRunId === (currentRun?.id ?? "latest") ? TriageDetailsModal_default.historyItemActive : TriageDetailsModal_default.historyItem, onClick: () => {
+              setSelectedRunId(currentRun?.id ?? "latest");
+              setHistoryOpen(false);
+            }, role: "menuitem", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("strong", { children: "Current review" }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: formatRunDate(currentRun?.completedAt) })
+            ] }),
+            history.map((run) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("button", { type: "button", className: selectedRunId === run.id ? TriageDetailsModal_default.historyItemActive : TriageDetailsModal_default.historyItem, onClick: () => {
+              setSelectedRunId(run.id);
+              setHistoryOpen(false);
+            }, role: "menuitem", children: [
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("strong", { children: run.status === "failed" ? "Incomplete review" : "Previous review" }),
+              /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: formatRunDate(run.completedAt) })
+            ] }, run.id))
+          ] })
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.boundary, children: [
@@ -1367,20 +1514,43 @@ function TriageDetailsModal({ open, suggestions, onClose }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: "Deletion is irreversible, so review each message in the inbox before taking action." })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.scrollArea, children: suggestions.length ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("ul", { className: TriageDetailsModal_default.list, children: suggestions.map((suggestion) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("li", { className: TriageDetailsModal_default.item, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.itemHeader, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("strong", { children: suggestion.deleteSuggested ? "Suggested deletion" : suggestion.action }),
-          suggestion.label && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.label, children: suggestion.label })
+      /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.scrollArea, children: displayedSuggestions.length ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("ul", { className: TriageDetailsModal_default.list, children: displayedSuggestions.map((suggestion) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("li", { className: `${TriageDetailsModal_default.item} ${isCurrentRun ? "" : TriageDetailsModal_default.historyItemRow}`, children: [
+        isCurrentRun && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("label", { className: TriageDetailsModal_default.selectRow, "aria-label": `Select ${suggestion.subject || "email"} to apply`, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+          "input",
+          {
+            type: "checkbox",
+            checked: selectedMessageIds.has(suggestion.messageId),
+            disabled: Boolean(suggestion.appliedAction),
+            onChange: () => toggleMessage(suggestion.messageId)
+          }
+        ) }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.rowMain, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.rowTop, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.sender, children: suggestion.sender || "OpenPip assistant" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.subject, children: suggestion.subject || "Email suggestion" }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.snippet, children: suggestion.reason }),
+          suggestion.draft && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("pre", { className: TriageDetailsModal_default.draft, children: suggestion.draft }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: TriageDetailsModal_default.messageId, children: [
+            "Message: ",
+            suggestion.messageId
+          ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.subject, children: suggestion.subject || "Email suggestion" }),
-        suggestion.sender && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.sender, children: suggestion.sender }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { children: suggestion.reason }),
-        suggestion.draft && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("pre", { className: TriageDetailsModal_default.draft, children: suggestion.draft }),
-        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("span", { className: TriageDetailsModal_default.messageId, children: [
-          "Message: ",
-          suggestion.messageId
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.rowMeta, children: [
+          (suggestion.label || suggestion.deleteSuggested || suggestion.kind === "task" || suggestion.taskSuggested || suggestion.kind === "reply") && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.label, children: displaySuggestionLabel(suggestion) }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: formatMessageDate(suggestion.date) })
         ] })
-      ] }, suggestion.messageId)) }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: TriageDetailsModal_default.empty, children: "No saved suggestions from the latest review." }) })
+      ] }, suggestion.messageId)) }) : /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("p", { className: TriageDetailsModal_default.empty, children: "No saved suggestions from this review." }) }),
+      isCurrentRun && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("footer", { className: TriageDetailsModal_default.footer, children: [
+        saveMessage && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.saveMessage, role: "status", children: saveMessage }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { type: "button", className: TriageDetailsModal_default.saveButton, disabled: !selectedMessageIds.size || saving, onClick: () => {
+          void saveChanges();
+        }, children: saving ? "Saving\u2026" : "Save changes" })
+      ] }),
+      !isCurrentRun && onMarkUnread && displayedSuggestions.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("footer", { className: TriageDetailsModal_default.footer, children: [
+        saveMessage && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.saveMessage, role: "status", children: saveMessage }),
+        /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("button", { type: "button", className: TriageDetailsModal_default.saveButton, disabled: markingUnread, onClick: () => {
+          void markAllUnread();
+        }, children: markingUnread ? "Marking\u2026" : "Mark all unread" })
+      ] })
     ] })
   ] });
 }
@@ -1388,29 +1558,31 @@ function TriageDetailsModal({ open, suggestions, onClose }) {
 // components/inbox/inbox/InboxTab.tsx
 var import_jsx_runtime12 = __toESM(require_jsx_runtime());
 function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChange, onTagsLoaded, onEmailsLoaded, initialMessageId }) {
-  const [emails, setEmails] = (0, import_react7.useState)([]);
-  const [loading, setLoading] = (0, import_react7.useState)(true);
-  const [error, setError] = (0, import_react7.useState)(null);
-  const [page, setPage] = (0, import_react7.useState)(1);
-  const [total, setTotal] = (0, import_react7.useState)(0);
+  const [emails, setEmails] = (0, import_react8.useState)([]);
+  const [loading, setLoading] = (0, import_react8.useState)(true);
+  const [error, setError] = (0, import_react8.useState)(null);
+  const [page, setPage] = (0, import_react8.useState)(1);
+  const [total, setTotal] = (0, import_react8.useState)(0);
   const PAGE_SIZE2 = 20;
-  const [search, setSearch] = (0, import_react7.useState)("");
-  const [sort, setSort] = (0, import_react7.useState)("date");
-  const [grouped, setGrouped] = (0, import_react7.useState)(true);
-  const [selected, setSelected] = (0, import_react7.useState)(/* @__PURE__ */ new Set());
-  const [replyEmail, setReplyEmail] = (0, import_react7.useState)(null);
-  const [replyDraft, setReplyDraft] = (0, import_react7.useState)();
-  const [viewEmail, setViewEmail] = (0, import_react7.useState)(null);
-  const [triage, setTriage] = (0, import_react7.useState)(null);
-  const [triageSuggestions, setTriageSuggestions] = (0, import_react7.useState)([]);
-  const [triageDetailsOpen, setTriageDetailsOpen] = (0, import_react7.useState)(false);
-  const [showTriageCard, setShowTriageCard] = (0, import_react7.useState)(false);
-  const triagePoll = (0, import_react7.useRef)(null);
-  const hasFinishedInitialLoad = (0, import_react7.useRef)(false);
-  const openedSourceMessage = (0, import_react7.useRef)(false);
-  const tagsRef = (0, import_react7.useRef)(tags);
+  const [search, setSearch] = (0, import_react8.useState)("");
+  const [sort, setSort] = (0, import_react8.useState)("date");
+  const [grouped, setGrouped] = (0, import_react8.useState)(true);
+  const [selected, setSelected] = (0, import_react8.useState)(/* @__PURE__ */ new Set());
+  const [replyEmail, setReplyEmail] = (0, import_react8.useState)(null);
+  const [replyDraft, setReplyDraft] = (0, import_react8.useState)();
+  const [viewEmail, setViewEmail] = (0, import_react8.useState)(null);
+  const [triage, setTriage] = (0, import_react8.useState)(null);
+  const [triageSuggestions, setTriageSuggestions] = (0, import_react8.useState)([]);
+  const [triageCurrentRun, setTriageCurrentRun] = (0, import_react8.useState)(null);
+  const [triageHistory, setTriageHistory] = (0, import_react8.useState)([]);
+  const [triageDetailsOpen, setTriageDetailsOpen] = (0, import_react8.useState)(false);
+  const [showTriageCard, setShowTriageCard] = (0, import_react8.useState)(false);
+  const triagePoll = (0, import_react8.useRef)(null);
+  const hasFinishedInitialLoad = (0, import_react8.useRef)(false);
+  const openedSourceMessage = (0, import_react8.useRef)(false);
+  const tagsRef = (0, import_react8.useRef)(tags);
   tagsRef.current = tags;
-  const loadTags = (0, import_react7.useCallback)(async () => {
+  const loadTags = (0, import_react8.useCallback)(async () => {
     try {
       const res = await proxyFetch("/agent/inbox/tags");
       if (!res.ok) return tagsRef.current;
@@ -1422,11 +1594,11 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
       return tagsRef.current;
     }
   }, [onTagsLoaded]);
-  const stopTriagePolling = (0, import_react7.useCallback)(() => {
+  const stopTriagePolling = (0, import_react8.useCallback)(() => {
     if (triagePoll.current) window.clearInterval(triagePoll.current);
     triagePoll.current = null;
   }, []);
-  const pollTriage = (0, import_react7.useCallback)((jobId) => {
+  const pollTriage = (0, import_react8.useCallback)((jobId) => {
     stopTriagePolling();
     const update = async () => {
       const res = await proxyFetch(`/agent/inbox/network/triage/${jobId}`);
@@ -1451,14 +1623,14 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     }, 350);
     void update();
   }, [loadTags, stopTriagePolling]);
-  (0, import_react7.useEffect)(() => () => stopTriagePolling(), [stopTriagePolling]);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => () => stopTriagePolling(), [stopTriagePolling]);
+  (0, import_react8.useEffect)(() => {
     if (!loading && !hasFinishedInitialLoad.current) {
       hasFinishedInitialLoad.current = true;
       setShowTriageCard(true);
     }
   }, [loading]);
-  const fetchPage = (0, import_react7.useCallback)(async (p) => {
+  const fetchPage = (0, import_react8.useCallback)(async (p) => {
     setLoading(true);
     setError(null);
     try {
@@ -1472,9 +1644,8 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         params.set("labelId", "DRAFT");
       } else if (selectedLabel) {
         params.set("labelId", selectedLabel.id);
-      } else {
-        params.set("localDate", (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
-        if (activeTag === "Unread") params.set("unreadOnly", "true");
+      } else if (activeTag === "Unread") {
+        params.set("unreadOnly", "true");
       }
       const res = await proxyFetch(`/agent/inbox/messages?${params.toString()}`);
       if (res.ok) {
@@ -1514,19 +1685,19 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     }
     setLoading(false);
   }, [activeTag, initialMessageId, loadTags, onEmailsLoaded]);
-  const load = (0, import_react7.useCallback)(() => fetchPage(1), [fetchPage]);
-  (0, import_react7.useEffect)(() => {
+  const load = (0, import_react8.useCallback)(() => fetchPage(1), [fetchPage]);
+  (0, import_react8.useEffect)(() => {
     const initialLoad = window.setTimeout(() => {
       void load();
       void loadTags();
     }, 0);
     return () => window.clearTimeout(initialLoad);
   }, [load, loadTags]);
-  (0, import_react7.useEffect)(() => {
+  (0, import_react8.useEffect)(() => {
     onUnreadChange(emails.filter((e) => e.unread).length);
   }, [emails, onUnreadChange]);
-  const visibleTags = (0, import_react7.useMemo)(() => tags.filter((tag) => tag.name !== "Draft"), [tags]);
-  const allTags = (0, import_react7.useMemo)(() => {
+  const visibleTags = (0, import_react8.useMemo)(() => tags.filter((tag) => tag.name !== "Draft"), [tags]);
+  const allTags = (0, import_react8.useMemo)(() => {
     const tagCounts = /* @__PURE__ */ new Map();
     for (const email of emails) {
       for (const tag of email.tags.filter((tag2) => tag2 !== "Draft")) {
@@ -1542,7 +1713,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     }
     return orderedTags;
   }, [emails, visibleTags]);
-  const filtered = (0, import_react7.useMemo)(() => {
+  const filtered = (0, import_react8.useMemo)(() => {
     let list = emails;
     if (activeTag === "Unread") {
       list = list.filter((e) => !e.archived && e.unread);
@@ -1564,7 +1735,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     }
     return list;
   }, [emails, activeTag, search]);
-  const groups = (0, import_react7.useMemo)(() => {
+  const groups = (0, import_react8.useMemo)(() => {
     const map = /* @__PURE__ */ new Map();
     for (const email of filtered) {
       const key = email.fromEmail;
@@ -1621,17 +1792,46 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     } catch {
     }
   };
-  const openTriageDetails = async () => {
+  const loadTriageDetails = (0, import_react8.useCallback)(async () => {
     try {
       const res = await proxyFetch("/agent/inbox/network/details");
       if (res.ok) {
         const data = await res.json();
-        setTriageSuggestions(data.suggestions ?? []);
+        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
+        setTriageCurrentRun(currentRun);
+        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
+        setTriageHistory(data.history ?? []);
       }
-    } finally {
-      setTriageDetailsOpen(true);
+    } catch {
     }
+  }, []);
+  const openTriageDetails = async () => {
+    await loadTriageDetails();
+    setTriageDetailsOpen(true);
   };
+  const saveTriageChanges = async (runId, messageIds) => {
+    const res = await proxyFetch("/agent/inbox/network/apply", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runId, messageIds })
+    });
+    if (!res.ok) throw new Error("Unable to save triage changes");
+    const data = await res.json();
+    await Promise.all([load(), loadTriageDetails()]);
+    return { applied: data.applied ?? [], failures: data.failures ?? [] };
+  };
+  const markTriageMessagesUnread = async (messageIds) => {
+    const res = await proxyFetch("/agent/inbox/mark-unread", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: messageIds })
+    });
+    if (!res.ok) throw new Error("Unable to mark triage messages unread");
+    await loadTriageDetails();
+  };
+  (0, import_react8.useEffect)(() => {
+    void loadTriageDetails();
+  }, [loadTriageDetails]);
   const openReply = async (email) => {
     try {
       const res = await proxyFetch(`/agent/inbox/network/draft/${encodeURIComponent(email.id)}`);
@@ -1662,11 +1862,11 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
           " Inbox assistant"
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: triage.status === "running" ? "Reviewing your inbox" : triage.status === "completed" ? "Your inbox review is ready" : "Your inbox review needs attention" }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: triage.status === "running" ? `Looking at ${triage.processed} of ${triage.total} unread emails. You can keep browsing.` : triage.status === "completed" ? "Your assistant has prepared suggestions for you to review." : "We could not finish reviewing every email. You can try again when you are ready." }),
-        triage.status !== "running" && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageReviewBtn, onClick: () => {
-          void openTriageDetails();
-        }, children: "Review details" })
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: triage.status === "running" ? `Looking at ${triage.processed} of ${triage.total} unread emails. You can keep browsing.` : triage.status === "completed" ? "Your assistant has prepared suggestions for you to review." : "We could not finish reviewing every email. You can try again when you are ready." })
       ] }),
+      triage.status !== "running" && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: InboxTab_default.triageActions, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageReviewBtn, onClick: () => {
+        void openTriageDetails();
+      }, children: "Review details" }) }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageProgress, children: [
         /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageLabel, children: [
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: triage.status === "running" ? "Review in progress" : "Review summary" }),
@@ -1705,7 +1905,10 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageActions, children: [
         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, children: reviewButtonLabel }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." })
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." }),
+        triageHistory.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageHistoryLink, onClick: () => {
+          void openTriageDetails();
+        }, children: "Review History" })
       ] })
     ] })),
     /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(
@@ -1812,6 +2015,9 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
           handleBlockSender([viewEmail.id], [viewEmail.fromEmail]);
           setViewEmail(null);
         },
+        onMarkUnread: () => {
+          setEmails((prev) => prev.map((item) => item.id === viewEmail.id ? { ...item, unread: true } : item));
+        },
         onTagsChanged: (updatedEmail) => setEmails((prev) => {
           const next = prev.map((e) => e.id === updatedEmail.id ? updatedEmail : e);
           onEmailsLoaded?.(next);
@@ -1825,6 +2031,10 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
       {
         open: triageDetailsOpen,
         suggestions: triageSuggestions,
+        currentRun: triageCurrentRun,
+        history: triageHistory,
+        onSaveChanges: saveTriageChanges,
+        onMarkUnread: markTriageMessagesUnread,
         onClose: () => setTriageDetailsOpen(false)
       }
     )
@@ -1832,7 +2042,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
 }
 
 // components/inbox/sidebar/CampaignsCard.tsx
-var import_react9 = __toESM(require_react());
+var import_react10 = __toESM(require_react());
 
 // components/inbox/sidebar/SidebarCard.module.css
 var SidebarCard_default = {
@@ -1860,7 +2070,7 @@ var SidebarCard_default = {
 };
 
 // components/inbox/campaigns/CreateCampaignModal.tsx
-var import_react8 = __toESM(require_react());
+var import_react9 = __toESM(require_react());
 
 // components/inbox/campaigns/CreateCampaignModal.module.css
 var CreateCampaignModal_default = {
@@ -1891,14 +2101,14 @@ var CreateCampaignModal_default = {
 // components/inbox/campaigns/CreateCampaignModal.tsx
 var import_jsx_runtime13 = __toESM(require_jsx_runtime());
 function CreateCampaignModal({ onClose, onCreated }) {
-  const [name, setName] = (0, import_react8.useState)("");
-  const [templateId, setTemplateId] = (0, import_react8.useState)("");
-  const [templates, setTemplates] = (0, import_react8.useState)([]);
-  const [csvFile, setCsvFile] = (0, import_react8.useState)(null);
-  const [recipientCount, setRecipientCount] = (0, import_react8.useState)(null);
-  const [creating, setCreating] = (0, import_react8.useState)(false);
-  const [error, setError] = (0, import_react8.useState)("");
-  (0, import_react8.useEffect)(() => {
+  const [name, setName] = (0, import_react9.useState)("");
+  const [templateId, setTemplateId] = (0, import_react9.useState)("");
+  const [templates, setTemplates] = (0, import_react9.useState)([]);
+  const [csvFile, setCsvFile] = (0, import_react9.useState)(null);
+  const [recipientCount, setRecipientCount] = (0, import_react9.useState)(null);
+  const [creating, setCreating] = (0, import_react9.useState)(false);
+  const [error, setError] = (0, import_react9.useState)("");
+  (0, import_react9.useEffect)(() => {
     proxyFetch("/agent/templates").then((r) => r.json()).then((d) => setTemplates(d.templates ?? [])).catch(() => {
     });
   }, []);
@@ -2008,9 +2218,9 @@ function CreateCampaignModal({ onClose, onCreated }) {
 // components/inbox/sidebar/CampaignsCard.tsx
 var import_jsx_runtime14 = __toESM(require_jsx_runtime());
 function CampaignsCard() {
-  const [campaigns, setCampaigns] = (0, import_react9.useState)([]);
-  const [createOpen, setCreateOpen] = (0, import_react9.useState)(false);
-  (0, import_react9.useEffect)(() => {
+  const [campaigns, setCampaigns] = (0, import_react10.useState)([]);
+  const [createOpen, setCreateOpen] = (0, import_react10.useState)(false);
+  (0, import_react10.useEffect)(() => {
     proxyFetch("/agent/campaigns").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.campaigns) setCampaigns(d.campaigns.slice(0, 3));
     }).catch(() => {
@@ -2045,10 +2255,10 @@ function CampaignsCard() {
 }
 
 // components/inbox/sidebar/TemplatesCard.tsx
-var import_react11 = __toESM(require_react());
+var import_react12 = __toESM(require_react());
 
 // components/inbox/templates/TemplateModal.tsx
-var import_react10 = __toESM(require_react());
+var import_react11 = __toESM(require_react());
 
 // components/inbox/templates/TemplateModal.module.css
 var TemplateModal_default = {
@@ -2083,13 +2293,13 @@ var TemplateModal_default = {
 var import_jsx_runtime15 = __toESM(require_jsx_runtime());
 function TemplateModal({ template, onClose, onSaved }) {
   const isEdit = !!template?.id;
-  const [name, setName] = (0, import_react10.useState)(template?.name ?? "");
-  const [subject, setSubject] = (0, import_react10.useState)(template?.subject ?? "");
-  const [type, setType] = (0, import_react10.useState)(template?.type ?? "");
-  const [body, setBody] = (0, import_react10.useState)(template?.body ?? "");
-  const [editorMode, setEditorMode] = (0, import_react10.useState)("code");
-  const [saving, setSaving] = (0, import_react10.useState)(false);
-  const [error, setError] = (0, import_react10.useState)("");
+  const [name, setName] = (0, import_react11.useState)(template?.name ?? "");
+  const [subject, setSubject] = (0, import_react11.useState)(template?.subject ?? "");
+  const [type, setType] = (0, import_react11.useState)(template?.type ?? "");
+  const [body, setBody] = (0, import_react11.useState)(template?.body ?? "");
+  const [editorMode, setEditorMode] = (0, import_react11.useState)("code");
+  const [saving, setSaving] = (0, import_react11.useState)(false);
+  const [error, setError] = (0, import_react11.useState)("");
   const handleSave = async () => {
     if (!name.trim()) {
       setError("Name is required.");
@@ -2190,9 +2400,9 @@ function TemplateModal({ template, onClose, onSaved }) {
 // components/inbox/sidebar/TemplatesCard.tsx
 var import_jsx_runtime16 = __toESM(require_jsx_runtime());
 function TemplatesCard() {
-  const [templates, setTemplates] = (0, import_react11.useState)([]);
-  const [newOpen, setNewOpen] = (0, import_react11.useState)(false);
-  (0, import_react11.useEffect)(() => {
+  const [templates, setTemplates] = (0, import_react12.useState)([]);
+  const [newOpen, setNewOpen] = (0, import_react12.useState)(false);
+  (0, import_react12.useEffect)(() => {
     proxyFetch("/agent/templates").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.templates) setTemplates(d.templates.slice(0, 3));
     }).catch(() => {
@@ -2221,21 +2431,21 @@ function TemplatesCard() {
 }
 
 // components/inbox/compose/ComposeModal.tsx
-var import_react12 = __toESM(require_react());
+var import_react13 = __toESM(require_react());
 var import_jsx_runtime17 = __toESM(require_jsx_runtime());
 function ComposeModal({ onClose }) {
-  const [recipients, setRecipients] = (0, import_react12.useState)([{ name: "", email: "" }]);
-  const [subject, setSubject] = (0, import_react12.useState)("");
-  const [body, setBody] = (0, import_react12.useState)(BLANK_EMAIL_TEMPLATE);
-  const [mode, setMode] = (0, import_react12.useState)("custom");
-  const [templates, setTemplates] = (0, import_react12.useState)([]);
-  const [selectedTemplate, setSelectedTemplate] = (0, import_react12.useState)("");
-  const [attachments, setAttachments] = (0, import_react12.useState)([]);
-  const [sending, setSending] = (0, import_react12.useState)(false);
-  const [error, setError] = (0, import_react12.useState)("");
-  const [showPreview, setShowPreview] = (0, import_react12.useState)(false);
-  const [googleEmail, setGoogleEmail] = (0, import_react12.useState)("");
-  (0, import_react12.useEffect)(() => {
+  const [recipients, setRecipients] = (0, import_react13.useState)([{ name: "", email: "" }]);
+  const [subject, setSubject] = (0, import_react13.useState)("");
+  const [body, setBody] = (0, import_react13.useState)(BLANK_EMAIL_TEMPLATE);
+  const [mode, setMode] = (0, import_react13.useState)("custom");
+  const [templates, setTemplates] = (0, import_react13.useState)([]);
+  const [selectedTemplate, setSelectedTemplate] = (0, import_react13.useState)("");
+  const [attachments, setAttachments] = (0, import_react13.useState)([]);
+  const [sending, setSending] = (0, import_react13.useState)(false);
+  const [error, setError] = (0, import_react13.useState)("");
+  const [showPreview, setShowPreview] = (0, import_react13.useState)(false);
+  const [googleEmail, setGoogleEmail] = (0, import_react13.useState)("");
+  (0, import_react13.useEffect)(() => {
     proxyFetch("/agent/templates").then((r) => r.ok ? r.json() : null).then((d) => {
       if (d?.templates) setTemplates(d.templates);
     }).catch(() => {
@@ -2245,7 +2455,7 @@ function ComposeModal({ onClose }) {
     }).catch(() => {
     });
   }, []);
-  (0, import_react12.useEffect)(() => {
+  (0, import_react13.useEffect)(() => {
     const handleKey = (e) => {
       if (e.key === "Escape") onClose();
     };
@@ -2469,12 +2679,12 @@ var import_jsx_runtime18 = __toESM(require_jsx_runtime());
 function InboxPage({ userName, userImage }) {
   const searchParams = useSearchParams();
   const initials2 = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-  const [composeOpen, setComposeOpen] = (0, import_react13.useState)(false);
-  const [unreadCount, setUnreadCount] = (0, import_react13.useState)(0);
-  const [tags, setTags] = (0, import_react13.useState)([]);
-  const [activeTag, setActiveTag] = (0, import_react13.useState)("Unread");
-  const handleUnreadChange = (0, import_react13.useCallback)((n) => setUnreadCount(n), []);
-  const handleTagsLoaded = (0, import_react13.useCallback)((t) => setTags(t), []);
+  const [composeOpen, setComposeOpen] = (0, import_react14.useState)(false);
+  const [unreadCount, setUnreadCount] = (0, import_react14.useState)(0);
+  const [tags, setTags] = (0, import_react14.useState)([]);
+  const [activeTag, setActiveTag] = (0, import_react14.useState)("Unread");
+  const handleUnreadChange = (0, import_react14.useCallback)((n) => setUnreadCount(n), []);
+  const handleTagsLoaded = (0, import_react14.useCallback)((t) => setTags(t), []);
   return /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("div", { className: InboxPage_default.shell, children: [
     /* @__PURE__ */ (0, import_jsx_runtime18.jsx)(AppHeader, { userImage, userName, initials: initials2, pageTitle: "Inbox" }),
     /* @__PURE__ */ (0, import_jsx_runtime18.jsxs)("main", { className: InboxPage_default.layout, children: [
