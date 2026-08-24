@@ -23,7 +23,10 @@ export function TodayPage({ userName, userImage }: { userName: string; userImage
   useEffect(() => {
     let active = true;
     const today = new Date().toDateString();
-    const date = new Date().toISOString().slice(0, 10);
+    // en-CA gives YYYY-MM-DD in the browser's local time zone — toISOString()
+    // is UTC and can land on the wrong calendar day entirely for a user not
+    // on UTC (e.g. still "today" locally but already tomorrow in UTC).
+    const date = new Date().toLocaleDateString("en-CA");
     const localTaskDate = (dateStr: string | null | undefined): Date | null => {
       if (!dateStr) return null;
       const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T00:00:00` : dateStr);
@@ -37,7 +40,7 @@ export function TodayPage({ userName, userImage }: { userName: string; userImage
     type Calendar = { color?: string; events?: { title: string; start: string }[] };
     Promise.all([
       proxyFetch("/agent/google/tasks"),
-      proxyFetch("/agent/calendars?days=1"),
+      proxyFetch(`/agent/calendars?days=1&from=${date}`),
       proxyFetch(`/agent/inbox/count?localDate=${date}`),
     ])
       .then(async ([googleResponse, calendarResponse, inboxResponse]) => {

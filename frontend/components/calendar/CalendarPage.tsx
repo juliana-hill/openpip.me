@@ -60,7 +60,11 @@ export function CalendarPage({ userName, userImage }: Props) {
     setAsideState("loading");
     setAsideError("");
     try {
-      const res = await proxyFetch(`/agent/calendars?days=${days}`);
+      // Anchor to the browser's local date — the backend defaults to the
+      // server's UTC date when `from` is omitted, which drifts a day off
+      // near midnight for anyone not on UTC.
+      const from = new Date().toLocaleDateString("en-CA");
+      const res = await proxyFetch(`/agent/calendars?days=${days}&from=${from}`);
       if (!res.ok) {
         const data = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error ?? `HTTP ${res.status}`);

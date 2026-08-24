@@ -61,7 +61,11 @@ export function CalendarEventPickerSheet({ open, onClose, onConfirm }: Props) {
     setSelectedIds(new Set());
     setQuery("");
     setLoading(true);
-    proxyFetch("/agent/calendars?days=7")
+    // Anchor to the browser's local date — the backend defaults to the
+    // server's UTC date when `from` is omitted, which drifts a day off near
+    // midnight for anyone not on UTC.
+    const from = new Date().toLocaleDateString("en-CA");
+    proxyFetch(`/agent/calendars?days=7&from=${from}`)
       .then((r) => r.json())
       .then((data: { calendars?: Array<{ id: string; color: string; events: Array<{ title: string; start: string; end: string; location?: string }> }> }) => {
         const seen = new Set<string>();

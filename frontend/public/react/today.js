@@ -1,6 +1,6 @@
 import {
   FloatingAssistant
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   Link,
@@ -63,7 +63,7 @@ function TodayPage({ userName, userImage }) {
   (0, import_react.useEffect)(() => {
     let active = true;
     const today = (/* @__PURE__ */ new Date()).toDateString();
-    const date = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const date = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
     const localTaskDate = (dateStr) => {
       if (!dateStr) return null;
       const parsed = new Date(/^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? `${dateStr}T00:00:00` : dateStr);
@@ -75,7 +75,7 @@ function TodayPage({ userName, userImage }) {
     todayMidnight.setHours(0, 0, 0, 0);
     Promise.all([
       proxyFetch("/agent/google/tasks"),
-      proxyFetch("/agent/calendars?days=1"),
+      proxyFetch(`/agent/calendars?days=1&from=${date}`),
       proxyFetch(`/agent/inbox/count?localDate=${date}`)
     ]).then(async ([googleResponse, calendarResponse, inboxResponse]) => {
       const google = googleResponse.ok ? (await googleResponse.json()).tasks ?? [] : [];

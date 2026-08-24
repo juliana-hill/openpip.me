@@ -9,7 +9,7 @@ import {
   idbSetUserPrefs,
   postToSW,
   pushUserData
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   Link,
@@ -305,7 +305,10 @@ function DashboardPage({ userName, userImage }) {
     async function loadTasks() {
       const [googleTasksRes, calendarRes, inboxRes] = await Promise.all([
         proxyFetch("/agent/google/tasks"),
-        proxyFetch("/agent/calendars?days=1"),
+        // Without `from`, the backend's "today" defaults to the server's UTC
+        // date — wrong on either side of midnight UTC for any user not on
+        // UTC. Always anchor it to the user's own local date.
+        proxyFetch(`/agent/calendars?days=1&from=${localToday()}`),
         proxyFetch(`/agent/inbox/count?localDate=${localToday()}`)
       ]);
       const googleTasks = googleTasksRes.ok ? (await googleTasksRes.json()).tasks ?? [] : [];
@@ -358,7 +361,7 @@ function DashboardPage({ userName, userImage }) {
     async function loadBrief(briefTasks, briefEvents) {
       try {
         const prefs = await idbGetUserPrefs();
-        if (prefs.dailyBriefing?.createdAtDate === localToday()) {
+        if (prefs.dailyBriefing?.version === "deterministic-v1" && prefs.dailyBriefing?.createdAtDate === localToday()) {
           setBrief(prefs.dailyBriefing.text);
           setBriefLoading(false);
           return;
@@ -373,7 +376,7 @@ function DashboardPage({ userName, userImage }) {
           const text = data.briefing ?? null;
           if (text) {
             const t = localNow();
-            await idbSetUserPrefs({ dailyBriefing: { text, createdAtDate: localToday(), createdAtTime: t } });
+            await idbSetUserPrefs({ dailyBriefing: { version: "deterministic-v1", text, createdAtDate: localToday(), createdAtTime: t } });
             void pushUserData();
             setBrief(text);
           }

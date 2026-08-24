@@ -12,7 +12,7 @@ import {
 } from "./chunk-QLVTPJOM.js";
 import {
   FloatingAssistant
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader
 } from "./chunk-XIKOZ5LE.js";
@@ -358,7 +358,8 @@ function CalendarPage({ userName, userImage }) {
     setAsideState("loading");
     setAsideError("");
     try {
-      const res = await proxyFetch(`/agent/calendars?days=${days}`);
+      const from = (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
+      const res = await proxyFetch(`/agent/calendars?days=${days}&from=${from}`);
       if (!res.ok) {
         const data2 = await res.json().catch(() => ({}));
         throw new Error(data2.error ?? `HTTP ${res.status}`);
