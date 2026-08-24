@@ -27,7 +27,7 @@ import {
   postToSW,
   saveTaskElapsed,
   setPersistedActiveTask
-} from "./chunk-CVKGYYHL.js";
+} from "./chunk-VZIUBKB3.js";
 import {
   AppHeader,
   Markdown,
@@ -762,7 +762,7 @@ function TasksDashboard({ userName, userImage }) {
     const localNow = () => (/* @__PURE__ */ new Date()).toLocaleTimeString();
     try {
       const prefs = await idbGetUserPrefs();
-      if (prefs.dailyBriefing?.createdAtDate === localToday()) {
+      if (prefs.dailyBriefing?.version === "deterministic-v1" && prefs.dailyBriefing?.createdAtDate === localToday()) {
         setBriefing(prefs.dailyBriefing.text);
         setBriefingAt(prefs.dailyBriefing.createdAtTime);
         setBriefingLoading(false);
@@ -794,7 +794,7 @@ function TasksDashboard({ userName, userImage }) {
         const data = await res.json();
         const text = data.briefing ?? null;
         if (text) {
-          await idbSetUserPrefs({ dailyBriefing: { text, createdAtDate: today, createdAtTime: now } });
+          await idbSetUserPrefs({ dailyBriefing: { version: "deterministic-v1", text, createdAtDate: today, createdAtTime: now } });
         }
         setBriefing(text);
         setBriefingAt(now);

@@ -48,21 +48,35 @@ Use tools only when they are directly relevant to the user's request.
 """
 
 
-def build_executive_assistant():
+def build_executive_assistant(context_block: str = ""):
     """Construct the Executive Assistant with on-demand tools.
 
     Travel is intentionally supplied as a callable tool rather than embedded in
     the initial system prompt or represented as a selectable agent skill.
+
+    Strands' Agent takes two distinct prompting inputs: `system_prompt` (set
+    once here — our own standing instructions for how the assistant behaves)
+    and the per-call user prompt (whatever the caller later passes to
+    `agent(...)` — literally what the user is asking for that turn). The
+    optional `context_block` — the user's Assistant Identity / Executive
+    Assistant / Travel guideline documents from load_context_documents() — is
+    persistent, standing context about who this assistant is for this user,
+    not a one-off request, so it belongs folded into system_prompt here, never
+    mixed into a per-turn user prompt like build_briefing_prompt() builds.
     """
     from strands import Agent
 
-    return Agent(system_prompt=SYSTEM_PROMPT, tools=[travel_agent])
+    system_prompt = f"{SYSTEM_PROMPT}\n\n{context_block}" if context_block else SYSTEM_PROMPT
+    return Agent(system_prompt=system_prompt, tools=[travel_agent])
 
 
 def _fallback_core(request: BriefingRequest) -> str:
-    """The five-line deterministic fallback used when Bedrock/Strands isn't
-    reachable. Never includes a quote — create_briefing() appends that from
-    the quotes table regardless of which path produced the core text."""
+    """Format the five-line Daily Briefing core from the supplied data.
+
+    This deliberately has no model, network, or Drive dependency. The
+    briefing is a status summary, so its routine path should be predictable
+    and cheap; the quote is appended separately from the quotes table.
+    """
     events = [str(item.get("title") or "Calendar event") for item in request.events]
     tasks = [str(item.get("title") or item.get("name") or "Google Task") for item in request.tasks]
     priorities = events + tasks
@@ -130,7 +144,9 @@ async def load_context_documents(google_token: str | None) -> str:
     """Fetch the user's Agent & Guidelines documents from their real Drive
     (see google_drive_docs.py — a visible "OpenPip" folder, get-or-created
     from the same starter templates the Settings page's "Edit in Drive"
-    links use) and compose them into a prompt-ready context block.
+    links use) and compose them into a context block meant for
+    build_executive_assistant()'s system_prompt — this is standing context
+    about the assistant and the user, not a per-turn user prompt.
 
     Ported from ~/Projects/Personal/travel-agent's buildPrompt(), which
     injects the equivalent "agent.md" and per-skill "goals-n-guidelines"
@@ -171,36 +187,17 @@ async def create_briefing(
     user_context: UserContext | None = None,
     google_token: str | None = None,
 ) -> tuple[str, str, int]:
-    """Generate a briefing and create reviewable proposals without side effects.
+    """Build a Daily Briefing and create reviewable proposals.
 
-    The closing quote is never asked of the LLM on this path — it's picked
-    at random from the quotes table (store.pick_random_quote), which grows
-    separately and rarely via discover_quote_via_grounding(). This keeps the
-    per-briefing cost to exactly one model call, with no grounding/search
-    tool involved.
+    Routine briefings are intentionally deterministic. They summarize the
+    already-fetched calendar/tasks/messages data with a local formatter and
+    select a previously stored quote from SQL. ``user_context`` and
+    ``google_token`` remain accepted for API compatibility, but no LLM or Drive
+    call is made here. An LLM can be reserved for an explicit, user-requested
+    rewrite/enhancement action later.
     """
-    prompt = build_briefing_prompt(request, user_context or UserContext())
-    context_block = await load_context_documents(google_token)
-    if context_block:
-        prompt = f"{context_block}\n\n{prompt}"
-
-    try:
-        agent = build_executive_assistant()
-        result = agent(prompt)
-        message: Any = result.message
-        if isinstance(message, dict):
-            content = message.get("content", [])
-            core = "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
-        else:
-            core = str(message).strip()
-        if not core or not _is_strict_core(core):
-            raise ValueError("Strands returned a briefing that did not match the strict format")
-        generated_by = "strands"
-    except Exception:
-        # Local development remains deterministic when Bedrock credentials/model access
-        # are not configured. Production will surface this as an observability event.
-        core = _fallback_core(request)
-        generated_by = "demo-fallback"
+    core = _fallback_core(request)
+    generated_by = "deterministic"
 
     quote = store.pick_random_quote() or DAILY_QUOTES[0]
     store.mark_quote_shown(quote)

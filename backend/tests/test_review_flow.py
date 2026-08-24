@@ -106,9 +106,24 @@ def test_sanitized_demo_briefing_is_available_without_external_credentials() -> 
     response = client.post("/api/demo/briefing")
 
     assert response.status_code == 200
-    assert response.json()["generated_by"] in {"demo-fallback", "strands"}
+    assert response.json()["generated_by"] == "deterministic"
     assert response.json()["proposals_created"] == 1
     assert client.get("/api/proposals?status=pending").json()["items"][0]["source"]["id"] == "message-client-followup"
+
+
+def test_briefing_does_not_construct_an_llm_agent(monkeypatch) -> None:
+    def fail_if_called():
+        raise AssertionError("routine briefing must not construct a model agent")
+
+    monkeypatch.setattr("openpip_backend.agent.build_executive_assistant", fail_if_called)
+    response = TestClient(app).post(
+        "/api/briefing",
+        json={"tasks": [{"title": "Review today's priorities"}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["generated_by"] == "deterministic"
+    assert "Google task(s) due today or overdue" in response.json()["briefing"]
 
 
 def test_connector_status_never_exposes_credentials() -> None:
