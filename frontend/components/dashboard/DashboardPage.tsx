@@ -12,7 +12,6 @@ import { pushUserData } from "@/lib/sync";
 import { ReviewDashboardCard } from "./ReviewDashboardCard";
 import { ReadAloudButton } from "@/components/ui/ReadAloudButton";
 import { useAgentIdentity } from "@/lib/agentIdentity";
-import { postToSW } from "@/lib/sw";
 import { AgentRunHistoryModal, type AgentRun } from "./AgentRunHistoryModal";
 
 type BriefTask = { title: string; priority: string; projectName: string | null; source?: string; dueDate?: string | null };
@@ -43,13 +42,16 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [dashboardDataReady, setDashboardDataReady] = useState(false);
   const [reviewLoaded, setReviewLoaded] = useState(false);
   const briefFetchedRef = useRef(false);
-  const dashboardPipelineRequestedRef = useRef(false);
+  const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
 
+  // Approved-but-not-yet-executed proposals — a separate concept from the
+  // scan job below (execution itself stays mocked for now; this just
+  // reflects anything already approved on a previous visit).
   const refreshScheduledActions = useCallback(async (): Promise<ScheduledPlan[]> => {
     try {
       const response = await proxyFetch("/agent/scheduled-actions");
@@ -58,8 +60,9 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       const active = actions.filter((action) => action.status === "queued" || action.status === "running");
       setPipelineActions(active);
       setScheduledPlan(active[0] ?? null);
-      setLatestPipelineAction(actions[0] ?? null);
-      if (active.length) await postToSW({ type: "START_SCHEDULED_ACTIONS_POLL" });
+      // A live scan (below) takes precedence over this on first paint; don't
+      // clobber it if one is already in progress or just finished.
+      setLatestPipelineAction((current) => current ?? actions[0] ?? null);
       return active;
     } catch {
       setScheduledPlan(null);
@@ -67,21 +70,44 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
     }
   }, []);
 
+  const stopScanPolling = useCallback(() => {
+    if (scanPollRef.current) window.clearInterval(scanPollRef.current);
+    scanPollRef.current = null;
+  }, []);
+
+  const pollScan = useCallback((jobId: string) => {
+    stopScanPolling();
+    const update = async () => {
+      try {
+        const res = await proxyFetch(`/agent/proposals/scan/${jobId}`);
+        if (!res.ok) { stopScanPolling(); return; }
+        const job = await res.json() as ScheduledPlan;
+        setLatestPipelineAction(job);
+        if (job.status !== "queued" && job.status !== "running") {
+          stopScanPolling();
+          void refreshScheduledActions();
+        }
+      } catch {
+        stopScanPolling();
+      }
+    };
+    scanPollRef.current = window.setInterval(() => { void update(); }, 800);
+    void update();
+  }, [stopScanPolling, refreshScheduledActions]);
+
+  useEffect(() => () => stopScanPolling(), [stopScanPolling]);
+
   const requestDashboardPipeline = useCallback(async () => {
-    if (dashboardPipelineRequestedRef.current) return;
-    dashboardPipelineRequestedRef.current = true;
     try {
       const response = await proxyFetch("/agent/proposals/scan", { method: "POST" });
       if (!response.ok) return;
-      const channel = new BroadcastChannel("route-jobs");
-      channel.postMessage({ type: "SCHEDULED_ACTIONS_ENQUEUED" });
-      channel.close();
-      await postToSW({ type: "START_SCHEDULED_ACTIONS_POLL" });
-      await refreshScheduledActions();
+      const job = await response.json() as ScheduledPlan;
+      setLatestPipelineAction(job);
+      pollScan(job.id);
     } catch {
-      // The next dashboard visit retries through the same durable scheduler path.
+      // The button stays available — nothing is left in a stuck disabled state.
     }
-  }, [refreshScheduledActions]);
+  }, [pollScan]);
 
   const handleReviewLoaded = useCallback(() => setReviewLoaded(true), []);
 
@@ -259,24 +285,6 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
     init();
   }, [refreshScheduledActions]);
 
-  useEffect(() => {
-    const channel = new BroadcastChannel("route-jobs");
-    const onMessage = (event: MessageEvent<{ type?: string; active?: ScheduledPlan[]; actions?: ScheduledPlan[] }>) => {
-      if (event.data?.type === "SCHEDULED_ACTIONS_ENQUEUED") {
-        void refreshScheduledActions();
-        return;
-      }
-      if (event.data?.type === "SCHEDULED_ACTIONS_UPDATE") {
-        const active = event.data.active ?? [];
-        setPipelineActions(active);
-        setScheduledPlan(active[0] ?? null);
-        setLatestPipelineAction(event.data.actions?.[0] ?? null);
-      }
-    };
-    channel.addEventListener("message", onMessage);
-    return () => channel.close();
-  }, [refreshScheduledActions]);
-
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading;
 
@@ -311,7 +319,14 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
               ) : (
                 <button type="button" className={styles.assistantPrimaryBtn} onClick={() => setRunHistoryOpen(true)}>Review details</button>
               )}
-              <button type="button" className={styles.assistantSecondaryBtn} onClick={() => void requestDashboardPipeline()}>Run new scan</button>
+              <button
+                type="button"
+                className={styles.assistantSecondaryBtn}
+                onClick={() => void requestDashboardPipeline()}
+                disabled={latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"}
+              >
+                Run new scan
+              </button>
               <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
             </div>
           </section>

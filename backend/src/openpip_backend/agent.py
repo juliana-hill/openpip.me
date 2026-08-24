@@ -9,6 +9,7 @@ from .google_drive_docs import get_or_create_document
 from .guideline_templates import (
     AGENT_MD_SAMPLE,
     GOALS_EXECUTIVE_ASSISTANT_SAMPLE,
+    GOALS_PROACTIVE_REVIEW_SAMPLE,
     GOALS_TRAVEL_PLANNER_SAMPLE,
 )
 from .models import BriefingRequest, Proposal, SourceReference, UserContext
@@ -68,6 +69,17 @@ def build_executive_assistant(context_block: str = ""):
 
     system_prompt = f"{SYSTEM_PROMPT}\n\n{context_block}" if context_block else SYSTEM_PROMPT
     return Agent(system_prompt=system_prompt, tools=[travel_agent])
+
+
+def extract_agent_text(result: Any) -> str:
+    """Pull the plain text out of a Strands Agent call's result — the same
+    shape every caller of agent(prompt) has to unwrap regardless of which
+    prompt built it."""
+    message: Any = getattr(result, "message", result)
+    if isinstance(message, dict):
+        content = message.get("content", [])
+        return "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
+    return str(message).strip()
 
 
 def _fallback_core(request: BriefingRequest) -> str:
@@ -140,7 +152,7 @@ def build_briefing_prompt(request: BriefingRequest, user_context: UserContext) -
     )
 
 
-async def load_context_documents(google_token: str | None) -> str:
+async def load_context_documents(google_token: str | None, *, include_proactive_review: bool = False) -> str:
     """Fetch the user's Agent & Guidelines documents from their real Drive
     (see google_drive_docs.py — a visible "OpenPip" folder, get-or-created
     from the same starter templates the Settings page's "Edit in Drive"
@@ -152,24 +164,31 @@ async def load_context_documents(google_token: str | None) -> str:
     injects the equivalent "agent.md" and per-skill "goals-n-guidelines"
     documents the same way. Travel guidelines are included here too, since
     the travel_agent tool is available to this same agent and may fire
-    mid-conversation — Proactive Proposals guidelines are deliberately left
-    out; nothing consumes them yet (see app.py's /agent/proposals/scan,
-    still a stub), so fetching them here would be wasted Drive calls for
-    text nothing reads.
+    mid-conversation. Proactive Proposals guidelines are the one document
+    NOT included by default — they only matter to proposal_scan.py's scan,
+    which passes include_proactive_review=True; every other caller (e.g. a
+    future chat endpoint) would otherwise pay for a Drive fetch of text it
+    never reads.
 
-    Never raises — a briefing must never fail because Drive was slow,
-    unavailable, or the user hasn't connected Google at all.
+    Never raises — a caller must never fail outright just because Drive was
+    slow, unavailable, or the user hasn't connected Google at all.
     """
     if not google_token:
         return ""
     try:
-        (_, agent_md), (_, ea_guidelines), (_, travel_guidelines) = await asyncio.gather(
+        fetches = [
             get_or_create_document(google_token, "OpenPip", "agent.md", AGENT_MD_SAMPLE),
             get_or_create_document(google_token, "OpenPip/goals-n-guidelines", "executive-assistant.md", GOALS_EXECUTIVE_ASSISTANT_SAMPLE),
             get_or_create_document(google_token, "OpenPip/goals-n-guidelines", "travel-planner.md", GOALS_TRAVEL_PLANNER_SAMPLE),
-        )
+        ]
+        if include_proactive_review:
+            fetches.append(get_or_create_document(google_token, "OpenPip/goals-n-guidelines", "proactive-review.md", GOALS_PROACTIVE_REVIEW_SAMPLE))
+        results = await asyncio.gather(*fetches)
     except Exception:
         return ""
+
+    agent_md, ea_guidelines, travel_guidelines = (content for _, content in results[:3])
+    proactive_guidelines = results[3][1] if include_proactive_review else ""
 
     sections = []
     if agent_md.strip():
@@ -178,6 +197,8 @@ async def load_context_documents(google_token: str | None) -> str:
         sections.append(f"## Executive Assistant Guidelines\n{ea_guidelines.strip()}")
     if travel_guidelines.strip():
         sections.append(f"## Travel Preferences (only relevant if travel comes up)\n{travel_guidelines.strip()}")
+    if proactive_guidelines.strip():
+        sections.append(f"## Proactive Proposals Guidelines\n{proactive_guidelines.strip()}")
     return "\n\n".join(sections)
 
 

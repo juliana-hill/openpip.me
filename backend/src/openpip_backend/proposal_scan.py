@@ -1,0 +1,399 @@
+"""Approval-first workspace proposal scan — the Dashboard's "assistant" card.
+
+Unlike the Inbox Assistant (rule-based, no LLM — see inbox_triage.py), this
+scan genuinely needs an agent's judgment: it reads across Tasks, Calendar,
+Contacts, and recent Gmail history at once and has to weigh which of them,
+if any, is actually worth a human's attention right now, steered by the
+user's own Proactive Proposals guidelines (see agent.py's
+load_context_documents). That's a fundamentally different job than
+classifying one email against a fixed set of patterns.
+
+Every proposal the model returns MUST cite one exact source id from the
+sourceReferences it was actually given — never a fact it invented — and gets
+dropped otherwise (see _parse_and_validate_proposals). Kept, validated
+proposals become real pending Proposal rows in the existing SQLite-backed
+ProposalStore (store.add, deduplicated via Proposal.idempotency_key so the
+same underlying task/contact/inbox-review signal is never proposed twice,
+even across separate scans, even after the user has already decided it).
+
+This only ever creates proposals for review — it never executes anything.
+Approving one here still goes through the same mocked executor.py every
+other proposal does; real execution is a deliberately separate, later step.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import re
+from datetime import UTC, date, datetime
+from typing import Any
+from uuid import uuid4
+
+from .agent import build_executive_assistant, extract_agent_text, load_context_documents
+from .google_drive_store import read_drive_app_data
+from .google_workspace import (
+    fetch_gmail_messages,
+    fetch_google_calendars,
+    fetch_google_contacts,
+    fetch_google_tasks,
+)
+from .inbox_triage import get_saved_triage_details, read_contact_profile
+from .models import Proposal, ProposalStatus, SourceReference
+from .store import ProposalStore
+
+_SUPPORTED_KINDS = {"task_followup", "contact_followup", "inbox_pointer"}
+_CONTACT_STALE_DAYS = 21
+_HISTORICAL_WINDOW_DAYS = 90
+_MAX_PROPOSALS_PER_SCAN = 4
+
+_jobs: dict[str, dict[str, Any]] = {}
+_active_jobs: dict[str, str] = {}
+
+
+def _owner(access_token: str) -> str:
+    return hashlib.sha256(access_token.encode("utf-8")).hexdigest()[:24]
+
+
+def _snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    return {**job, "events": list(job.get("events", []))}
+
+
+def _event(job: dict[str, Any], event_type: str, title: str, detail: str | None = None) -> None:
+    job.setdefault("events", []).append({
+        "id": str(uuid4()),
+        "type": event_type,
+        "at": datetime.now(UTC).isoformat(),
+        "title": title,
+        **({"detail": detail} if detail else {}),
+    })
+
+
+# ---- Signal collection — each source degrades independently; one failing
+# (e.g. Contacts Drive read) must never block proposals built from the rest.
+
+
+async def _open_task_signals(access_token: str) -> list[dict[str, Any]]:
+    tasks = await fetch_google_tasks(access_token)
+    today = datetime.now(UTC).date()
+    candidates: list[dict[str, Any]] = []
+    for task in tasks:
+        if task.get("completed") or not task.get("id"):
+            continue
+        due_raw = task.get("dueDate")
+        urgency: str | None = None
+        if due_raw:
+            try:
+                due = date.fromisoformat(str(due_raw))
+                if due < today:
+                    urgency = "overdue"
+                elif due == today:
+                    urgency = "due_today"
+            except ValueError:
+                pass
+        if urgency is None and task.get("priority") == "ASAP":
+            urgency = "asap"
+        if urgency:
+            candidates.append({**task, "urgency": urgency})
+    return candidates[:20]
+
+
+async def _contact_followup_signals(access_token: str) -> list[dict[str, Any]]:
+    google_contacts, app_data = await asyncio.gather(
+        fetch_google_contacts(access_token),
+        read_drive_app_data(access_token),
+    )
+    tracked = app_data.get("contacts") if isinstance(app_data.get("contacts"), dict) else {}
+    now = datetime.now(UTC)
+    candidates: list[dict[str, Any]] = []
+    for resource_name in tracked:
+        person = google_contacts.get(resource_name)
+        if not person:
+            continue  # tracked but dropped/merged in Google since — nothing to show
+        try:
+            profile = await read_contact_profile(access_token, resource_name, {})
+        except Exception:
+            continue
+        last = profile.get("lastInteractionDate")
+        stale = True
+        if last:
+            try:
+                last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=UTC)
+                stale = (now - last_dt).days >= _CONTACT_STALE_DAYS
+            except ValueError:
+                stale = True
+        if stale:
+            candidates.append({
+                "resourceName": resource_name,
+                "name": person.get("name"),
+                "company": person.get("company"),
+                "status": profile.get("status", "not_contacted"),
+                "lastInteractionDate": last,
+            })
+    return candidates[:20]
+
+
+async def _calendar_signals(access_token: str) -> list[dict[str, Any]]:
+    calendars = await fetch_google_calendars(access_token, days=7)
+    events = [event for calendar in calendars for event in calendar.get("events", [])]
+    return events[:20]
+
+
+async def _historical_email_signals(access_token: str) -> list[dict[str, Any]]:
+    """A bounded window of recent Gmail history — not just unread mail — so
+    the scan can notice what the Inbox Assistant's unread-only triage never
+    sees: a task actually already completed per an old confirmation email, a
+    contact who already replied weeks ago. Read-only, same as everything else
+    here; nothing is marked read or labeled by this scan."""
+    messages, _ = await fetch_gmail_messages(
+        access_token,
+        gmail_query=f"newer_than:{_HISTORICAL_WINDOW_DAYS}d",
+        page=1,
+        page_size=100,
+    )
+    return messages[:100]
+
+
+async def _inbox_pointer_signal(access_token: str) -> dict[str, Any] | None:
+    details = await get_saved_triage_details(access_token)
+    current_run = details.get("currentRun") if isinstance(details, dict) else None
+    if not isinstance(current_run, dict):
+        return None
+    suggestions = current_run.get("suggestions")
+    if not isinstance(suggestions, list):
+        return None
+    unreviewed = [item for item in suggestions if isinstance(item, dict) and not item.get("appliedAction")]
+    if not unreviewed:
+        return None
+    return {"count": len(unreviewed), "runId": current_run.get("id")}
+
+
+# ---- Context assembly: every source reference gets a stable id a proposal
+# can cite; facts are the same data in a shape convenient for the prompt.
+
+
+def _build_context(
+    tasks: list[dict[str, Any]],
+    contacts: list[dict[str, Any]],
+    calendar_events: list[dict[str, Any]],
+    historical_messages: list[dict[str, Any]],
+    inbox_pointer: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[dict[str, str]]]:
+    source_references: list[dict[str, str]] = []
+
+    task_facts = []
+    for task in tasks:
+        source_id = f"task:{task['id']}"
+        source_references.append({
+            "id": source_id, "kind": "task",
+            "label": str(task.get("title") or "Untitled task"),
+            "detail": f"{task.get('urgency')} · priority {task.get('priority')} · due {task.get('dueDate') or 'no date'}",
+        })
+        task_facts.append({"sourceId": source_id, "title": task.get("title"), "priority": task.get("priority"), "dueDate": task.get("dueDate"), "urgency": task.get("urgency"), "projectName": task.get("projectName")})
+
+    contact_facts = []
+    for contact in contacts:
+        source_id = f"contact:{contact['resourceName']}"
+        source_references.append({
+            "id": source_id, "kind": "contact",
+            "label": str(contact.get("name") or "Unknown contact"),
+            "detail": f"{contact.get('company') or 'no company on file'} · status {contact.get('status')} · last interaction {contact.get('lastInteractionDate') or 'never'}",
+        })
+        contact_facts.append({"sourceId": source_id, "name": contact.get("name"), "company": contact.get("company"), "status": contact.get("status"), "lastInteractionDate": contact.get("lastInteractionDate")})
+
+    calendar_facts = []
+    for event in calendar_events:
+        source_id = f"calendar:{event['id']}"
+        source_references.append({
+            "id": source_id, "kind": "calendar_event",
+            "label": str(event.get("title") or "Untitled event"),
+            "detail": f"{event.get('start')}",
+        })
+        calendar_facts.append({"sourceId": source_id, "title": event.get("title"), "start": event.get("start")})
+
+    email_facts = []
+    for message in historical_messages:
+        source_id = f"email:{message['id']}"
+        source_references.append({
+            "id": source_id, "kind": "email",
+            "label": str(message.get("subject") or "(no subject)"),
+            "detail": f"{message.get('from')} · {message.get('date')}",
+        })
+        email_facts.append({"sourceId": source_id, "subject": message.get("subject"), "from": message.get("from"), "date": message.get("date"), "snippet": message.get("snippet")})
+
+    inbox_pointer_fact = None
+    if inbox_pointer:
+        source_id = "inbox_review"
+        source_references.append({
+            "id": source_id, "kind": "inbox_review",
+            "label": "Inbox Assistant review",
+            "detail": f"{inbox_pointer['count']} suggestion(s) awaiting your review",
+        })
+        inbox_pointer_fact = {"sourceId": source_id, **inbox_pointer}
+
+    facts = {
+        "openTasks": task_facts,
+        "contactsNeedingFollowUp": contact_facts,
+        "upcomingCalendarEvents": calendar_facts,
+        "recentEmailSignals": email_facts,
+        "inboxAssistantPointer": inbox_pointer_fact,
+    }
+    return facts, source_references
+
+
+def build_proposal_scan_prompt(
+    facts: dict[str, Any],
+    source_references: list[dict[str, str]],
+    existing_pending: list[dict[str, str]],
+) -> str:
+    existing_block = (
+        f"\n\nExisting pending proposals (do not propose anything with the same scope — propose only genuinely new actions):\n{json.dumps(existing_pending)}"
+        if existing_pending else ""
+    )
+    return (
+        "Review the JSON facts and source references below and propose up to "
+        f"{_MAX_PROPOSALS_PER_SCAN} useful, bounded next actions for the user to "
+        "approve. These are requests for permission to start work, not completed "
+        "work — never claim anything has already happened. Do not invent tasks, "
+        "contacts, emails, or calendar events not present below. Every proposal "
+        "MUST cite one exact id from sourceReferences as sourceId — anything "
+        "without a real, matching sourceId is discarded, not shown to the user.\n\n"
+        'Return ONLY JSON exactly like: {"proposals":[{"kind":'
+        '"task_followup|contact_followup|inbox_pointer","title":"...",'
+        '"rationale":"a specific fact from context","sourceId":"an exact id '
+        'from sourceReferences"}]}\n\n'
+        "Rules:\n"
+        "- task_followup: only for a specific overdue/ASAP/due-today task with a "
+        "real, specific reason it needs attention now — not just because it exists.\n"
+        "- contact_followup: only for a specific contact in contactsNeedingFollowUp "
+        "with a real reason a follow-up would help now, not every stale contact at once.\n"
+        "- inbox_pointer: only when inboxAssistantPointer is present in facts — at "
+        "most one inbox_pointer proposal ever, pointing at that single sourceId.\n"
+        "Never propose sending, applying, booking, or contacting anyone directly — "
+        "every proposal is a request to look into or prepare something, never an "
+        "action already taken. If nothing here genuinely warrants the user's "
+        f"attention, return an empty proposals list.{existing_block}\n\n"
+        f"Context:\n{json.dumps({'facts': facts, 'sourceReferences': source_references})[:20000]}"
+    )
+
+
+def _parse_and_validate_proposals(raw: str, source_references: list[dict[str, str]]) -> list[dict[str, Any]]:
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return []
+    try:
+        parsed = json.loads(match.group(0))
+    except ValueError:
+        return []
+    candidates = parsed.get("proposals") if isinstance(parsed, dict) else None
+    if not isinstance(candidates, list):
+        return []
+    sources_by_id = {source["id"]: source for source in source_references}
+    validated: list[dict[str, Any]] = []
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            continue
+        kind = candidate.get("kind")
+        if kind not in _SUPPORTED_KINDS:
+            continue
+        title = str(candidate.get("title") or "").strip()
+        rationale = str(candidate.get("rationale") or "").strip()
+        source = sources_by_id.get(str(candidate.get("sourceId") or ""))
+        if not title or not rationale or not source:
+            continue
+        validated.append({"kind": kind, "title": title[:200], "rationale": rationale[:500], "source": source})
+    return validated[:_MAX_PROPOSALS_PER_SCAN]
+
+
+async def _run_scan(access_token: str, store: ProposalStore, job: dict[str, Any]) -> None:
+    try:
+        _event(job, "progress", "Reviewing tasks, contacts, calendar, and recent email")
+        results = await asyncio.gather(
+            _open_task_signals(access_token),
+            _contact_followup_signals(access_token),
+            _calendar_signals(access_token),
+            _historical_email_signals(access_token),
+            _inbox_pointer_signal(access_token),
+            return_exceptions=True,
+        )
+        tasks, contacts, calendar_events, historical_messages, inbox_pointer = (
+            result if not isinstance(result, BaseException) else (None if index == 4 else [])
+            for index, result in enumerate(results)
+        )
+
+        facts, source_references = _build_context(tasks or [], contacts or [], calendar_events or [], historical_messages or [], inbox_pointer)
+        if not source_references:
+            job["created"] = 0
+            job["status"] = "completed"
+            _event(job, "completed", "Nothing new to propose right now.")
+            return
+
+        _event(job, "progress", f"Found {len(source_references)} signal(s) to consider")
+        existing_pending = [{"action": p.action, "title": p.title} for p in store.list(ProposalStatus.PENDING)]
+        prompt = build_proposal_scan_prompt(facts, source_references, existing_pending)
+        context_block = await load_context_documents(access_token, include_proactive_review=True)
+        agent = build_executive_assistant(context_block)
+        _event(job, "progress", "Asking the assistant to identify source-backed proposals")
+        result = agent(prompt)
+        validated = _parse_and_validate_proposals(extract_agent_text(result), source_references)
+
+        created = 0
+        for candidate in validated:
+            source = candidate["source"]
+            proposal = Proposal(
+                action=candidate["kind"],
+                title=candidate["title"],
+                rationale=candidate["rationale"],
+                payload={"sourceId": source["id"]},
+                source=SourceReference(kind=source["kind"], id=source["id"], title=source["label"]),
+                idempotency_key=f"proposal_scan:{candidate['kind']}:{source['kind']}:{source['id']}",
+            )
+            stored = store.add(proposal)
+            if stored.id == proposal.id:
+                created += 1
+
+        job["created"] = created
+        job["status"] = "completed"
+        _event(
+            job, "completed",
+            f"Created {created} new proposal{'s' if created != 1 else ''} for review." if created
+            else "Reviewed your workspace — nothing new needs approval right now.",
+        )
+    except Exception as error:
+        job["status"] = "failed"
+        job["error"] = str(error)
+        _event(job, "failed", "The scan could not finish.", str(error))
+    finally:
+        if _active_jobs.get(_owner(access_token)) == job["id"]:
+            _active_jobs.pop(_owner(access_token), None)
+
+
+async def queue_proposal_scan(access_token: str, store: ProposalStore) -> dict[str, Any]:
+    owner = _owner(access_token)
+    active_id = _active_jobs.get(owner)
+    if active_id and active_id in _jobs:
+        return _snapshot(_jobs[active_id])
+    job: dict[str, Any] = {
+        "id": str(uuid4()),
+        "title": "Finding useful next actions",
+        "status": "running",
+        "createdAt": datetime.now(UTC).isoformat(),
+        "created": 0,
+        "events": [],
+        "owner": owner,
+    }
+    _event(job, "queued", "Scan queued")
+    _jobs[job["id"]] = job
+    _active_jobs[owner] = job["id"]
+    asyncio.create_task(_run_scan(access_token, store, job))
+    return _snapshot(job)
+
+
+def get_proposal_scan_progress(access_token: str, job_id: str) -> dict[str, Any] | None:
+    job = _jobs.get(job_id)
+    if not job or job.get("owner") != _owner(access_token):
+        return None
+    return _snapshot(job)

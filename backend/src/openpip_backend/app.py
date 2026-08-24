@@ -52,6 +52,7 @@ from .inbox_triage import (
     write_contact_profile,
 )
 from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
+from .proposal_scan import get_proposal_scan_progress, queue_proposal_scan
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -413,9 +414,18 @@ def agent_scheduled_actions():
 
 
 @app.post("/agent/proposals/scan")
-def agent_proposals_scan():
-    """Keep the dashboard pipeline Python-owned until a Strands scanner is wired."""
-    return {"actions": [], "created": 0}
+async def agent_proposals_scan(token: str = Depends(get_google_token)):
+    """Queue a workspace scan — an AgentRun-shaped job the Dashboard polls via
+    GET .../scan/{job_id}. See proposal_scan.py for what it actually reviews."""
+    return await queue_proposal_scan(token, store)
+
+
+@app.get("/agent/proposals/scan/{job_id}")
+def agent_proposals_scan_progress(job_id: str, token: str = Depends(get_google_token)):
+    progress = get_proposal_scan_progress(token, job_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Scan job not found")
+    return progress
 
 
 @app.get("/agent/user/data")

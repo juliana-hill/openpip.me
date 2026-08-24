@@ -7,7 +7,6 @@ import {
   idbGetUserPrefs,
   idbListSearches,
   idbSetUserPrefs,
-  postToSW,
   pushUserData
 } from "./chunk-VZIUBKB3.js";
 import {
@@ -264,7 +263,7 @@ function DashboardPage({ userName, userImage }) {
   const [dashboardDataReady, setDashboardDataReady] = (0, import_react2.useState)(false);
   const [reviewLoaded, setReviewLoaded] = (0, import_react2.useState)(false);
   const briefFetchedRef = (0, import_react2.useRef)(false);
-  const dashboardPipelineRequestedRef = (0, import_react2.useRef)(false);
+  const scanPollRef = (0, import_react2.useRef)(null);
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
@@ -277,28 +276,52 @@ function DashboardPage({ userName, userImage }) {
       const active = actions.filter((action) => action.status === "queued" || action.status === "running");
       setPipelineActions(active);
       setScheduledPlan(active[0] ?? null);
-      setLatestPipelineAction(actions[0] ?? null);
-      if (active.length) await postToSW({ type: "START_SCHEDULED_ACTIONS_POLL" });
+      setLatestPipelineAction((current) => current ?? actions[0] ?? null);
       return active;
     } catch {
       setScheduledPlan(null);
       return [];
     }
   }, []);
+  const stopScanPolling = (0, import_react2.useCallback)(() => {
+    if (scanPollRef.current) window.clearInterval(scanPollRef.current);
+    scanPollRef.current = null;
+  }, []);
+  const pollScan = (0, import_react2.useCallback)((jobId) => {
+    stopScanPolling();
+    const update = async () => {
+      try {
+        const res = await proxyFetch(`/agent/proposals/scan/${jobId}`);
+        if (!res.ok) {
+          stopScanPolling();
+          return;
+        }
+        const job = await res.json();
+        setLatestPipelineAction(job);
+        if (job.status !== "queued" && job.status !== "running") {
+          stopScanPolling();
+          void refreshScheduledActions();
+        }
+      } catch {
+        stopScanPolling();
+      }
+    };
+    scanPollRef.current = window.setInterval(() => {
+      void update();
+    }, 800);
+    void update();
+  }, [stopScanPolling, refreshScheduledActions]);
+  (0, import_react2.useEffect)(() => () => stopScanPolling(), [stopScanPolling]);
   const requestDashboardPipeline = (0, import_react2.useCallback)(async () => {
-    if (dashboardPipelineRequestedRef.current) return;
-    dashboardPipelineRequestedRef.current = true;
     try {
       const response = await proxyFetch("/agent/proposals/scan", { method: "POST" });
       if (!response.ok) return;
-      const channel = new BroadcastChannel("route-jobs");
-      channel.postMessage({ type: "SCHEDULED_ACTIONS_ENQUEUED" });
-      channel.close();
-      await postToSW({ type: "START_SCHEDULED_ACTIONS_POLL" });
-      await refreshScheduledActions();
+      const job = await response.json();
+      setLatestPipelineAction(job);
+      pollScan(job.id);
     } catch {
     }
-  }, [refreshScheduledActions]);
+  }, [pollScan]);
   const handleReviewLoaded = (0, import_react2.useCallback)(() => setReviewLoaded(true), []);
   (0, import_react2.useEffect)(() => {
     const today2 = (/* @__PURE__ */ new Date()).toDateString();
@@ -415,23 +438,6 @@ function DashboardPage({ userName, userImage }) {
     }
     init();
   }, [refreshScheduledActions]);
-  (0, import_react2.useEffect)(() => {
-    const channel = new BroadcastChannel("route-jobs");
-    const onMessage = (event) => {
-      if (event.data?.type === "SCHEDULED_ACTIONS_ENQUEUED") {
-        void refreshScheduledActions();
-        return;
-      }
-      if (event.data?.type === "SCHEDULED_ACTIONS_UPDATE") {
-        const active = event.data.active ?? [];
-        setPipelineActions(active);
-        setScheduledPlan(active[0] ?? null);
-        setLatestPipelineAction(event.data.actions?.[0] ?? null);
-      }
-    };
-    channel.addEventListener("message", onMessage);
-    return () => channel.close();
-  }, [refreshScheduledActions]);
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
   const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading;
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.shell, children: [
@@ -459,7 +465,16 @@ function DashboardPage({ userName, userImage }) {
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
           latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+            "button",
+            {
+              type: "button",
+              className: DashboardPage_default.assistantSecondaryBtn,
+              onClick: () => void requestDashboardPipeline(),
+              disabled: latestPipelineAction.status === "queued" || latestPipelineAction.status === "running",
+              children: "Run new scan"
+            }
+          ),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
         ] })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, children: [
