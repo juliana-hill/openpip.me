@@ -48,6 +48,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
+  const isPipelineRunning = latestPipelineAction?.status === "queued" || latestPipelineAction?.status === "running";
 
   // Approved-but-not-yet-executed proposals — a separate concept from the
   // scan job below (execution itself stays mocked for now; this just
@@ -57,7 +58,13 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       const response = await proxyFetch("/agent/scheduled-actions");
       const data = response.ok ? await response.json() as { actions?: ScheduledPlan[] } : { actions: [] };
       const actions = data.actions ?? [];
-      const active = actions.filter((action) => action.status === "queued" || action.status === "running");
+      // These are real Proposal rows (ProposalStatus: pending/approved/
+      // rejected/executing/executed/failed) via /agent/scheduled-actions,
+      // NOT scan-job rows (queued/running/completed/failed) — "queued" and
+      // "running" here used to check for scan-job values that a Proposal
+      // can never actually have, so this always matched nothing and an
+      // approved proposal never appeared as active work.
+      const active = actions.filter((action) => action.status === "approved" || action.status === "executing");
       setPipelineActions(active);
       setScheduledPlan(active[0] ?? null);
       // A live scan (below) takes precedence over this on first paint; don't
@@ -298,14 +305,14 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
             <div className={styles.assistantPromptContent}>
               <p className={styles.assistantPromptKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>
               <h2 className={styles.assistantPromptTitle}>
-                {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"
+                {isPipelineRunning
                   ? "Reviewing your workspace"
                   : latestPipelineAction.status === "completed"
                     ? "Your workspace review is ready"
                     : "Something needs your attention"}
               </h2>
               <p className={styles.assistantPromptCopy}>
-                {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"
+                {isPipelineRunning
                   ? "Your assistant is looking for useful next actions. You can keep working while it finishes."
                   : latestPipelineStatus || "Your assistant prepared an item for you to review."}
               </p>
@@ -314,20 +321,25 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
               {pipelineActions.length > 1 && <p className={styles.assistantPromptMeta}>+{pipelineActions.length - 1} more action{pipelineActions.length === 2 ? "" : "s"} in progress</p>}
             </div>
             <div className={styles.assistantPromptActions}>
-              {latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? (
+              {isPipelineRunning ? (
+                // The pulsing dot already says "a scan is running" — a second,
+                // merely-disabled "Run new scan" button next to it was
+                // redundant and read as broken. Nothing to click while one
+                // is already in flight, so nothing renders here.
                 <span className={`${styles.pipelineStatusDot} ${styles.pipelinePulse}`} aria-label="Scan in progress" />
               ) : (
-                <button type="button" className={styles.assistantPrimaryBtn} onClick={() => setRunHistoryOpen(true)}>Review details</button>
+                <>
+                  <button type="button" className={styles.assistantPrimaryBtn} onClick={() => setRunHistoryOpen(true)}>Review details</button>
+                  <button type="button" className={styles.assistantSecondaryBtn} onClick={() => void requestDashboardPipeline()}>
+                    Run new scan
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className={styles.assistantSecondaryBtn}
-                onClick={() => void requestDashboardPipeline()}
-                disabled={latestPipelineAction.status === "queued" || latestPipelineAction.status === "running"}
-              >
-                Run new scan
-              </button>
-              <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
+              {isPipelineRunning ? (
+                <button type="button" className={styles.showDetailsLink} onClick={() => setRunHistoryOpen(true)}>Show details</button>
+              ) : (
+                <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
+              )}
             </div>
           </section>
         ) : (

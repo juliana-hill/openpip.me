@@ -149,6 +149,19 @@
   min-width: 190px;
 }
 .assistantPromptTrust { grid-column: 1 / -1; max-width: 240px; margin: 0; text-align: right; }
+.showDetailsLink {
+  background: none;
+  border: none;
+  color: var(--color-accent);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  padding: 0;
+  text-decoration: underline;
+}
+.showDetailsLink:hover { opacity: 0.8; }
+.showDetailsLink:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
 .assistantPrimaryBtn,
 .assistantSecondaryBtn {
   cursor: pointer;
@@ -174,12 +187,25 @@
 .assistantSecondaryBtn:hover { opacity: 0.9; transform: translateY(-1px); }
 .assistantPrimaryBtn:focus-visible,
 .assistantSecondaryBtn:focus-visible { outline: 2px solid var(--color-text); outline-offset: 3px; }
+/* Without this, a disabled "Run new scan" (while a scan is already running)
+ * looked identical to enabled — nothing visibly changed when clicked, so it
+ * read as broken rather than as "already running". */
+.assistantPrimaryBtn:disabled,
+.assistantSecondaryBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+.assistantPrimaryBtn:disabled:hover,
+.assistantSecondaryBtn:disabled:hover { transform: none; }
 
 .pipelineStatus { background: var(--color-surface); border-left: 4px solid var(--color-accent); font: inherit; gap: 6px; text-align: left; width: 100%; }
 .pipelineStatus:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 42%, transparent); outline-offset: 3px; }
 .pipelineText { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 700; margin: 0; }
 .pipelineMeta { color: var(--color-text-muted); font-size: var(--font-size-xs); margin: 0; }
-.pipelineStatusDot { background: var(--color-text-muted); border: 3px solid var(--color-surface); border-radius: 50%; display: block; flex: 0 0 13px; height: 13px; margin: 2px; width: 13px; }
+/* grid-column: 1 / -1 + justify-self: end pin this to the container's right
+ * edge regardless of column packing — as the lone child of
+ * .assistantPromptActions' 2-column grid (no second button next to it while
+ * a scan is running), justify-items/justify-content on the container alone
+ * left it sitting nearer the left than the "Run new scan" button it stands
+ * in for used to be. */
+.pipelineStatusDot { background: var(--color-text-muted); border: 3px solid var(--color-surface); border-radius: 50%; display: block; flex: 0 0 13px; grid-column: 1 / -1; height: 13px; justify-self: end; margin: 2px; width: 13px; }
 .pipelinePulse { animation: pipelinePulse 1.2s ease-in-out infinite; background: var(--color-accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 18%, transparent), 0 0 14px color-mix(in srgb, var(--color-accent) 46%, transparent); }
 .pipelineComplete { background: #2b9d61; }
 .pipelineFailed { background: #d94c44; }

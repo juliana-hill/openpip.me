@@ -119,6 +119,24 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     triagePoll.current = null;
   }, []);
 
+  // Defined above pollTriage (rather than near openTriageDetails below,
+  // where it's also used) because pollTriage's own useCallback references it
+  // in its dependency array — a const declared later in the same component
+  // body isn't in scope yet at that point (temporal dead zone), even though
+  // it would be by the time pollTriage's callback actually runs.
+  const loadTriageDetails = useCallback(async () => {
+    try {
+      const res = await proxyFetch("/agent/inbox/network/details");
+      if (res.ok) {
+        const data = await res.json() as { suggestions?: TriageSuggestion[]; currentRun?: TriageRun; history?: TriageRun[] };
+        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
+        setTriageCurrentRun(currentRun);
+        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
+        setTriageHistory(data.history ?? []);
+      }
+    } catch { /* history is optional until the first completed run */ }
+  }, []);
+
   const pollTriage = useCallback((jobId: string) => {
     stopTriagePolling();
     const update = async () => {
@@ -139,11 +157,16 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
       if (progress.status !== "running") {
         stopTriagePolling();
         void loadTags();
+        // Surface the results the moment the run finishes, rather than
+        // making the user notice the card changed and click into it
+        // themselves. loadTriageDetails pulls the just-finished run's own
+        // suggestions before opening, so the modal never shows stale data.
+        void loadTriageDetails().then(() => setTriageDetailsOpen(true));
       }
     };
     triagePoll.current = window.setInterval(() => { void update(); }, 350);
     void update();
-  }, [loadTags, stopTriagePolling]);
+  }, [loadTags, loadTriageDetails, stopTriagePolling]);
 
   useEffect(() => () => stopTriagePolling(), [stopTriagePolling]);
 
@@ -350,19 +373,6 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
       if (progress.status === "running") pollTriage(progress.id);
     } catch { /* silent */ }
   };
-
-  const loadTriageDetails = useCallback(async () => {
-    try {
-      const res = await proxyFetch("/agent/inbox/network/details");
-      if (res.ok) {
-        const data = await res.json() as { suggestions?: TriageSuggestion[]; currentRun?: TriageRun; history?: TriageRun[] };
-        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
-        setTriageCurrentRun(currentRun);
-        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
-        setTriageHistory(data.history ?? []);
-      }
-    } catch { /* history is optional until the first completed run */ }
-  }, []);
 
   const openTriageDetails = async () => {
     await loadTriageDetails();
