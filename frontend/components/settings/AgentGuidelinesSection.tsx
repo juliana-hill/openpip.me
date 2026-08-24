@@ -22,10 +22,10 @@ async function fetchDriveUrl(path: string): Promise<string | null> {
 
 export function AgentGuidelinesSection() {
   const [links, setLinks] = useState<GuidelineLink[]>([
-    { label: "Assistant Identity", description: "Customize your assistant's personality, tone, and behaviors — shared across all agents.", url: null, state: "loading" },
-    { label: "Travel Agent", description: "Your travel preferences, accommodation rules, and transport assumptions.", url: null, state: "loading" },
-    { label: "Executive Assistant", description: "Your priorities, working style, and standing rules for your chief of staff.", url: null, state: "loading" },
-    { label: "Proactive Proposals", description: "How the background scan proposes work — which system owns what, which email confirmations matter, and how eager to be.", url: null, state: "loading" },
+    { label: "Assistant Identity", description: "How your assistant talks to you — its personality and tone. Shared across everything it helps with.", url: null, state: "loading" },
+    { label: "Travel Agent", description: "Your travel preferences — accommodations, cost trade-offs, and how you like to get around.", url: null, state: "loading" },
+    { label: "Executive Assistant", description: "How you like to work — your priorities, working style, and standing rules for your assistant.", url: null, state: "loading" },
+    { label: "Proactive Proposals", description: "What the workspace scan looks for, and how eager it should be to suggest things.", url: null, state: "loading" },
   ]);
 
   useEffect(() => {

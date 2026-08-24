@@ -1036,10 +1036,10 @@ async function fetchDriveUrl(path) {
 }
 function AgentGuidelinesSection() {
   const [links, setLinks] = (0, import_react6.useState)([
-    { label: "Assistant Identity", description: "Customize your assistant's personality, tone, and behaviors \u2014 shared across all agents.", url: null, state: "loading" },
-    { label: "Travel Agent", description: "Your travel preferences, accommodation rules, and transport assumptions.", url: null, state: "loading" },
-    { label: "Executive Assistant", description: "Your priorities, working style, and standing rules for your chief of staff.", url: null, state: "loading" },
-    { label: "Proactive Proposals", description: "How the background scan proposes work \u2014 which system owns what, which email confirmations matter, and how eager to be.", url: null, state: "loading" }
+    { label: "Assistant Identity", description: "How your assistant talks to you \u2014 its personality and tone. Shared across everything it helps with.", url: null, state: "loading" },
+    { label: "Travel Agent", description: "Your travel preferences \u2014 accommodations, cost trade-offs, and how you like to get around.", url: null, state: "loading" },
+    { label: "Executive Assistant", description: "How you like to work \u2014 your priorities, working style, and standing rules for your assistant.", url: null, state: "loading" },
+    { label: "Proactive Proposals", description: "What the workspace scan looks for, and how eager it should be to suggest things.", url: null, state: "loading" }
   ]);
   (0, import_react6.useEffect)(() => {
     const fetches = [
