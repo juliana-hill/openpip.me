@@ -1515,11 +1515,11 @@ function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSav
         /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { children: "Deletion is irreversible, so review each message in the inbox before taking action." })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.scrollArea, children: displayedSuggestions.length ? /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("ul", { className: TriageDetailsModal_default.list, children: displayedSuggestions.map((suggestion) => /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("li", { className: `${TriageDetailsModal_default.item} ${isCurrentRun ? "" : TriageDetailsModal_default.historyItemRow}`, children: [
-        isCurrentRun && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("label", { className: TriageDetailsModal_default.selectRow, "aria-label": `Select ${suggestion.subject || "email"} to apply`, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
+        isCurrentRun && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("label", { className: TriageDetailsModal_default.selectRow, "aria-label": suggestion.appliedAction ? `${suggestion.subject || "email"} already applied` : `Select ${suggestion.subject || "email"} to apply`, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)(
           "input",
           {
             type: "checkbox",
-            checked: selectedMessageIds.has(suggestion.messageId),
+            checked: selectedMessageIds.has(suggestion.messageId) || Boolean(suggestion.appliedAction),
             disabled: Boolean(suggestion.appliedAction),
             onChange: () => toggleMessage(suggestion.messageId)
           }

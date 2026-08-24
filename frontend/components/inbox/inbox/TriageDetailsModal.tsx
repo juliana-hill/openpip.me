@@ -177,10 +177,14 @@ export function TriageDetailsModal({ open, suggestions, currentRun, history = []
         {displayedSuggestions.length ? <ul className={styles.list}>
           {displayedSuggestions.map((suggestion) => <li className={`${styles.item} ${isCurrentRun ? "" : styles.historyItemRow}`} key={suggestion.messageId}>
             {isCurrentRun && (
-              <label className={styles.selectRow} aria-label={`Select ${suggestion.subject || "email"} to apply`}>
+              <label className={styles.selectRow} aria-label={suggestion.appliedAction ? `${suggestion.subject || "email"} already applied` : `Select ${suggestion.subject || "email"} to apply`}>
                 <input
                   type="checkbox"
-                  checked={selectedMessageIds.has(suggestion.messageId)}
+                  // Once applied, stay checked (and locked) rather than
+                  // reverting to unchecked — selectedMessageIds is cleared
+                  // after a save, but the row should still read as "this one
+                  // went through", not "this one was never selected".
+                  checked={selectedMessageIds.has(suggestion.messageId) || Boolean(suggestion.appliedAction)}
                   disabled={Boolean(suggestion.appliedAction)}
                   onChange={() => toggleMessage(suggestion.messageId)}
                 />
