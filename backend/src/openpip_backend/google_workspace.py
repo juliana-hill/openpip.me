@@ -237,6 +237,7 @@ async def fetch_google_calendars(access_token: str, *, from_date: str | None = N
                         "description": event.get("description"),
                         "location": event.get("location"),
                         "meetLink": event.get("hangoutLink"),
+                        "htmlLink": event.get("htmlLink"),
                         "start": start_value,
                         "end": end_value or start_value,
                         "status": event.get("status"),
@@ -318,6 +319,10 @@ def _normalize_gmail_message(detail: dict[str, Any], *, include_body: bool = Fal
         "snippet": detail.get("snippet", ""),
         "from": counterparty_name or counterparty_email or counterparty_header or ("Draft recipient" if is_draft else "Unknown sender"),
         "fromEmail": counterparty_email,
+        # Gmail's API has no direct permalink field; "#all/{id}" is the
+        # standard deep-link form (works regardless of which label/folder
+        # the message is under, unlike "#inbox/{id}").
+        "gmailUrl": f"https://mail.google.com/mail/u/0/#all/{message_id}",
         "date": _gmail_date(str(detail.get("internalDate", "")), _gmail_header(headers, "Date")),
         "unread": "UNREAD" in detail.get("labelIds", []),
         "source": "gmail",

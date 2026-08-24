@@ -24,6 +24,7 @@ class SourceReference(BaseModel):
     id: str
     title: str
     url: str | None = None
+    detail: str | None = None
 
 
 class Proposal(BaseModel):
@@ -39,6 +40,19 @@ class Proposal(BaseModel):
     executed_at: datetime | None = None
     failure_reason: str | None = None
     idempotency_key: str | None = None
+    # How many times execution has been claimed (see proposal_drive_store.py)
+    # — lets the recovery sweep cap auto-retries instead of looping forever
+    # on a proposal that keeps failing.
+    execution_attempts: int = 0
+    # Set when a worker claims this for execution, cleared once it finishes.
+    # A proposal still "executing" long after this timestamp almost
+    # certainly means the process that claimed it never got to finish
+    # (crashed, was killed) — that's what marks it stale for recovery.
+    execution_claimed_at: datetime | None = None
+    # Append-only, embedded directly in the same Drive file rather than a
+    # separate audit-log store — it travels with the record wherever it
+    # moves (pending -> accepted/rejected -> accepted/completed).
+    events: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class BriefingRequest(BaseModel):

@@ -52,6 +52,8 @@ from .inbox_triage import (
     write_contact_profile,
 )
 from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
+from . import proposal_drive_store
+from .execution_pipeline import tick as execution_tick
 from .proposal_scan import get_proposal_scan_progress, queue_proposal_scan
 from .google_oauth import (
     OAuthConfigError,
@@ -311,7 +313,10 @@ async def demo_briefing() -> BriefingResponse:
 
 
 @app.get("/api/proposals")
-def proposals(status: ProposalStatus | None = Query(default=None)):
+async def proposals(status: ProposalStatus | None = Query(default=None), token: str | None = Depends(get_google_token_optional)):
+    if token:
+        await proposal_drive_store.migrate_legacy_sqlite_proposals(token, store)
+        return {"items": await proposal_drive_store.list_proposals(token, status)}
     return {"items": store.list(status)}
 
 
@@ -356,6 +361,12 @@ def _review_item(proposal: Proposal) -> dict[str, Any]:
     return {
         "id": proposal.id,
         "kind": "proposal",
+        # DashboardPage.tsx's refreshScheduledActions filters
+        # /agent/scheduled-actions results on this exact field
+        # ("queued"/"running") to decide what counts as active work — it was
+        # missing here entirely, so an approved proposal could never surface
+        # there even though the approval itself was saved correctly.
+        "status": status,
         "category": "Agent proposal",
         "title": proposal.title,
         "subtitle": proposal.action,
@@ -372,33 +383,51 @@ def _review_item(proposal: Proposal) -> dict[str, Any]:
                 "kind": "task_suggestions",
                 "evidence": proposal.rationale,
                 "payload": proposal.payload,
+                # Was dropped entirely before — ReviewDetailPage.tsx already
+                # renders source.href as a clickable "Open source →" link and
+                # source.detail in the "Context used" card; it just never had
+                # anything to render because this omitted the field.
+                "source": {
+                    "kind": proposal.source.kind,
+                    "label": proposal.source.title,
+                    "detail": proposal.source.detail or proposal.source.title,
+                    "href": proposal.source.url,
+                } if proposal.source else None,
             }
         },
     }
 
 
 @app.get("/agent/review")
-def agent_review(status: ProposalStatus | None = Query(default=ProposalStatus.PENDING)):
+async def agent_review(status: ProposalStatus | None = Query(default=ProposalStatus.PENDING), token: str | None = Depends(get_google_token_optional)):
     """Expose the Python proposal queue using the frontend review shape."""
-    return {"items": [_review_item(item) for item in store.list(status)]}
+    if token:
+        await proposal_drive_store.migrate_legacy_sqlite_proposals(token, store)
+        items = await proposal_drive_store.list_proposals(token, status)
+    else:
+        items = store.list(status)
+    return {"items": [_review_item(item) for item in items]}
 
 
 @app.get("/agent/review/{proposal_id}")
-def agent_review_item(proposal_id: str):
-    proposal = store.get(proposal_id)
+async def agent_review_item(proposal_id: str, token: str | None = Depends(get_google_token_optional)):
+    proposal = await proposal_drive_store.get(token, proposal_id) if token else store.get(proposal_id)
     if proposal is None:
         raise HTTPException(status_code=404, detail="Review item not found")
     return {"item": _review_item(proposal)}
 
 
 @app.post("/agent/review/{proposal_id}/decision")
-def agent_review_decision(proposal_id: str, payload: dict[str, Any] | None = None):
+async def agent_review_decision(proposal_id: str, payload: dict[str, Any] | None = None, token: str | None = Depends(get_google_token_optional)):
     decision = str((payload or {}).get("decision", "")).strip().lower()
     reason = (payload or {}).get("reason")
     if decision not in {"approved", "rejected"}:
         raise HTTPException(status_code=400, detail="decision must be approved or rejected")
     try:
-        proposal = store.decide(proposal_id, ProposalStatus(decision), str(reason) if reason else None)
+        if token:
+            proposal = await proposal_drive_store.decide(token, proposal_id, ProposalStatus(decision), str(reason) if reason else None)
+        else:
+            proposal = store.decide(proposal_id, ProposalStatus(decision), str(reason) if reason else None)
     except KeyError:
         raise HTTPException(status_code=404, detail="Review item not found") from None
     except ValueError as error:
@@ -407,17 +436,32 @@ def agent_review_decision(proposal_id: str, payload: dict[str, Any] | None = Non
 
 
 @app.get("/agent/scheduled-actions")
-def agent_scheduled_actions():
+async def agent_scheduled_actions(token: str | None = Depends(get_google_token_optional)):
     """Return only explicitly approved proposal work; execution remains gated."""
-    actions = [_review_item(item) for item in store.list(ProposalStatus.APPROVED)]
-    return {"actions": actions}
+    if token:
+        await proposal_drive_store.migrate_legacy_sqlite_proposals(token, store)
+        approved = await proposal_drive_store.list_proposals(token, ProposalStatus.APPROVED)
+    else:
+        approved = store.list(ProposalStatus.APPROVED)
+    return {"actions": [_review_item(item) for item in approved]}
+
+
+@app.post("/agent/proposals/execution/tick")
+async def agent_proposals_execution_tick(token: str = Depends(get_google_token)):
+    """One bounded unit of background-execution work, meant to be polled
+    repeatedly by the Review page while it's open (see execution_pipeline.py
+    for why this can't just be a server-side loop — there's no stored
+    credential to act with once the user isn't around). Reclaims anything
+    stuck, retries anything failed under its budget, and executes at most
+    one approved proposal per call."""
+    return await execution_tick(token, executor)
 
 
 @app.post("/agent/proposals/scan")
 async def agent_proposals_scan(token: str = Depends(get_google_token)):
     """Queue a workspace scan — an AgentRun-shaped job the Dashboard polls via
     GET .../scan/{job_id}. See proposal_scan.py for what it actually reviews."""
-    return await queue_proposal_scan(token, store)
+    return await queue_proposal_scan(token)
 
 
 @app.get("/agent/proposals/scan/{job_id}")
@@ -984,15 +1028,22 @@ def demo_workspace():
 
 
 @app.get("/api/proposals/{proposal_id}/audit")
-def proposal_audit(proposal_id: str):
+async def proposal_audit(proposal_id: str, token: str | None = Depends(get_google_token_optional)):
+    if token:
+        proposal = await proposal_drive_store.get(token, proposal_id)
+        if proposal is None:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        return {"items": proposal.events}
     if store.get(proposal_id) is None:
         raise HTTPException(status_code=404, detail="Proposal not found")
     return {"items": store.audit_events(proposal_id)}
 
 
 @app.post("/api/proposals/{proposal_id}/approve")
-def approve(proposal_id: str, decision: ProposalDecision | None = None):
+async def approve(proposal_id: str, decision: ProposalDecision | None = None, token: str | None = Depends(get_google_token_optional)):
     try:
+        if token:
+            return await proposal_drive_store.decide(token, proposal_id, ProposalStatus.APPROVED, decision.reason if decision else None)
         return store.decide(proposal_id, ProposalStatus.APPROVED, decision.reason if decision else None)
     except KeyError:
         raise HTTPException(status_code=404, detail="Proposal not found") from None
@@ -1001,8 +1052,10 @@ def approve(proposal_id: str, decision: ProposalDecision | None = None):
 
 
 @app.post("/api/proposals/{proposal_id}/reject")
-def reject(proposal_id: str, decision: ProposalDecision | None = None):
+async def reject(proposal_id: str, decision: ProposalDecision | None = None, token: str | None = Depends(get_google_token_optional)):
     try:
+        if token:
+            return await proposal_drive_store.decide(token, proposal_id, ProposalStatus.REJECTED, decision.reason if decision else None)
         return store.decide(proposal_id, ProposalStatus.REJECTED, decision.reason if decision else None)
     except KeyError:
         raise HTTPException(status_code=404, detail="Proposal not found") from None
@@ -1011,8 +1064,25 @@ def reject(proposal_id: str, decision: ProposalDecision | None = None):
 
 
 @app.post("/api/proposals/{proposal_id}/execute")
-def execute(proposal_id: str):
-    """Execute an approved proposal through the configured adapter only."""
+async def execute(proposal_id: str, token: str | None = Depends(get_google_token_optional)):
+    """Execute an approved proposal through the configured adapter only.
+    Manual/on-demand — the Review page's own execution/tick polling (see
+    agent_proposals_execution_tick) is what normally drives approved
+    proposals to execution automatically; this stays available for anyone
+    who wants to trigger one immediately instead of waiting for the next
+    poll."""
+    if token:
+        try:
+            proposal = await proposal_drive_store.claim_execution(token, proposal_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Proposal not found") from None
+        except ValueError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        try:
+            result = executor.execute(proposal)
+        except Exception as error:
+            return await proposal_drive_store.mark_failed(token, proposal_id, str(error))
+        return await proposal_drive_store.mark_executed(token, proposal_id, result.reference)
     try:
         proposal = store.claim_execution(proposal_id)
     except KeyError:
@@ -1027,8 +1097,10 @@ def execute(proposal_id: str):
 
 
 @app.post("/api/proposals/{proposal_id}/retry")
-def retry(proposal_id: str):
+async def retry(proposal_id: str, token: str | None = Depends(get_google_token_optional)):
     try:
+        if token:
+            return await proposal_drive_store.retry(token, proposal_id)
         return store.retry(proposal_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Proposal not found") from None

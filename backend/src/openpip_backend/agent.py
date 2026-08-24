@@ -12,6 +12,7 @@ from .guideline_templates import (
     GOALS_PROACTIVE_REVIEW_SAMPLE,
     GOALS_TRAVEL_PLANNER_SAMPLE,
 )
+from . import proposal_drive_store
 from .models import BriefingRequest, Proposal, SourceReference, UserContext
 from .store import ProposalStore
 from .tools import travel_agent
@@ -40,16 +41,70 @@ DAILY_QUOTES = (
 # re-requested — nova-2-lite-v1:0 is the current, active replacement.
 NOVA_GROUNDING_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
 
+# The Executive Assistant needs general chat + tool-calling, not Nova Web
+# Grounding specifically, so it doesn't need a cross-region inference
+# profile — confirmed directly against this account with a plain `converse`
+# call (bare "amazon.nova-pro-v1:0", ON_DEMAND, no "us." prefix needed).
+# Nova Pro over the lighter nova-2-lite used for grounding above: this model
+# has to reason over many signals (tasks/contacts/calendar/email) and hold
+# up under tool use, not just relay one short grounded quote.
+EXECUTIVE_ASSISTANT_MODEL_ID = "amazon.nova-pro-v1:0"
 
-SYSTEM_PROMPT = """You are OpenPip, an approval-first professional assistant.
-Summarize the user's work context clearly and concisely. Identify decisions that
-need the user's judgment, but never claim that an external action was completed.
-Any send, schedule, booking, edit, or phone call must become a proposal for review.
-Use tools only when they are directly relevant to the user's request.
-"""
+
+DEFAULT_AGENT_NAME = "OpenPip"
 
 
-def build_executive_assistant(context_block: str = ""):
+def _system_prompt(agent_name: str) -> str:
+    """"OpenPip" is this project's name, not necessarily the assistant's —
+    the user can rename their assistant in Settings (agentName, in the same
+    Drive app-data document as theme/accent), and the model needs to actually
+    call itself that, not the literal string "OpenPip" every time regardless."""
+    return (
+        f"You are {agent_name}, an approval-first professional assistant.\n"
+        "Summarize the user's work context clearly and concisely. Identify decisions that\n"
+        "need the user's judgment, but never claim that an external action was completed.\n"
+        "Any send, schedule, booking, edit, or phone call must become a proposal for review.\n"
+        "Use tools only when they are directly relevant to the user's request.\n"
+    )
+
+
+def _executive_assistant_model():
+    """Strands' default Bedrock model provider (plain `Agent(...)`, no
+    `model=`) resolves to an Anthropic Claude model on this account's default
+    boto3 credential chain, which — same AWS_BEARER_TOKEN_BEDROCK
+    auto-detection described in discover_quote_via_grounding's docstring
+    below — lands on the openpip-app account. That account has never
+    submitted AWS's separate "use case details" form Anthropic models
+    require on Bedrock, so every call fails with ResourceNotFoundException.
+    Amazon Nova has no such form and is already confirmed working on the
+    couchbumming account (see NOVA_GROUNDING_MODEL_ID and
+    EXECUTIVE_ASSISTANT_MODEL_ID above) — use it here too, with the same
+    explicit-credential override, until the openpip-app account's Anthropic
+    use-case form is submitted and approved.
+
+    Falls back to boto3's normal credential resolution when the couchbumming
+    keys aren't set (e.g. tests, which stub out strands.Agent entirely and
+    never actually invoke this model) — os.environ.get, not [...], so
+    constructing the Agent never hard-crashes on a missing env var; only an
+    actual call without valid credentials would fail, same as any other
+    boto3 client.
+    """
+    from strands.models import BedrockModel
+
+    region = os.getenv("AWS_REGION", "us-east-1")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    if access_key and secret_key:
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+        )
+        return BedrockModel(model_id=EXECUTIVE_ASSISTANT_MODEL_ID, boto_session=session)
+    return BedrockModel(model_id=EXECUTIVE_ASSISTANT_MODEL_ID, region_name=region)
+
+
+def build_executive_assistant(context_block: str = "", agent_name: str = DEFAULT_AGENT_NAME):
     """Construct the Executive Assistant with on-demand tools.
 
     Travel is intentionally supplied as a callable tool rather than embedded in
@@ -67,8 +122,9 @@ def build_executive_assistant(context_block: str = ""):
     """
     from strands import Agent
 
-    system_prompt = f"{SYSTEM_PROMPT}\n\n{context_block}" if context_block else SYSTEM_PROMPT
-    return Agent(system_prompt=system_prompt, tools=[travel_agent])
+    prompt = _system_prompt(agent_name.strip() or DEFAULT_AGENT_NAME)
+    system_prompt = f"{prompt}\n\n{context_block}" if context_block else prompt
+    return Agent(system_prompt=system_prompt, tools=[travel_agent], model=_executive_assistant_model())
 
 
 def extract_agent_text(result: Any) -> str:
@@ -212,10 +268,15 @@ async def create_briefing(
 
     Routine briefings are intentionally deterministic. They summarize the
     already-fetched calendar/tasks/messages data with a local formatter and
-    select a previously stored quote from SQL. ``user_context`` and
-    ``google_token`` remain accepted for API compatibility, but no LLM or Drive
-    call is made here. An LLM can be reserved for an explicit, user-requested
-    rewrite/enhancement action later.
+    select a previously stored quote from SQL — that part never needs Drive
+    or an LLM, so it always runs the same way regardless of google_token.
+
+    The proposal itself, when one is created, goes to Drive (proposal_drive_
+    store, per-user, same as everything the workspace scan creates) if a
+    real google_token is available, or the legacy local SQLite store
+    otherwise — there is no third option for a token-less caller (the demo
+    endpoint, or any request with no connected Google account) since there's
+    no Drive to write to for a user we can't identify.
     """
     core = _fallback_core(request)
     generated_by = "deterministic"
@@ -226,13 +287,17 @@ async def create_briefing(
 
     proposals = 0
     if request.messages:
-        store.add(Proposal(
+        proposal = Proposal(
             action="draft_reply",
             title="Review message response",
             rationale="A message needs a response drafted for your approval.",
             payload={"message_id": request.messages[0].get("id", "demo-message")},
             source=SourceReference(kind="message", id=request.messages[0].get("id", "demo-message"), title=request.messages[0].get("subject", "Message")),
-        ))
+        )
+        if google_token:
+            await proposal_drive_store.add(google_token, proposal)
+        else:
+            store.add(proposal)
         proposals += 1
     return briefing, generated_by, proposals
 

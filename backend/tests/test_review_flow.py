@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app, store
-from openpip_backend.agent import SYSTEM_PROMPT, build_briefing_prompt, build_executive_assistant
-from openpip_backend.models import BriefingRequest, UserContext
+from openpip_backend.agent import build_briefing_prompt, build_executive_assistant, _system_prompt
+from openpip_backend.models import BriefingRequest, Proposal, SourceReference, UserContext
 from openpip_backend.tools import travel_agent
 
 
@@ -34,11 +34,33 @@ def test_travel_is_an_on_demand_executive_assistant_tool(monkeypatch) -> None:
     monkeypatch.setattr("strands.Agent", FakeAgent)
     build_executive_assistant()
 
-    assert "travel" not in SYSTEM_PROMPT.lower()
+    assert "travel" not in _system_prompt("OpenPip").lower()
     tools = captured["tools"]
     assert isinstance(tools, list)
     assert tools == [travel_agent]
     assert travel_agent.tool_name == "travel_agent"
+
+
+def test_executive_assistant_calls_itself_by_the_users_custom_agent_name(monkeypatch) -> None:
+    """"OpenPip" is the project's name, not necessarily what the user calls
+    their assistant (Settings' agentName) — the system prompt must actually
+    say that name, not the literal string "OpenPip" regardless."""
+    captured: dict[str, object] = {}
+
+    class FakeAgent:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("strands.Agent", FakeAgent)
+    build_executive_assistant(agent_name="Juno")
+
+    assert "You are Juno," in captured["system_prompt"]
+    assert "OpenPip" not in captured["system_prompt"]
+
+    # An unset/blank name still falls back to the project default rather than
+    # producing "You are , ...".
+    build_executive_assistant(agent_name="")
+    assert "You are OpenPip," in captured["system_prompt"]
 
 
 def test_active_frontend_review_routes_are_python_owned() -> None:
@@ -57,6 +79,30 @@ def test_active_frontend_review_routes_are_python_owned() -> None:
     assert decided.json()["item"]["externalAction"]["detail"] == "Rejected"
 
 
+def test_review_item_exposes_a_clickable_source_link() -> None:
+    """_review_item was silently dropping proposal.source entirely, even
+    though ReviewDetailPage.tsx already renders source.href as an "Open
+    source ->" link and source.detail in its "Context used" card — there was
+    just never anything in the response for it to render."""
+    client = TestClient(app)
+    proposal = store.add(Proposal(
+        action="task_complete",
+        title="Mark 'Pay water bill' as complete",
+        rationale="This payment confirmation email shows the bill was already paid.",
+        source=SourceReference(
+            kind="email", id="email:gmail_123", title="Your payment was received",
+            url="https://mail.google.com/mail/u/0/#all/123", detail="billing@water.example · 2026-08-01",
+        ),
+    ))
+
+    item = client.get(f"/agent/review/{proposal.id}").json()["item"]
+
+    source = item["data"]["proposal"]["source"]
+    assert source["href"] == "https://mail.google.com/mail/u/0/#all/123"
+    assert source["detail"] == "billing@water.example · 2026-08-01"
+    assert source["label"] == "Your payment was received"
+
+
 def test_approval_is_explicit_and_cannot_be_repeated() -> None:
     client = TestClient(app)
     client.post(
@@ -71,6 +117,24 @@ def test_approval_is_explicit_and_cannot_be_repeated() -> None:
 
     repeated = client.post(f"/api/proposals/{proposal['id']}/approve", json={})
     assert repeated.status_code == 409
+
+
+def test_approved_proposal_surfaces_as_scheduled_action() -> None:
+    """/agent/scheduled-actions is how the Dashboard shows "approved but not
+    yet executed" work — its own frontend filter checks action.status, which
+    _review_item never actually set, so an approval was saved correctly but
+    never visibly appeared anywhere. Also guards the real values: a Proposal
+    is "approved"/"executing"/etc. (ProposalStatus), never "queued" or
+    "running" — those belong to the separate scan-job state machine."""
+    client = TestClient(app)
+    client.post("/api/briefing", json={"messages": [{"id": "message-scheduled", "subject": "Approve me"}]})
+    proposal = client.get("/api/proposals").json()["items"][0]
+    client.post(f"/api/proposals/{proposal['id']}/approve", json={})
+
+    actions = client.get("/agent/scheduled-actions").json()["actions"]
+
+    assert len(actions) == 1
+    assert actions[0]["status"] == "approved"
 
 
 def test_working_context_is_editable_but_not_a_system_prompt() -> None:

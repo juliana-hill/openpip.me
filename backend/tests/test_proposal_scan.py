@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 
 from openpip_backend import proposal_scan
 from openpip_backend.models import ProposalStatus
-from openpip_backend.store import ProposalStore
 
 SOURCE_REFS = [
     {"id": "task:abc", "kind": "task", "label": "Renew passport", "detail": "overdue"},
@@ -25,6 +24,76 @@ def test_parse_and_validate_proposals_keeps_only_real_sourced_proposals() -> Non
     assert len(result) == 1
     assert result[0]["kind"] == "task_followup"
     assert result[0]["source"]["id"] == "task:abc"
+
+
+def test_parse_and_validate_proposals_accepts_the_new_kinds() -> None:
+    raw = '{"proposals": [{"kind": "task_complete", "title": "x", "rationale": "y", "sourceId": "task:abc"}]}'
+
+    result = proposal_scan._parse_and_validate_proposals(raw, SOURCE_REFS)
+
+    assert result[0]["kind"] == "task_complete"
+
+
+def test_correspondent_index_surfaces_untracked_frequent_correspondents() -> None:
+    """Dr. Rana emailed twice but was never added as a tracked contact — this
+    is the exact real-world miss that motivated the signal: the scan should
+    propose tracking her, but not a one-off sender who only wrote once. The
+    whole message list drives the count, but a batch can only cite a
+    sourceId actually present in that same batch."""
+    historical_messages = [
+        {"id": "gmail_1", "subject": "Re: consult", "from": "Dr. Rana", "fromEmail": "rana@clinic.example", "date": "2026-05-01", "snippet": "", "gmailUrl": "https://mail.google.com/mail/u/0/#all/1"},
+        {"id": "gmail_2", "subject": "Follow-up", "from": "Dr. Rana", "fromEmail": "rana@clinic.example", "date": "2026-06-01", "snippet": "", "gmailUrl": "https://mail.google.com/mail/u/0/#all/2"},
+        {"id": "gmail_3", "subject": "Hi", "from": "One-timer", "fromEmail": "once@example.com", "date": "2026-06-01", "snippet": "", "gmailUrl": ""},
+    ]
+    google_contacts = {
+        "people/c1": {"resourceName": "people/c1", "name": "Dr. Rana", "email": "rana@clinic.example"},
+        "people/c2": {"resourceName": "people/c2", "name": "One-timer", "email": "once@example.com"},
+    }
+    index = proposal_scan._CorrespondentIndex(historical_messages, google_contacts, {})
+
+    facts, source_references = proposal_scan._build_email_batch_context(historical_messages, index)
+
+    names = {c["name"] for c in facts["untrackedFrequentContacts"]}
+    assert names == {"Dr. Rana"}
+    candidate = facts["untrackedFrequentContacts"][0]
+    assert candidate["messageCount"] == 2
+    # Always a real, already-listed source id — never an invented one the
+    # model could cite but _parse_and_validate_proposals would reject.
+    assert candidate["sourceId"] in {ref["id"] for ref in source_references}
+
+
+def test_correspondent_index_excludes_already_tracked_contacts() -> None:
+    historical_messages = [
+        {"id": "gmail_1", "subject": "a", "from": "X", "fromEmail": "x@example.com", "date": "d", "snippet": "", "gmailUrl": ""},
+        {"id": "gmail_2", "subject": "b", "from": "X", "fromEmail": "x@example.com", "date": "d", "snippet": "", "gmailUrl": ""},
+    ]
+    google_contacts = {"people/c1": {"resourceName": "people/c1", "name": "X", "email": "x@example.com"}}
+    index = proposal_scan._CorrespondentIndex(historical_messages, google_contacts, {"people/c1": {}})
+
+    facts, _ = proposal_scan._build_email_batch_context(historical_messages, index)
+
+    assert facts["untrackedFrequentContacts"] == []
+
+
+def test_email_batches_only_cite_sources_present_in_their_own_batch() -> None:
+    """A frequent correspondent whose two messages land in different batches
+    must still be proposable from either batch — each batch's own copy of
+    the fact should cite that batch's own message, never the other batch's."""
+    historical_messages = [
+        {"id": "gmail_1", "subject": "a", "from": "Dr. Rana", "fromEmail": "rana@clinic.example", "date": "d1", "snippet": "", "gmailUrl": ""},
+        {"id": "gmail_2", "subject": "b", "from": "Dr. Rana", "fromEmail": "rana@clinic.example", "date": "d2", "snippet": "", "gmailUrl": ""},
+    ]
+    google_contacts = {"people/c1": {"resourceName": "people/c1", "name": "Dr. Rana", "email": "rana@clinic.example"}}
+    index = proposal_scan._CorrespondentIndex(historical_messages, google_contacts, {})
+
+    batch1_facts, batch1_refs = proposal_scan._build_email_batch_context([historical_messages[0]], index)
+    batch2_facts, batch2_refs = proposal_scan._build_email_batch_context([historical_messages[1]], index)
+
+    assert batch1_facts["untrackedFrequentContacts"][0]["sourceId"] == "email:gmail_1"
+    assert batch1_facts["untrackedFrequentContacts"][0]["messageCount"] == 2  # counted globally
+    assert batch1_facts["untrackedFrequentContacts"][0]["sourceId"] in {r["id"] for r in batch1_refs}
+    assert batch2_facts["untrackedFrequentContacts"][0]["sourceId"] == "email:gmail_2"
+    assert batch2_facts["untrackedFrequentContacts"][0]["sourceId"] in {r["id"] for r in batch2_refs}
 
 
 def test_parse_and_validate_proposals_caps_at_max_and_handles_malformed_json() -> None:
@@ -113,7 +182,24 @@ def test_inbox_pointer_signal_only_when_unreviewed_suggestions_exist(monkeypatch
 
 
 def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) -> None:
-    store = ProposalStore(str(tmp_path / "test.sqlite3"))
+    # In-memory fake of proposal_drive_store's async interface — _run_scan
+    # is Drive-backed now (see proposal_drive_store.py), so a real
+    # ProposalStore/SQLite instance is no longer what it talks to.
+    saved: dict[str, object] = {}
+
+    async def fake_add(_token: str, proposal):
+        if proposal.idempotency_key:
+            for existing in saved.values():
+                if existing.idempotency_key == proposal.idempotency_key:
+                    return existing
+        saved[proposal.id] = proposal
+        return proposal
+
+    async def fake_list_proposals(_token: str, status=None):
+        return [p for p in saved.values() if status is None or p.status == status]
+
+    monkeypatch.setattr(proposal_scan.proposal_drive_store, "add", fake_add)
+    monkeypatch.setattr(proposal_scan.proposal_drive_store, "list_proposals", fake_list_proposals)
 
     async def fake_tasks(_token: str):
         return []
@@ -133,6 +219,9 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     async def fake_context_documents(_token: str, **_kwargs):
         return "some guidelines"
 
+    async def fake_agent_name(_token: str):
+        return "TestBot"
+
     class FakeAgentResult:
         def __init__(self, text: str):
             self.message = {"content": [{"text": text}]}
@@ -150,7 +239,8 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     monkeypatch.setattr(proposal_scan, "_historical_email_signals", fake_historical)
     monkeypatch.setattr(proposal_scan, "_inbox_pointer_signal", fake_pointer)
     monkeypatch.setattr(proposal_scan, "load_context_documents", fake_context_documents)
-    monkeypatch.setattr(proposal_scan, "build_executive_assistant", lambda _context_block="": FakeAgent())
+    monkeypatch.setattr(proposal_scan, "_current_agent_name", fake_agent_name)
+    monkeypatch.setattr(proposal_scan, "build_executive_assistant", lambda _context_block="", agent_name="OpenPip": FakeAgent())
 
     # queue_proposal_scan fires the scan as a background task — wait for it.
     async def wait_for_completion(job_id: str):
@@ -162,14 +252,14 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
         raise AssertionError("scan job never completed")
 
     async def run_and_wait():
-        job = await proposal_scan.queue_proposal_scan("token", store)
+        job = await proposal_scan.queue_proposal_scan("token")
         return await wait_for_completion(job["id"])
 
     finished = asyncio.run(run_and_wait())
     assert finished["status"] == "completed"
     assert finished["created"] == 1
 
-    pending = store.list(ProposalStatus.PENDING)
+    pending = [p for p in saved.values() if p.status == ProposalStatus.PENDING]
     assert len(pending) == 1
     assert pending[0].action == "inbox_pointer"
     assert pending[0].source.id == "inbox_review"
@@ -177,4 +267,4 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     # A second scan with the same inbox pointer signal must not create a duplicate.
     finished2 = asyncio.run(run_and_wait())
     assert finished2["created"] == 0
-    assert len(store.list(ProposalStatus.PENDING)) == 1
+    assert len([p for p in saved.values() if p.status == ProposalStatus.PENDING]) == 1
