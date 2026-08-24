@@ -34,6 +34,15 @@ DAILY_QUOTES = (
     '> "It is better to offer no excuse than a bad one." — George Washington',
 )
 
+_PRIVATE_REASONING_BLOCK_RE = re.compile(
+    r"<(?P<tag>thinking|analysis|reasoning)\b[^>]*>.*?</(?P=tag)\s*>",
+    re.IGNORECASE | re.DOTALL,
+)
+_UNCLOSED_PRIVATE_REASONING_RE = re.compile(
+    r"<(?:thinking|analysis|reasoning)\b[^>]*>.*$",
+    re.IGNORECASE | re.DOTALL,
+)
+
 # Amazon Nova Web Grounding (docs.aws.amazon.com/nova/latest/nova2-userguide/web-grounding.html)
 # is only available on specific cross-region inference profiles, US only.
 # nova-premier-v1:0 is LEGACY on this account (AWS-side, confirmed via
@@ -148,14 +157,23 @@ def build_executive_assistant(
 
 
 def extract_agent_text(result: Any) -> str:
-    """Pull the plain text out of a Strands Agent call's result — the same
-    shape every caller of agent(prompt) has to unwrap regardless of which
-    prompt built it."""
+    """Pull user-facing text out of a Strands Agent result.
+
+    Some model/provider combinations put private reasoning in the returned
+    text wrapped in ``<thinking>`` (or an equivalent) tags. That content must
+    not reach the UI, chat-history store, proposal parsers, or email drafts.
+    """
     message: Any = getattr(result, "message", result)
     if isinstance(message, dict):
         content = message.get("content", [])
-        return "\n".join(item.get("text", "") for item in content if isinstance(item, dict)).strip()
-    return str(message).strip()
+        text = "\n".join(item.get("text", "") for item in content if isinstance(item, dict))
+    else:
+        text = str(message)
+
+    text = _PRIVATE_REASONING_BLOCK_RE.sub("", text)
+    text = _UNCLOSED_PRIVATE_REASONING_RE.sub("", text)
+    # Removing a block can leave several blank lines before the actual reply.
+    return re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", text).strip()
 
 
 def _fallback_core(request: BriefingRequest) -> str:

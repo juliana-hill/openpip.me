@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import _review_item, app, store
-from openpip_backend.agent import build_briefing_prompt, build_executive_assistant, _system_prompt
+from openpip_backend.agent import build_briefing_prompt, build_executive_assistant, extract_agent_text, _system_prompt
 from openpip_backend.models import BriefingRequest, Proposal, ProposalStatus, SourceReference, UserContext
 from openpip_backend.tools import travel_agent
 
@@ -61,6 +61,24 @@ def test_executive_assistant_calls_itself_by_the_users_custom_agent_name(monkeyp
     # producing "You are , ...".
     build_executive_assistant(agent_name="")
     assert "You are OpenPip," in captured["system_prompt"]
+
+
+def test_extract_agent_text_removes_private_reasoning_blocks() -> None:
+    class Result:
+        message = {
+            "content": [{
+                "text": "<thinking>\nThe user is asking about the app.\n</thinking>\n\nWelcome!",
+            }],
+        }
+
+    assert extract_agent_text(Result()) == "Welcome!"
+
+
+def test_extract_agent_text_removes_unclosed_reasoning_without_losing_prefix() -> None:
+    class Result:
+        message = {"content": [{"text": "Visible answer\n<thinking>private"}]}
+
+    assert extract_agent_text(Result()) == "Visible answer"
 
 
 def test_active_frontend_review_routes_are_python_owned() -> None:
