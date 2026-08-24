@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import { clearAgentIcon, setAgentIcon, saveAgentIcon } from "@/lib/agentIcon";
+import { saveAgentIcon } from "@/lib/agentIcon";
 import { proxyFetch } from "@/lib/proxy";
 import { getUserData, patchUserData } from "@/lib/userData";
 import { notifyAgentIdentityChanged } from "@/lib/agentIdentity";
@@ -35,7 +35,6 @@ export function AgentSection() {
     setIconSaving(true);
     try {
       await patchUserData({ agentIcon: dataUrl });
-      setAgentIcon(dataUrl);
       setIcon(dataUrl);
       notifyAgentIdentityChanged(undefined, dataUrl);
     } catch (err) {
@@ -56,7 +55,6 @@ export function AgentSection() {
         body: JSON.stringify(current),
       });
       if (!putRes.ok) throw new Error("Clear failed");
-      clearAgentIcon();
       setIcon(null);
       if (inputRef.current) inputRef.current.value = "";
       notifyAgentIdentityChanged(undefined, null);

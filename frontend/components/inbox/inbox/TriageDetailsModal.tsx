@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import dialogStyles from "@/components/ui/Dialog.module.css";
+import { useAgentIdentity } from "@/lib/agentIdentity";
 import styles from "./TriageDetailsModal.module.css";
 
 export type TriageSuggestion = {
@@ -67,6 +68,7 @@ function displaySuggestionLabel(suggestion: TriageSuggestion) {
 }
 
 export function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSaveChanges, onMarkUnread, onClose }: Props) {
+  const { name: agentName } = useAgentIdentity();
   const [selectedRunId, setSelectedRunId] = useState<string>(currentRun?.id ?? "latest");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedMessageIds, setSelectedMessageIds] = useState<Set<string>>(new Set());
@@ -192,7 +194,7 @@ export function TriageDetailsModal({ open, suggestions, currentRun, history = []
             )}
             <div className={styles.rowMain}>
               <div className={styles.rowTop}>
-                <span className={styles.sender}>{suggestion.sender || "OpenPip assistant"}</span>
+                <span className={styles.sender}>{suggestion.sender || `${agentName} assistant`}</span>
               </div>
               <div className={styles.subject}>{suggestion.subject || "Email suggestion"}</div>
               <div className={styles.snippet}>{suggestion.reason}</div>

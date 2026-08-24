@@ -1,15 +1,20 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getAgentIcon, setAgentIcon } from "./agentIcon";
 import { proxyFetch } from "./proxy";
 
 const DEFAULT_NAME = "OpenPip";
 
-// Shared state across all hook instances
+// Shared state across all hook instances. No local caching of any kind —
+// the Drive-backed user_settings.json document (see google_drive_store.py)
+// is the only source of truth. Every page fetches it fresh on load via
+// initAgentIdentity below; there is nothing seeded ahead of that fetch, so
+// pages briefly show the "OpenPip" project default until it resolves.
 let cachedName: string = DEFAULT_NAME;
 let cachedIcon: string | null = null;
+let cachedLoaded = false;
 const listeners = new Set<() => void>();
+let initStarted = false;
 
 function notify() {
   for (const fn of listeners) fn();
@@ -44,7 +49,7 @@ export function notifyAgentIdentityChanged(name?: string, icon?: string | null) 
   notify();
 }
 
-/** Fetch name + icon from /agent/user/data and populate the shared cache. Called by DataSync on login. */
+/** Fetch name + icon from /agent/user/data (Drive) and populate the shared cache. Triggered once per page load by useAgentIdentity below. */
 export async function initAgentIdentity(): Promise<void> {
   try {
     const res = await proxyFetch("/agent/user/data");
@@ -53,19 +58,18 @@ export async function initAgentIdentity(): Promise<void> {
     if (typeof data.agentName === "string" && data.agentName.trim()) {
       cachedName = data.agentName.trim();
     }
-    if (typeof data.agentIcon === "string" && data.agentIcon) {
-      setAgentIcon(data.agentIcon);
-      cachedIcon = data.agentIcon;
-    } else {
-      cachedIcon = getAgentIcon();
-    }
+    cachedIcon = typeof data.agentIcon === "string" && data.agentIcon ? data.agentIcon : null;
     if (typeof document !== "undefined") {
       document.title = cachedName;
       setFavicon(cachedIcon);
     }
-    notify();
   } catch {
-    cachedIcon = getAgentIcon();
+    /* no custom settings found (or the request failed) — cachedName/cachedIcon
+     * stay at the "OpenPip" defaults declared above, which is exactly what
+     * should render once loading below goes false. */
+  } finally {
+    cachedLoaded = true;
+    notify();
   }
 }
 
@@ -75,8 +79,14 @@ export function useAgentIdentity() {
   useEffect(() => {
     const refresh = () => forceUpdate((n) => n + 1);
     listeners.add(refresh);
+    // Every page must resolve the real name/icon from Drive itself — run at
+    // most once per page load (not once per component that uses the hook).
+    if (!initStarted) {
+      initStarted = true;
+      void initAgentIdentity();
+    }
     return () => { listeners.delete(refresh); };
   }, []);
 
-  return { name: cachedName, icon: cachedIcon };
+  return { name: cachedName, icon: cachedIcon, loading: !cachedLoaded };
 }

@@ -74,6 +74,20 @@
   letter-spacing: -0.02em;
 }
 
+/* Shown in place of .wordmark while the custom name/icon is being fetched
+ * from Drive (see lib/agentIdentity.ts) — avoids flashing "OpenPip" before
+ * a custom name is known to exist or not. */
+.wordmarkSpinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--color-accent);
+  border-top-color: transparent;
+  animation: wordmarkSpin 0.6s linear infinite;
+}
+@keyframes wordmarkSpin { to { transform: rotate(360deg); } }
+
 /* Left slot — back link + date */
 .left {
   display: flex;

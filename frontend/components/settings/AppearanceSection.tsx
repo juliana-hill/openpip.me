@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import { applyTheme, loadSavedTheme, type AccentColor, type ThemeMode } from "@/lib/theme";
-import { getUserData, patchUserData } from "@/lib/userData";
+import { useThemeSync, notifyThemeChanged, type AccentColor, type ThemeMode } from "@/lib/theme";
+import { patchUserData } from "@/lib/userData";
 import styles from "./AppearanceSection.module.css";
 
 const ACCENTS: { key: AccentColor; color: string; label: string }[] = [
@@ -13,32 +13,26 @@ const ACCENTS: { key: AccentColor; color: string; label: string }[] = [
 ];
 
 export function AppearanceSection() {
-  const [mode, setMode] = useState<ThemeMode>("system");
-  const [accent, setAccent] = useState<AccentColor>("coral");
+  // Same shared cache/fetch every other page uses (lib/theme.ts's
+  // useThemeSync, mirroring lib/agentIdentity.ts's useAgentIdentity) rather
+  // than a separate fetch of its own — one Drive read populates every page.
+  const synced = useThemeSync();
+  const [mode, setMode] = useState<ThemeMode>(synced.mode);
+  const [accent, setAccent] = useState<AccentColor>(synced.accent);
 
   useEffect(() => {
-    // localStorage paints instantly (layout.hjs already applied it before
-    // React even mounted, to avoid a flash) — Drive is the cross-device
-    // source of truth, so reconcile with it as soon as it's back.
-    const saved = loadSavedTheme();
-    setMode(saved.mode);
-    setAccent(saved.accent);
-    getUserData().then((data) => {
-      const driveMode = data.theme as ThemeMode | undefined;
-      const driveAccent = data.accent as AccentColor | undefined;
-      if (driveMode && driveMode !== saved.mode) { setMode(driveMode); applyTheme(driveMode, driveAccent ?? saved.accent); }
-      if (driveAccent && driveAccent !== saved.accent) { setAccent(driveAccent); applyTheme(driveMode ?? saved.mode, driveAccent); }
-    }).catch(() => {});
-  }, []);
+    setMode(synced.mode);
+    setAccent(synced.accent);
+  }, [synced.mode, synced.accent]);
 
   function handleMode(m: ThemeMode) {
     setMode(m);
-    applyTheme(m, accent);
+    notifyThemeChanged(m, accent);
     void patchUserData({ theme: m, accent });
   }
   function handleAccent(a: AccentColor) {
     setAccent(a);
-    applyTheme(mode, a);
+    notifyThemeChanged(mode, a);
     void patchUserData({ theme: mode, accent: a });
   }
 

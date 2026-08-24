@@ -1,14 +1,13 @@
 "use client";
 import { useEffect } from "react";
-import { loadSavedTheme, applyTheme } from "@/lib/theme";
+import { applyTheme } from "@/lib/theme";
 
+// No localStorage: theme/accent are Drive-backed only. This applies the
+// system default (see lib/theme.ts) until whatever page-level component
+// fetches the real saved values from user_settings.json and corrects it.
 export function ThemeLoader() {
   useEffect(() => {
-    const { mode, accent } = loadSavedTheme();
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => { if (mode === "system") applyTheme("system", accent); };
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
+    applyTheme("system", "coral");
   }, []);
   return null;
 }

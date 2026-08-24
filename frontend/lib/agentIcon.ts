@@ -1,3 +1,7 @@
+/** Resize a user-uploaded image to a square 128x128 PNG data URL. No local
+ * caching here — the result is sent straight to Drive via patchUserData and
+ * the shared cache in lib/agentIdentity.ts, which is the only place that
+ * holds it in memory (not persisted to localStorage). */
 export async function saveAgentIcon(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -21,16 +25,4 @@ export async function saveAgentIcon(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
-}
-
-export function getAgentIcon(): string | null {
-  return localStorage.getItem("agent-icon");
-}
-
-export function setAgentIcon(dataUrl: string) {
-  localStorage.setItem("agent-icon", dataUrl);
-}
-
-export function clearAgentIcon() {
-  localStorage.removeItem("agent-icon");
 }

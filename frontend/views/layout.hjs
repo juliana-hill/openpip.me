@@ -8,18 +8,21 @@
     <link rel="apple-touch-icon" href="/trippy-transparent.png" />
     <script>
       (() => {
+        // No localStorage anywhere: theme/accent and the assistant's
+        // name/icon are Drive-backed only (user_settings.json), fetched
+        // fresh by the React app on every load (see lib/theme.ts,
+        // lib/agentIdentity.ts). Until that fetch resolves, this shell
+        // shows the system light/dark preference and the static "coral" /
+        // "OpenPip" defaults set above.
         const root = document.documentElement;
         const media = window.matchMedia("(prefers-color-scheme: dark)");
-        const apply = () => {
-          const mode = localStorage.getItem("theme-mode");
-          const accent = localStorage.getItem("theme-accent") || "coral";
-          const isDark = mode === "dark" || (mode !== "light" && media.matches);
+        const applySystemTheme = () => {
+          const isDark = media.matches;
           root.setAttribute("data-theme", isDark ? "dark" : "light");
-          root.setAttribute("data-accent", accent);
           root.style.colorScheme = isDark ? "dark" : "light";
         };
-        apply();
-        media.addEventListener("change", apply);
+        applySystemTheme();
+        media.addEventListener("change", applySystemTheme);
       })();
     </script>
     <link rel="stylesheet" href="/styles/tokens.css" />

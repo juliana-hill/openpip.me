@@ -2,6 +2,7 @@
 
 import { proxyFetch } from "@/lib/proxy";
 import { useState, useEffect, useCallback } from "react";
+import { useThemeSync } from "@/lib/theme";
 import { ContactCard } from "./ContactCard";
 import type { Contact, ContactStatus } from "@/types/career";
 import styles from "./JobsBoard.module.css";
@@ -18,6 +19,10 @@ const STATUS_FILTERS: Array<{ value: ContactStatus | "all"; label: string }> = [
 ];
 
 export function ContactsBoard() {
+  // /network is the one page with no AppHeader, so it needs its own call
+  // into the shared theme cache (see lib/theme.ts) — otherwise it never
+  // picks up the saved theme/accent at all.
+  useThemeSync();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeStatus, setActiveStatus] = useState<ContactStatus | "all">("all");

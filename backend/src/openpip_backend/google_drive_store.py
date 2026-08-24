@@ -11,7 +11,13 @@ import httpx
 
 from .google_workspace import GOOGLE_TIMEOUT, GoogleApiError
 
-_APP_DATA_FILE = "OpenPip App Data.json"
+_APP_DATA_FILE = "user_settings.json"
+# Renamed from "OpenPip App Data.json" — accounts that already wrote that file
+# (in the hidden, per-user appDataFolder space) must not appear to lose their
+# settings. _find_file below still matches the old name and migrates the file
+# in place by renaming it, rather than orphaning it and starting a fresh
+# empty document.
+_LEGACY_APP_DATA_FILE = "OpenPip App Data.json"
 _DRIVE_API = "https://www.googleapis.com/drive/v3"
 _DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3"
 _write_lock = asyncio.Lock()
@@ -62,7 +68,40 @@ async def _find_file(client: httpx.AsyncClient, access_token: str) -> str | None
         },
     )
     files = response.json().get("files", [])
-    return str(files[0]["id"]) if files and files[0].get("id") else None
+    if files and files[0].get("id"):
+        return str(files[0]["id"])
+    return await _find_and_migrate_legacy_file(client, access_token)
+
+
+async def _find_and_migrate_legacy_file(client: httpx.AsyncClient, access_token: str) -> str | None:
+    """Fall back to the pre-rename filename so an account that already has
+    settings saved doesn't appear empty; rename it in place so this lookup
+    only has to happen once per account."""
+    response = await _request(
+        client,
+        "GET",
+        f"{_DRIVE_API}/files",
+        access_token,
+        params={
+            "q": f"name = '{_LEGACY_APP_DATA_FILE}' and trashed = false",
+            "spaces": "appDataFolder",
+            "pageSize": 1,
+            "fields": "files(id)",
+        },
+    )
+    files = response.json().get("files", [])
+    if not files or not files[0].get("id"):
+        return None
+    file_id = str(files[0]["id"])
+    await _request(
+        client,
+        "PATCH",
+        f"{_DRIVE_API}/files/{quote(file_id, safe='')}",
+        access_token,
+        json_body={"name": _APP_DATA_FILE},
+        params={"fields": "id"},
+    )
+    return file_id
 
 
 async def read_drive_app_data(access_token: str) -> dict[str, Any]:
