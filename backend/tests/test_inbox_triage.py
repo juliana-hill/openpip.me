@@ -63,6 +63,64 @@ def test_message_text_ignores_sender_name_and_address(monkeypatch) -> None:
     assert suggestion is None
 
 
+def test_gmail_promotions_category_is_a_filing_suggestion_even_with_no_keywords() -> None:
+    # Real marketing copy avoids literal words like "sale"/"discount" — Gmail's
+    # own categorizer (the Promotions tab) reads the full message and catches
+    # this kind of thing far better than keyword matching against a snippet.
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_plated",
+        "from": "PLATED UP",
+        "fromEmail": "hello@platedup.com",
+        "subject": "Warm grains, roasted veg, hearty protein.",
+        "snippet": "Warm grains, roasted veg, hearty protein.",
+        "labelIds": ["UNREAD", "CATEGORY_PROMOTIONS"],
+    })
+    assert suggestion is not None
+    assert suggestion["kind"] == "file"
+    assert suggestion["deleteSuggested"] is True
+
+
+def test_gmail_updates_category_is_a_filing_suggestion() -> None:
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_porkbun",
+        "from": "Porkbun",
+        "fromEmail": "notify@porkbun.com",
+        "subject": "porkbun.com | Domain Renewal Notice - expiration date approaching in 5 days or less",
+        "snippet": "RENEWAL NOTICE Hi there! This is your friendly reminder that there are domains in your account expiring in 5 days or less.",
+        "labelIds": ["UNREAD", "CATEGORY_UPDATES"],
+    })
+    assert suggestion is not None
+    assert suggestion["kind"] == "file"
+    assert suggestion["deleteSuggested"] is True
+
+
+def test_category_fallback_never_overrides_an_actual_reply_or_task_keyword() -> None:
+    # A message Gmail happens to categorize as Updates that also reads like it
+    # needs a reply must still be classified as that, not silently filed.
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_needs_reply",
+        "from": "A Person",
+        "fromEmail": "person@example.com",
+        "subject": "Could you confirm the meeting time?",
+        "snippet": "Let me know if Tuesday works for you.",
+        "labelIds": ["UNREAD", "CATEGORY_UPDATES"],
+    })
+    assert suggestion is not None
+    assert suggestion["kind"] == "reply"
+
+
+def test_ordinary_personal_email_with_no_category_is_not_suggested() -> None:
+    suggestion = inbox_triage._suggestion({
+        "id": "gmail_personal",
+        "from": "A Friend",
+        "fromEmail": "friend@example.com",
+        "subject": "Photos from the weekend",
+        "snippet": "Here are a few of my favorites!",
+        "labelIds": ["UNREAD"],
+    })
+    assert suggestion is None
+
+
 def test_tone_profile_reuses_greeting_closing_and_length() -> None:
     profile = inbox_triage._tone_profile([
         {"body": "Hello Alex,\n\n" + ("Thanks for the detailed update. " * 30) + "\n\nRegards,"},

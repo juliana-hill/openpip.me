@@ -48,6 +48,17 @@ _TASK_TERMS = re.compile(
     re.I,
 )
 
+# Gmail's own ML categorizer (the Promotions/Updates inbox tabs) reads the
+# full message, not just the subject/snippet _message_text() is limited to —
+# real marketing copy is written to avoid literal words like "sale" or
+# "discount" ("Warm grains, roasted veg, hearty protein." is still an ad),
+# so keyword matching alone misses most of it. This is a fallback, checked
+# only once none of the keyword patterns above already matched — a message
+# Gmail categorized as promotional/updates that also reads like it needs a
+# reply or contains a real deadline should keep being classified as that,
+# not silently reclassified as filing because of its category.
+_LOW_PRIORITY_CATEGORIES = frozenset({"CATEGORY_PROMOTIONS", "CATEGORY_UPDATES"})
+
 
 def contact_id_from_resource(resource_name: str) -> str:
     contact_id = resource_name.removeprefix("people/").replace("/", "_")
@@ -316,6 +327,16 @@ def _suggestion(message: dict[str, Any]) -> dict[str, Any] | None:
             "createdAt": datetime.now(UTC).isoformat(),
             "draft": _draft_reply(message),
             "taskSuggested": bool(_TASK_TERMS.search(text)),
+        }
+    label_ids = {str(label_id) for label_id in message.get("labelIds", []) if label_id}
+    if label_ids & _LOW_PRIORITY_CATEGORIES:
+        return {
+            **context,
+            "kind": "file",
+            "action": "Review deletion suggestion",
+            "reason": "Gmail categorizes this as promotional or updates mail, which is usually safe to clear out.",
+            "deleteSuggested": True,
+            "createdAt": datetime.now(UTC).isoformat(),
         }
     return None
 
