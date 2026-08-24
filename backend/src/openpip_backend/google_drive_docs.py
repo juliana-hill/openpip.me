@@ -71,29 +71,52 @@ def _escape(name: str) -> str:
     return name.replace("'", "\\'")
 
 
+# Guards each (parent folder id, child folder name) pair against concurrent
+# find-or-create — without this, two calls racing to resolve the same not-yet-
+# existing folder (e.g. load_context_documents()'s asyncio.gather firing
+# get_or_create_document three ways at once, all walking through "OpenPip"
+# before it exists) can each see "not found" and each create their own
+# duplicate. Keyed by segment, not the full path, so a lock taken while
+# resolving "OpenPip" is shared by every deeper call walking through it, not
+# just calls for the exact same full path. Never cleaned up, but the key
+# space is small and bounded by how many distinct folders this app ever asks
+# for — not a per-request growth.
+_segment_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+
+def _segment_lock(parent_id: str, name: str) -> asyncio.Lock:
+    key = (parent_id, name)
+    lock = _segment_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _segment_locks[key] = lock
+    return lock
+
+
 async def _get_or_create_folder(client: httpx.AsyncClient, access_token: str, folder_path: str) -> str:
     """Walk a "/"-separated folder path from Drive's root, creating any
     missing segment. Returns the deepest folder's id ("root" for an empty path)."""
     parent_id = "root"
     for part in (p.strip() for p in folder_path.split("/") if p.strip()):
-        search = await _request(
-            client, "GET", f"{_DRIVE_API}/files", access_token,
-            params={
-                "q": f"name = '{_escape(part)}' and mimeType = '{_FOLDER_MIME}' and '{parent_id}' in parents and trashed = false",
-                "fields": "files(id)",
-                "pageSize": 1,
-            },
-        )
-        files = search.json().get("files", [])
-        if files:
-            parent_id = str(files[0]["id"])
-            continue
-        created = await _request(
-            client, "POST", f"{_DRIVE_API}/files", access_token,
-            json_body={"name": part, "mimeType": _FOLDER_MIME, "parents": [parent_id]},
-            params={"fields": "id"},
-        )
-        parent_id = str(created.json()["id"])
+        async with _segment_lock(parent_id, part):
+            search = await _request(
+                client, "GET", f"{_DRIVE_API}/files", access_token,
+                params={
+                    "q": f"name = '{_escape(part)}' and mimeType = '{_FOLDER_MIME}' and '{parent_id}' in parents and trashed = false",
+                    "fields": "files(id)",
+                    "pageSize": 1,
+                },
+            )
+            files = search.json().get("files", [])
+            if files:
+                parent_id = str(files[0]["id"])
+                continue
+            created = await _request(
+                client, "POST", f"{_DRIVE_API}/files", access_token,
+                json_body={"name": part, "mimeType": _FOLDER_MIME, "parents": [parent_id]},
+                params={"fields": "id"},
+            )
+            parent_id = str(created.json()["id"])
     return parent_id
 
 
@@ -165,6 +188,26 @@ async def get_or_create_document(access_token: str, folder_path: str, filename: 
             return existing["webViewLink"], content_response.text
         created = await _create_file(client, access_token, parent_id, filename, initial_content, "text/plain")
         return created["webViewLink"], initial_content
+
+
+async def overwrite_document(access_token: str, folder_path: str, filename: str, content: str) -> str:
+    """Force-write a plain-text document, replacing its content if it already
+    exists. Unlike get_or_create_document(), which never touches an existing
+    file — used for a "reset to default" action, or reseeding a document
+    whose starter template changed after the file was already created (a
+    get_or_create_document call alone would keep serving the stale content
+    forever). Returns the driveUrl."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        parent_id = await _get_or_create_folder(client, access_token, folder_path)
+        existing = await _find_file(client, access_token, parent_id, filename)
+        if existing:
+            await _request(
+                client, "PATCH", f"{_DRIVE_UPLOAD}/files/{quote(existing['id'], safe='')}", access_token,
+                params={"uploadType": "media"}, content=content, content_type="text/plain",
+            )
+            return existing["webViewLink"]
+        created = await _create_file(client, access_token, parent_id, filename, content, "text/plain")
+        return created["webViewLink"]
 
 
 # ---- Per-task JSON records ----
