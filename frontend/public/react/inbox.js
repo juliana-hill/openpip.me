@@ -1960,6 +1960,10 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
           return next;
         }),
         onView: (email) => {
+          if (email.hasDraft) {
+            void openReply(email);
+            return;
+          }
           setViewEmail(email);
           if (email.unread) {
             setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, unread: false } : e));

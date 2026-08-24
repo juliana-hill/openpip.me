@@ -533,6 +533,13 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
             return next;
           })}
           onView={(email) => {
+            // A triage-generated "Draft" is a saved reply suggestion, not
+            // merely part of the message's read view. Open it in the Reply
+            // modal so the user can edit and send the draft directly.
+            if (email.hasDraft) {
+              void openReply(email);
+              return;
+            }
             setViewEmail(email);
             if (email.unread) {
               setEmails((prev) => prev.map((e) => e.id === email.id ? { ...e, unread: false } : e));
