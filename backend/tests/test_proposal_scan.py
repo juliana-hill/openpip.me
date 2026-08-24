@@ -109,7 +109,11 @@ def test_parse_and_validate_proposals_caps_at_max_and_handles_malformed_json() -
     assert len(result) == proposal_scan._MAX_PROPOSALS_PER_SCAN
 
 
-def test_open_task_signals_flags_overdue_due_today_and_asap(monkeypatch) -> None:
+def test_open_task_signals_flags_overdue_due_today_asap_and_upcoming(monkeypatch) -> None:
+    """A task due further out is still surfaced (tagged "upcoming", not
+    chased) — the scan can't match a sale email against a future-pinned
+    "check out sale" task (see GOALS_PROACTIVE_REVIEW_SAMPLE) unless that
+    task is actually in context. Overdue/due-today/ASAP still sort first."""
     today = datetime.now(UTC).date()
     tasks = [
         {"id": "t1", "title": "Overdue task", "dueDate": str(today - timedelta(days=2)), "priority": "MEDIUM", "completed": False},
@@ -117,6 +121,7 @@ def test_open_task_signals_flags_overdue_due_today_and_asap(monkeypatch) -> None
         {"id": "t3", "title": "Future task", "dueDate": str(today + timedelta(days=10)), "priority": "MEDIUM", "completed": False},
         {"id": "t4", "title": "ASAP no date", "dueDate": None, "priority": "ASAP", "completed": False},
         {"id": "t5", "title": "Completed overdue", "dueDate": str(today - timedelta(days=5)), "priority": "HIGH", "completed": True},
+        {"id": "t6", "title": "Too far out", "dueDate": str(today + timedelta(days=proposal_scan._TASK_LOOKAHEAD_DAYS + 1)), "priority": "MEDIUM", "completed": False},
     ]
 
     async def fake_fetch(_token: str):
@@ -126,7 +131,29 @@ def test_open_task_signals_flags_overdue_due_today_and_asap(monkeypatch) -> None
     result = asyncio.run(proposal_scan._open_task_signals("token"))
 
     ids = {task["id"]: task["urgency"] for task in result}
-    assert ids == {"t1": "overdue", "t2": "due_today", "t4": "asap"}
+    assert ids == {"t1": "overdue", "t2": "due_today", "t3": "upcoming", "t4": "asap"}
+    # Overdue/due-today/ASAP sort ahead of upcoming, regardless of Google's
+    # own list order — a long list of far-future tasks must never crowd out
+    # what actually needs attention now.
+    assert [task["id"] for task in result] == ["t1", "t2", "t4", "t3"]
+
+
+def test_calendar_signals_only_look_forward(monkeypatch) -> None:
+    """Calendar signals exist to catch unfinished tasks and propose
+    scheduling something in — or reorganizing what's on the calendar — for
+    the user's future, never to use a past event as after-the-fact
+    "evidence" a task is already done. See _calendar_signals' docstring."""
+    captured: dict[str, object] = {}
+
+    async def fake_fetch(_token: str, *, from_date, days):
+        captured.update(from_date=from_date, days=days)
+        return []
+
+    monkeypatch.setattr(proposal_scan, "fetch_google_calendars", fake_fetch)
+    asyncio.run(proposal_scan._calendar_signals("token"))
+
+    assert captured["from_date"] == datetime.now(UTC).date().isoformat()
+    assert captured["days"] == proposal_scan._CALENDAR_LOOKAHEAD_DAYS == 180
 
 
 def test_contact_followup_signals_flags_only_stale_tracked_contacts(monkeypatch) -> None:

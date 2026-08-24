@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from openpip_backend.app import app, store
+from openpip_backend.app import _review_item, app, store
 from openpip_backend.agent import build_briefing_prompt, build_executive_assistant, _system_prompt
-from openpip_backend.models import BriefingRequest, Proposal, SourceReference, UserContext
+from openpip_backend.models import BriefingRequest, Proposal, ProposalStatus, SourceReference, UserContext
 from openpip_backend.tools import travel_agent
 
 
@@ -137,6 +137,80 @@ def test_approved_proposal_surfaces_as_scheduled_action() -> None:
     assert actions[0]["status"] == "approved"
 
 
+def test_review_history_route_is_not_swallowed_by_the_proposal_id_route() -> None:
+    """/agent/review/history is registered before /agent/review/{proposal_id}
+    specifically so Starlette doesn't match "history" as a literal
+    proposal_id and 404 — this is a route-ordering regression guard as much
+    as a behavior test."""
+    client = TestClient(app)
+    client.post("/api/briefing", json={"messages": [{"id": "message-history", "subject": "Approve me"}]})
+    proposal = client.get("/api/proposals").json()["items"][0]
+    client.post(f"/api/proposals/{proposal['id']}/approve", json={})
+
+    accepted = client.get("/agent/review/history", params={"decision": "accepted"})
+    rejected = client.get("/agent/review/history", params={"decision": "rejected"})
+
+    assert accepted.status_code == 200
+    assert len(accepted.json()["items"]) == 1
+    assert accepted.json()["items"][0]["id"] == proposal["id"]
+    assert rejected.json()["items"] == []
+
+
+def test_review_item_surfaces_the_execution_reference_for_an_executed_proposal() -> None:
+    """A bare title/action/date list gave no indication whether an accepted
+    proposal ever really executed, and if so, what it did — this is the gap
+    the user reported seeing in the History modal. Drive-backed proposals
+    (real, token-bearing usage — see proposal_drive_store.py) embed their
+    audit events directly on the proposal, unlike the legacy SQLite demo
+    path's separate audit table, so this is exercised directly against the
+    Proposal model rather than through the token-less demo endpoints."""
+    proposal = Proposal(
+        action="save_draft", title="Save draft reply to Client", rationale="A reply was drafted.",
+        source=SourceReference(kind="email", id="email:1", title="Hi"),
+        status=ProposalStatus.EXECUTED,
+        events=[
+            {"event_type": "created", "detail": "Proposal created for review"},
+            {"event_type": "approved", "detail": None},
+            {"event_type": "execution_started", "detail": None},
+            {"event_type": "executed", "detail": "gmail://drafts/abc123"},
+        ],
+    )
+
+    item = _review_item(proposal)
+
+    assert item["status"] == "executed"
+    assert item["executionReference"] == "gmail://drafts/abc123"
+    assert item["failureReason"] is None
+
+
+def test_review_item_surfaces_the_failure_reason_for_a_failed_proposal() -> None:
+    proposal = Proposal(
+        action="save_draft", title="Save draft reply to Client", rationale="A reply was drafted.",
+        source=SourceReference(kind="email", id="email:1", title="Hi"),
+        status=ProposalStatus.FAILED,
+        failure_reason="provider temporarily unavailable",
+        events=[{"event_type": "execution_failed", "detail": "provider temporarily unavailable"}],
+    )
+
+    item = _review_item(proposal)
+
+    assert item["status"] == "failed"
+    assert item["failureReason"] == "provider temporarily unavailable"
+    assert item["executionReference"] is None
+
+
+def test_review_history_caps_at_the_requested_limit() -> None:
+    client = TestClient(app)
+    for i in range(12):
+        client.post("/api/briefing", json={"messages": [{"id": f"message-cap-{i}", "subject": "Reject me"}]})
+    for item in client.get("/api/proposals?status=pending").json()["items"]:
+        client.post(f"/api/proposals/{item['id']}/reject", json={})
+
+    history = client.get("/agent/review/history", params={"decision": "rejected", "limit": 10})
+
+    assert len(history.json()["items"]) == 10
+
+
 def test_working_context_is_editable_but_not_a_system_prompt() -> None:
     client = TestClient(app)
     saved = client.put(
@@ -234,7 +308,7 @@ def test_approved_proposal_executes_through_mock_and_writes_audit_events() -> No
 
 def test_failed_execution_can_be_retried(monkeypatch) -> None:
     class FailingExecutor:
-        def execute(self, _proposal):
+        async def execute(self, _proposal, _access_token=None):
             raise RuntimeError("provider temporarily unavailable")
 
     monkeypatch.setattr("openpip_backend.app.executor", FailingExecutor())

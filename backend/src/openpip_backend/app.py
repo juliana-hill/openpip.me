@@ -2,14 +2,18 @@ import asyncio
 import os
 from datetime import UTC, datetime
 from typing import Any
-from uuid import uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from .agent import DAILY_QUOTES, create_briefing, discover_quote_via_grounding
-from .executor import ActionExecutor, MockActionExecutor
+from .agent import (
+    DAILY_QUOTES,
+    create_briefing,
+    discover_quote_via_grounding,
+)
+from .chat import get_chat_progress, queue_chat
+from .executor import ActionExecutor, DefaultActionExecutor
 from .demo_data import demo_contacts, demo_request
 from .models import BriefingRequest, BriefingResponse, Proposal, ProposalDecision, ProposalStatus, UserContext, UserPreferences
 from .providers import connector_statuses
@@ -80,7 +84,7 @@ _database_path = os.getenv("OPENPIP_DATABASE_PATH", "./data/openpip.sqlite3")
 store = ProposalStore(_database_path)
 store.seed_quotes(list(DAILY_QUOTES))
 oauth_sessions = OAuthSessionStore(_database_path)
-executor: ActionExecutor = MockActionExecutor()
+executor: ActionExecutor = DefaultActionExecutor()
 
 
 @app.get("/health")
@@ -218,19 +222,39 @@ async def get_google_token_optional(
     return await _resolve_google_token(request, x_google_token, authorization)
 
 
+async def get_user_name_optional(request: Request) -> str | None:
+    """The user's own display name, the same source as their nav-bar avatar
+    (see /api/me below) — Google's id_token `name` claim, captured once at
+    login into this project's own session JWT. Only available when the
+    caller authenticated via that session (X-OpenPip-Session); a direct
+    x-google-token/Authorization header caller (tests, direct API use) has
+    no session to read a name from, and gets None rather than a guess."""
+    session_token = read_session_jwt(request)
+    if not session_token:
+        return None
+    claims = verify_session_jwt(session_token)
+    name = claims.get("name") if claims else None
+    if not name:
+        return None
+    return str(name).strip() or None
+
+
 def _google_error(error: GoogleApiError) -> HTTPException:
     return HTTPException(status_code=error.status_code, detail=error.detail)
 
 
 @app.post("/agent/inbox/network/queue-triage")
-async def queue_inbox_triage(token: str = Depends(get_google_token)):
+async def queue_inbox_triage(
+    token: str = Depends(get_google_token),
+    user_name: str | None = Depends(get_user_name_optional),
+):
     """Queue an approval-first review of unread Gmail messages.
 
     The worker only prepares suggestions and Drive-backed networking events;
     Gmail mutations, task creation, and sending remain explicit review actions.
     """
     try:
-        return await queue_and_attach(token)
+        return await queue_and_attach(token, user_name)
     except GoogleApiError as error:
         raise _google_error(error) from error
 
@@ -356,6 +380,20 @@ def agent_connectors_status():
     return connectors()
 
 
+def _execution_reference(proposal: Proposal) -> str | None:
+    """The result of an executed proposal — e.g. "gmail://drafts/<id>" from
+    executor.py's ExecutionResult — pulled from the append-only events log
+    rather than stored as its own field, since it's exactly the detail
+    already recorded on the "executed" event. Used by the Review History
+    modal so an accepted proposal shows what actually happened, not just
+    that it was once approved."""
+    for event in reversed(proposal.events):
+        if event.get("event_type") == "executed":
+            detail = event.get("detail")
+            return str(detail) if detail else None
+    return None
+
+
 def _review_item(proposal: Proposal) -> dict[str, Any]:
     status = proposal.status.value
     return {
@@ -372,11 +410,17 @@ def _review_item(proposal: Proposal) -> dict[str, Any]:
         "subtitle": proposal.action,
         "summary": proposal.rationale,
         "createdAt": proposal.created_at.isoformat(),
+        "decidedAt": proposal.decided_at.isoformat() if proposal.decided_at else None,
         "externalAction": {
             "occurred": status in {"executed", "failed"},
             "label": "Approval status",
             "detail": status.replace("_", " ").title(),
         },
+        # What actually happened, for the Review History modal — a bare
+        # title/action/date list gave no indication whether an accepted
+        # proposal ever really executed, and if so, what it did.
+        "failureReason": proposal.failure_reason,
+        "executionReference": _execution_reference(proposal),
         "data": {
             "proposal": {
                 "id": proposal.id,
@@ -407,6 +451,41 @@ async def agent_review(status: ProposalStatus | None = Query(default=ProposalSta
     else:
         items = store.list(status)
     return {"items": [_review_item(item) for item in items]}
+
+
+@app.get("/agent/review/history")
+async def agent_review_history(
+    decision: str = Query(...),
+    limit: int = Query(default=10, le=50),
+    token: str | None = Depends(get_google_token_optional),
+):
+    """Past decisions for the Review page's History modal — "accepted"
+    spans every status a once-approved proposal can now be in (approved,
+    executing, failed, executed), since the accept/reject decision is
+    separate from what happened to it afterward. See
+    proposal_drive_store.list_decision_history for the Drive-backed path;
+    mirrored here for the token-less legacy SQLite fallback so behavior
+    matches regardless of which store is in play.
+
+    Registered before /agent/review/{proposal_id} below — Starlette matches
+    path routes in registration order, so "history" would otherwise be
+    swallowed by that route as a literal proposal_id and never reach here."""
+    if decision not in {"accepted", "rejected"}:
+        raise HTTPException(status_code=400, detail="decision must be 'accepted' or 'rejected'")
+    if token:
+        proposals = await proposal_drive_store.list_decision_history(token, decision, limit)
+    else:
+        if decision == "rejected":
+            proposals = store.list(ProposalStatus.REJECTED)
+        else:
+            proposals = [
+                p
+                for status in (ProposalStatus.APPROVED, ProposalStatus.EXECUTING, ProposalStatus.FAILED, ProposalStatus.EXECUTED)
+                for p in store.list(status)
+            ]
+        proposals.sort(key=lambda p: p.decided_at or p.created_at, reverse=True)
+        proposals = proposals[:limit]
+    return {"items": [_review_item(item) for item in proposals]}
 
 
 @app.get("/agent/review/{proposal_id}")
@@ -526,6 +605,23 @@ async def goals_n_guidelines(skill: str, token: str = Depends(get_google_token))
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"driveUrl": drive_url, "content": content}
+
+
+@app.post("/agent/chat")
+async def agent_chat(payload: dict[str, Any], token: str | None = Depends(get_google_token_optional)):
+    """Queue one Executive Assistant turn; the browser polls its status."""
+    try:
+        return await queue_chat(payload, token)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@app.get("/agent/chat/status/{job_id}")
+def agent_chat_progress(job_id: str, token: str | None = Depends(get_google_token_optional)):
+    progress = get_chat_progress(token, job_id)
+    if progress is None:
+        raise HTTPException(status_code=404, detail="Chat job not found")
+    return progress
 
 
 TASKS_FOLDER = "OpenPip/tasks"
@@ -1079,7 +1175,7 @@ async def execute(proposal_id: str, token: str | None = Depends(get_google_token
         except ValueError as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
         try:
-            result = executor.execute(proposal)
+            result = await executor.execute(proposal, token)
         except Exception as error:
             return await proposal_drive_store.mark_failed(token, proposal_id, str(error))
         return await proposal_drive_store.mark_executed(token, proposal_id, result.reference)
@@ -1090,7 +1186,7 @@ async def execute(proposal_id: str, token: str | None = Depends(get_google_token
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     try:
-        result = executor.execute(proposal)
+        result = await executor.execute(proposal, None)
     except Exception as error:
         return store.mark_failed(proposal_id, str(error))
     return store.mark_executed(proposal_id, result.reference)

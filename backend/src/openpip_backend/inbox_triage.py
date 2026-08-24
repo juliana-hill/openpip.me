@@ -3,21 +3,37 @@
 The triage worker only reads unread Gmail messages and stores its suggestions
 in the user's visible OpenPip Drive folder. It deliberately does not archive,
 trash, send, or create Google Tasks: those are review-time actions.
+
+Whether a message is disposable, an actionable task, or something that needs
+a reply is a genuine judgment call, not something a fixed keyword list gets
+right for every user — one person's routine promo email is another's active
+shopping deal. Only the historical-label filing check (_historical_label) is
+deterministic, and only because it's grounded in this specific user's own
+past behavior (how they've actually filed this sender's mail before), not a
+guess about what "should" be disposable. Everything else — delete/task/reply,
+and the reply draft itself — goes through the same executive-assistant agent
+proposal_scan.py uses — one call per unread message, not batched, so the
+triage progress bar can advance per email as each is actually classified
+(see _classify_message).
 """
 
 from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import re
 from collections import Counter
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from . import proposal_drive_store
+from .agent import DEFAULT_AGENT_NAME, build_executive_assistant, extract_agent_text, load_context_documents
 from .google_drive_docs import list_json_files, read_json_file, write_json_file
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
+    create_gmail_draft,
     fetch_gmail_labels,
     fetch_gmail_messages,
     fetch_gmail_message,
@@ -25,6 +41,7 @@ from .google_workspace import (
     modify_gmail_message_labels,
     trash_gmail_messages,
 )
+from .models import Proposal, ProposalStatus, SourceReference
 
 TRIAGE_FOLDER = "OpenPip/inbox"
 TRIAGE_FILE = "triage.json"
@@ -41,23 +58,19 @@ TRIAGE_LABEL_NAMES = {
 _jobs: dict[str, dict[str, Any]] = {}
 _active_jobs: dict[str, str] = {}
 
-_REPLY_TERMS = re.compile(r"\b(reply|respond|question|could you|can you|let me know|available|meeting|schedule|follow up|following up|request)\b", re.I)
-_FILE_TERMS = re.compile(r"\b(unsubscribe|newsletter|promotion|promotional|sale|offer|discount|coupon|promo|deal|receipt|order confirmation|shipping|tracking|notification|alert|marketing|rewards|membership|benefit|refund|refunded|price adjustment|credit received|uber|lyft|doordash)\b", re.I)
-_TASK_TERMS = re.compile(
-    r"\b(action required|deadline|due date|invoice due|payment due|renewal required|proposal|quote|review required|please review|approve|approval required|please confirm|confirm by|complete|submit|schedule (?:an?|your|the) appointment|book (?:an?|your|the) appointment|make (?:an?|your|the) appointment|follow[- ]up appointment)\b",
-    re.I,
-)
-
 # Gmail's own ML categorizer (the Promotions/Updates inbox tabs) reads the
-# full message, not just the subject/snippet _message_text() is limited to —
-# real marketing copy is written to avoid literal words like "sale" or
-# "discount" ("Warm grains, roasted veg, hearty protein." is still an ad),
-# so keyword matching alone misses most of it. This is a fallback, checked
-# only once none of the keyword patterns above already matched — a message
-# Gmail categorized as promotional/updates that also reads like it needs a
-# reply or contains a real deadline should keep being classified as that,
-# not silently reclassified as filing because of its category.
+# full message, not just a subject/snippet — real marketing copy is written
+# to avoid literal words like "sale" or "discount" ("Warm grains, roasted
+# veg, hearty protein." is still an ad), so a fixed keyword list alone misses
+# most of it. Handed to the classifying agent as one input signal among
+# several (see _build_classification_prompt) — never applied as a rule on
+# its own, since what counts as disposable is a personal judgment call, not
+# a universal one every user would make the same way.
 _LOW_PRIORITY_CATEGORIES = frozenset({"CATEGORY_PROMOTIONS", "CATEGORY_UPDATES"})
+
+# The full email body, not just subject/snippet, is sent to the classifying
+# agent — bounded so a very long thread can't blow out one message's prompt.
+_BODY_CHAR_LIMIT = 3000
 
 
 def contact_id_from_resource(resource_name: str) -> str:
@@ -188,10 +201,11 @@ def _message_text(message: dict[str, Any]) -> str:
     # Only the actual content — a sender address or display name containing a
     # bare classification word (e.g. "marketing@agency.com", a "Rewards"
     # program) must not by itself make an otherwise ordinary message look
-    # promotional, actionable, or reply-worthy.
+    # promotional, actionable, or reply-worthy. Used only to decide whether a
+    # message has anything worth handing the classifying agent at all.
     return " ".join(
         str(message.get(field) or "")
-        for field in ("subject", "snippet")
+        for field in ("subject", "body", "snippet")
     ).strip()
 
 
@@ -200,7 +214,12 @@ def _first_name(value: str) -> str:
     return clean.split()[0] if clean else "there"
 
 
-def _draft_reply(message: dict[str, Any], tone: dict[str, str] | None = None) -> str:
+def _draft_reply(message: dict[str, Any], tone: dict[str, str] | None = None, user_name: str | None = None) -> str:
+    """A generic, content-free placeholder — the fallback of last resort when
+    _draft_reply_via_agent's real call fails or returns nothing usable, not
+    the primary way replies get written. Signs with user_name when it's
+    actually known (see get_user_name_optional in app.py) rather than
+    inventing or hardcoding one name for every user."""
     name = _first_name(str(message.get("from") or "there"))
     subject = str(message.get("subject") or "your message")
     tone = tone or {}
@@ -213,10 +232,11 @@ def _draft_reply(message: dict[str, Any], tone: dict[str, str] | None = None) ->
         )
     else:
         body = f"Thanks for reaching out about {subject}. I’m reviewing this and will follow up shortly."
+    signature = f"\n{user_name}" if user_name else ""
     return (
         f"{greeting} {name},\n\n"
         f"{body}\n\n"
-        f"{closing},\nJuliana"
+        f"{closing},{signature}"
     )
 
 
@@ -284,61 +304,160 @@ async def _historical_sender_tone(access_token: str, sender_email: str) -> dict[
     return profile
 
 
-def _suggestion(message: dict[str, Any]) -> dict[str, Any] | None:
-    text = _message_text(message)
-    if not text:
-        return None
-    message_id = str(message.get("id") or "")
-    if not message_id:
-        return None
-    context = {
-        "messageId": message_id,
+def _classification_context(message: dict[str, Any]) -> dict[str, str]:
+    """The fields every suggestion needs regardless of its disposition."""
+    return {
+        "messageId": str(message.get("id") or ""),
         "subject": str(message.get("subject") or "(no subject)"),
         "sender": str(message.get("from") or message.get("fromEmail") or "Unknown sender"),
         "fromEmail": str(message.get("fromEmail") or ""),
         "date": str(message.get("date") or ""),
+        # Needed to create a reply draft in the same Gmail conversation
+        # rather than a new top-level thread — see create_gmail_draft.
+        "threadId": str(message.get("threadId") or ""),
     }
-    # Transactional/promotional mail wins over generic action words such as
-    # "due" or "confirm" so receipts and refunds do not become tasks.
-    if _FILE_TERMS.search(text):
-        return {
-            **context,
-            "kind": "file",
-            "action": "Review deletion suggestion",
-            "reason": "This looks like a receipt, notification, promotion, or other low-priority update that may no longer be needed.",
-            "deleteSuggested": True,
-            "createdAt": datetime.now(UTC).isoformat(),
-        }
-    if _TASK_TERMS.search(text):
-        return {
-            **context,
-            "kind": "task",
-            "action": "Review task suggestion",
-            "reason": "This message appears to contain an action, deadline, approval, or follow-up.",
-            "createdAt": datetime.now(UTC).isoformat(),
-            "taskSuggested": True,
-        }
-    if _REPLY_TERMS.search(text):
-        return {
-            **context,
-            "kind": "reply",
-            "action": "Review reply suggestion",
-            "reason": "This message appears to contain a question, request, or follow-up that may need a response.",
-            "createdAt": datetime.now(UTC).isoformat(),
-            "draft": _draft_reply(message),
-            "taskSuggested": bool(_TASK_TERMS.search(text)),
-        }
-    label_ids = {str(label_id) for label_id in message.get("labelIds", []) if label_id}
-    if label_ids & _LOW_PRIORITY_CATEGORIES:
-        return {
-            **context,
-            "kind": "file",
-            "action": "Review deletion suggestion",
-            "reason": "Gmail categorizes this as promotional or updates mail, which is usually safe to clear out.",
-            "deleteSuggested": True,
-            "createdAt": datetime.now(UTC).isoformat(),
-        }
-    return None
+
+
+def _classification_peer_summary(message: dict[str, Any]) -> dict[str, str]:
+    """The compact (sender + subject only, no body) view of one OTHER unread
+    message — handed alongside the one message actually being classified so
+    the agent can still weigh it against the rest of the inbox the way a
+    person skimming their own mail would, without paying for every other
+    message's full body on every single classification call."""
+    return {
+        "from": str(message.get("from") or message.get("fromEmail") or "Unknown sender"),
+        "subject": str(message.get("subject") or "(no subject)"),
+    }
+
+
+def _build_classification_prompt(message: dict[str, Any], peers: list[dict[str, Any]]) -> str:
+    item = {
+        "messageId": str(message.get("id") or ""),
+        "from": str(message.get("from") or message.get("fromEmail") or "Unknown sender"),
+        "subject": str(message.get("subject") or "(no subject)"),
+        # Gmail's own categorizer, handed over as one input signal only —
+        # never a rule the prompt applies by itself. See the rules below.
+        "gmailCategories": sorted({str(label) for label in message.get("labelIds", [])} & _LOW_PRIORITY_CATEGORIES),
+        "body": (str(message.get("body") or "") or str(message.get("snippet") or ""))[:_BODY_CHAR_LIMIT],
+    }
+    peer_summaries = [_classification_peer_summary(peer) for peer in peers]
+    return (
+        "You are triaging ONE of the user's UNREAD emails. For reference, here is the rest "
+        "of what's currently unread in this inbox (sender and subject only) — use it to weigh "
+        "how routine or disposable THIS message is by comparison to the others, the way a "
+        "person skimming their own inbox would, never off a fixed keyword list in isolation:\n"
+        f"{json.dumps(peer_summaries)[:8000]}\n\n"
+        "Decide exactly one disposition for the message below, in this priority order:\n"
+        "1. \"delete\": genuinely disposable to this user — an automated notification, "
+        "marketing/promotional email, receipt, shipping update, or similar low-value mail, "
+        "the way the OTHER routine mail listed above reads. gmailCategories is one signal "
+        "(Gmail's own Promotions/Updates classification), never a rule by itself — read the "
+        "actual content and weigh it against the rest of the inbox before calling something "
+        "disposable. When genuinely unsure, do not choose delete.\n"
+        "2. \"task\": not disposable, and the message asks the user to DO something specific "
+        "— an approval, a deadline, a payment, a form, something beyond just writing back.\n"
+        "3. \"reply\": not disposable, not a task, and the message asks a real question or "
+        "makes a request that expects a written response from the user.\n"
+        "4. \"none\": none of the above — informational, already resolved, or nothing to do.\n\n"
+        'Return ONLY JSON exactly like: {"disposition":"delete|task|reply|none",'
+        '"reason":"one specific sentence"}\n\n'
+        f"Message to classify:\n{json.dumps(item)[:8000]}"
+    )
+
+
+def _parse_classification(raw: str) -> dict[str, str] | None:
+    match = re.search(r"\{[\s\S]*\}", raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    disposition = str(parsed.get("disposition") or "").strip().casefold()
+    if disposition not in {"delete", "task", "reply", "none"}:
+        return None
+    return {"disposition": disposition, "reason": str(parsed.get("reason") or "").strip()[:300]}
+
+
+async def _classify_message(agent: Any, message: dict[str, Any], peers: list[dict[str, Any]]) -> dict[str, str] | None:
+    """One agent call per unread email — not batched. The triage progress
+    bar advances per message as each one is actually classified (see
+    job["processed"] in _run_job's loop below), so the slow part (the agent
+    call) has to happen inside that same per-message iteration, not all at
+    once before it starts."""
+    result = agent(_build_classification_prompt(message, peers))
+    return _parse_classification(extract_agent_text(result))
+
+
+def _build_draft_prompt(message: dict[str, Any], tone: dict[str, str], user_name: str | None) -> str:
+    body = (str(message.get("body") or "") or str(message.get("snippet") or ""))[:_BODY_CHAR_LIMIT]
+    tone_hint = (
+        f"Open with \"{tone.get('greeting') or 'Hi'}\", close with "
+        f"\"{tone.get('closing') or 'Best'}\", and keep it "
+        f"{tone.get('verbosity') or 'concise'} — matching how this user usually writes, "
+        "based on their own past replies."
+    )
+    # The user's own name, the same source as their nav-bar avatar (Google's
+    # id_token claim, captured at login) — not a guess, and never hardcoded
+    # to one specific person's name (this app is meant for other users too).
+    signature_hint = (
+        f"Sign off with the user's own name, \"{user_name}\", after the closing."
+        if user_name else
+        "Do not invent a signature name — end right after the closing; the user signs it themselves."
+    )
+    return (
+        "Draft a real, substantive reply to the email below. Address what was actually "
+        "asked or requested — do not write a placeholder like \"I'll follow up shortly\" "
+        "unless the message truly gives you nothing else to respond to. Never invent facts, "
+        "commitments, dates, or information that is not present in the message itself.\n\n"
+        f"{tone_hint} {signature_hint}\n\n"
+        f"From: {message.get('from') or message.get('fromEmail') or 'Unknown sender'}\n"
+        f"Subject: {message.get('subject') or '(no subject)'}\n"
+        f"Message:\n{body}\n\n"
+        f"Return ONLY the reply body text, addressed to {_first_name(str(message.get('from') or 'there'))}. "
+        "No subject line, no commentary, no markdown."
+    )
+
+
+async def _draft_reply_via_agent(
+    agent: Any,
+    message: dict[str, Any],
+    tone: dict[str, str],
+    user_name: str | None = None,
+) -> str:
+    try:
+        result = agent(_build_draft_prompt(message, tone, user_name))
+        text = extract_agent_text(result).strip()
+    except Exception:
+        text = ""
+    # A safety net, not the primary path — the agent should be drafting real,
+    # substantive replies; this only covers it returning something unusable.
+    return text or _draft_reply(message, tone, user_name)
+
+
+async def _hydrate_message_bodies(access_token: str, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The unread listing (fetch_gmail_messages) is metadata-only — a real
+    agent judgment call needs the actual message body, not just the subject
+    and snippet a keyword search used to settle for. Falls back to the
+    metadata-only version of a message if its own full fetch fails, rather
+    than dropping it from triage entirely."""
+    fetched = await asyncio.gather(
+        *(fetch_gmail_message(access_token, str(message.get("id") or "").removeprefix("gmail_")) for message in messages),
+        return_exceptions=True,
+    )
+    return [full if isinstance(full, dict) else original for original, full in zip(messages, fetched)]
+
+
+async def _current_agent_name(access_token: str) -> str:
+    try:
+        data = await read_drive_app_data(access_token)
+        user_data = data.get("userData") if isinstance(data.get("userData"), dict) else {}
+        name = str(user_data.get("agentName") or "").strip()
+        return name or DEFAULT_AGENT_NAME
+    except Exception:
+        return DEFAULT_AGENT_NAME
 
 
 async def _historical_sender_label_counts(
@@ -393,7 +512,87 @@ def _historical_label(
     return label_id, user_labels[label_id]
 
 
-async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages: list[dict[str, Any]]) -> None:
+def _save_draft_idempotency_key(message_id: str) -> str:
+    return f"inbox_triage:save_draft:{message_id}"
+
+
+async def _propose_saving_draft(access_token: str, message: dict[str, Any], suggestion: dict[str, Any]) -> None:
+    """The proposal-review path (see executor.py's DefaultActionExecutor) —
+    add() itself dedupes by idempotency_key, so re-running triage on the
+    same still-unread message never creates a second proposal for it."""
+    message_id = str(suggestion["messageId"])
+    subject = str(suggestion.get("subject") or "(no subject)")
+    sender = str(suggestion.get("sender") or "this sender")
+    await proposal_drive_store.add(access_token, Proposal(
+        action="save_draft",
+        title=f"Save draft reply to {sender}",
+        rationale=f"A reply was drafted for \"{subject}\" — approve to save it to Gmail Drafts. Nothing is sent.",
+        payload={
+            "to": suggestion.get("fromEmail"),
+            "subject": subject if subject.casefold().startswith("re:") else f"Re: {subject}",
+            "body": suggestion.get("draft"),
+            "threadId": suggestion.get("threadId"),
+            "messageId": message_id,
+        },
+        source=SourceReference(
+            kind="email", id=f"email:{message_id}", title=subject,
+            url=message.get("gmailUrl"), detail=f"{sender} · {suggestion.get('date') or ''}".strip(" ·"),
+        ),
+        idempotency_key=_save_draft_idempotency_key(message_id),
+    ))
+
+
+async def _draft_proposal_already_executed(access_token: str, message_id: str) -> bool:
+    """True only when the OTHER approval surface (the save_draft proposal
+    from _propose_saving_draft, reviewed on the Review page) already
+    executed for this exact message — checked before this modal's own Save
+    creates a Gmail draft, so the same reply is never drafted twice. Fails
+    open (False) on any lookup error: better to risk a rare duplicate than
+    to block an explicit Save the user just clicked."""
+    try:
+        proposal = await proposal_drive_store.get_by_idempotency_key(
+            access_token, _save_draft_idempotency_key(message_id),
+        )
+        return proposal is not None and proposal.status == ProposalStatus.EXECUTED
+    except Exception:
+        return False
+
+
+async def _resolve_matching_draft_proposal(access_token: str, message_id: str, draft_id: str) -> None:
+    """The reverse direction of _draft_proposal_already_executed: this
+    modal's own Save just created the real Gmail draft directly, so if the
+    OTHER approval surface still has a PENDING save_draft proposal for this
+    same message, it must be reconciled here — left pending, it would go on
+    asking the user to "approve" a draft that's already saved, and approving
+    it would create a second, duplicate Gmail draft. Walked through the same
+    approve -> execute lifecycle every other proposal takes (rather than a
+    separate "cancelled" status) so the audit trail stays truthful: it really
+    was approved (by the user hitting Save here) and really was executed
+    (this real draft). Never lets a reconciliation failure undo the draft
+    save that already succeeded."""
+    try:
+        proposal = await proposal_drive_store.get_by_idempotency_key(
+            access_token, _save_draft_idempotency_key(message_id),
+        )
+        if proposal is None or proposal.status != ProposalStatus.PENDING:
+            return
+        await proposal_drive_store.decide(
+            access_token, proposal.id, ProposalStatus.APPROVED,
+            reason="Already saved directly from the Inbox review.",
+        )
+        claimed = await proposal_drive_store.claim_execution(access_token, proposal.id)
+        await proposal_drive_store.mark_executed(access_token, claimed.id, f"gmail://drafts/{draft_id}")
+    except Exception:
+        pass
+
+
+async def _run_job(
+    access_token: str,
+    owner: str,
+    job: dict[str, Any],
+    messages: list[dict[str, Any]],
+    user_name: str | None = None,
+) -> None:
     try:
         saved = await read_json_file(access_token, TRIAGE_FOLDER, TRIAGE_FILE) or {}
         previous_suggestions = saved.get("suggestions") if isinstance(saved.get("suggestions"), dict) else {}
@@ -414,12 +613,28 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
             tracked_contacts = app_data.get("contacts") if isinstance(app_data.get("contacts"), dict) else {}
         except Exception:
             google_contacts, tracked_contacts, app_data = {}, {}, {}
-        suggestions_by_message: dict[str, dict[str, Any]] = {}
-        for candidate in messages:
-            candidate_suggestion = _suggestion(candidate)
-            candidate_id = str(candidate.get("id") or "")
-            if candidate_id and candidate_suggestion:
-                suggestions_by_message[candidate_id] = candidate_suggestion
+        # The unread listing is metadata-only — a real judgment call (delete,
+        # task, or reply) needs the actual message body, not just a snippet.
+        messages = await _hydrate_message_bodies(access_token, messages)
+        classifiable = {
+            str(message.get("id") or ""): message
+            for message in messages
+            if _message_text(message) and message.get("id")
+        }
+        agent = None
+        if classifiable:
+            try:
+                context_block, agent_name = await asyncio.gather(
+                    load_context_documents(access_token),
+                    _current_agent_name(access_token),
+                )
+                agent = build_executive_assistant(context_block, agent_name=agent_name)
+            except Exception:
+                # No agent judgment available this run (e.g. Bedrock is down) —
+                # every message just falls through with no suggestion, same as
+                # a message the old keyword match never matched. Never fail
+                # the whole triage run over it.
+                agent = None
         try:
             label_catalog = await fetch_gmail_labels(access_token)
             user_labels = {
@@ -461,32 +676,69 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
         for message in messages:
             try:
                 message_id = str(message.get("id") or "")
-                suggestion = suggestions_by_message.get(message_id)
-                if suggestion:
+                classification = None
+                if agent is not None and message_id in classifiable:
+                    try:
+                        peers = [peer for peer_id, peer in classifiable.items() if peer_id != message_id]
+                        classification = await _classify_message(agent, message, peers)
+                    except Exception:
+                        classification = None
+                if classification:
                     sender_email = str(message.get("fromEmail") or "").strip().lower()
-                    if suggestion.get("kind") == "reply":
+                    context = _classification_context(message)
+                    disposition = classification["disposition"]
+                    reason = classification.get("reason") or ""
+                    suggestion: dict[str, Any] | None = None
+                    if disposition == "delete":
+                        suggestion = {
+                            **context,
+                            "kind": "file",
+                            "action": "Review deletion suggestion",
+                            "reason": reason or "This looks disposable compared to the rest of your unread mail.",
+                            "deleteSuggested": True,
+                            "createdAt": datetime.now(UTC).isoformat(),
+                        }
+                    elif disposition == "task":
+                        suggestion = {
+                            **context,
+                            "kind": "task",
+                            "action": "Review task suggestion",
+                            "reason": reason or "This message appears to need action from you.",
+                            "createdAt": datetime.now(UTC).isoformat(),
+                            "taskSuggested": True,
+                        }
+                    elif disposition == "reply":
                         if sender_email not in sender_tones:
                             try:
                                 sender_tones[sender_email] = await _historical_sender_tone(access_token, sender_email)
                             except Exception:
                                 sender_tones[sender_email] = {}
                         tone = sender_tones[sender_email]
-                        if tone.get("canDraft") != "true":
-                            if suggestion.get("taskSuggested"):
-                                suggestion = {
-                                    key: value
-                                    for key, value in suggestion.items()
-                                    if key not in {"draft", "kind", "action", "label"}
-                                }
-                                suggestion.update({
-                                    "kind": "task",
-                                    "action": "Review task suggestion",
-                                })
-                            else:
-                                suggestion = None
+                        if tone.get("canDraft") == "true":
+                            draft = await _draft_reply_via_agent(agent, message, tone, user_name)
+                            suggestion = {
+                                **context,
+                                "kind": "reply",
+                                "action": "Review reply suggestion",
+                                "reason": reason or "This message appears to need a response.",
+                                "createdAt": datetime.now(UTC).isoformat(),
+                                "draft": draft,
+                                "toneSource": "sender_history",
+                            }
                         else:
-                            suggestion["draft"] = _draft_reply(message, tone)
-                            suggestion["toneSource"] = "sender_history"
+                            # Not enough sent-reply history yet to draft
+                            # confidently in this user's own voice — surface
+                            # it as something to look at instead of inventing
+                            # a reply with no established tone to match.
+                            suggestion = {
+                                **context,
+                                "kind": "task",
+                                "action": "Review task suggestion",
+                                "reason": reason or "This message appears to need a response, but there isn't enough reply history yet to draft one in your voice.",
+                                "createdAt": datetime.now(UTC).isoformat(),
+                                "taskSuggested": True,
+                            }
+                    # disposition == "none" leaves suggestion as None.
                     if suggestion is None:
                         suggestions.pop(message_id, None)
                         drafts.pop(message_id, None)
@@ -521,6 +773,17 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
                             drafts[message_id] = suggestion["draft"]
                             job["draftsCreated"] += 1
                             job["draftedMessageIds"].append(message_id)
+                            # A second, independent approval surface for the
+                            # same draft (see proposal_drive_store.py) —
+                            # approving it there saves to Gmail Drafts too,
+                            # via the execution pipeline, without requiring
+                            # the user to have this triage modal open at
+                            # all. Never lets a proposal-storage hiccup fail
+                            # the triage run itself.
+                            try:
+                                await _propose_saving_draft(access_token, message, suggestion)
+                            except Exception:
+                                pass
 
                 # Every unread email from a tracked networking contact is an
                 # interaction event. Include the Gmail message id so a later
@@ -637,7 +900,7 @@ async def _run_job(access_token: str, owner: str, job: dict[str, Any], messages:
             _active_jobs.pop(owner, None)
 
 
-async def queue_unread_inbox_triage(access_token: str) -> dict[str, Any]:
+async def queue_unread_inbox_triage(access_token: str, user_name: str | None = None) -> dict[str, Any]:
     owner = _owner(access_token)
     active_id = _active_jobs.get(owner)
     if active_id and active_id in _jobs:
@@ -663,7 +926,7 @@ async def queue_unread_inbox_triage(access_token: str) -> dict[str, Any]:
     }
     _jobs[job["id"]] = job
     _active_jobs[owner] = job["id"]
-    asyncio.create_task(_run_job(access_token, owner, job, messages))
+    asyncio.create_task(_run_job(access_token, owner, job, messages, user_name))
     return _snapshot(job)
 
 
@@ -685,8 +948,8 @@ def _attach_owner(job: dict[str, Any], access_token: str) -> None:
     job["owner"] = _owner(access_token)
 
 
-async def queue_and_attach(access_token: str) -> dict[str, Any]:
-    result = await queue_unread_inbox_triage(access_token)
+async def queue_and_attach(access_token: str, user_name: str | None = None) -> dict[str, Any]:
+    result = await queue_unread_inbox_triage(access_token, user_name)
     job = _jobs.get(result["id"])
     if job:
         _attach_owner(job, access_token)
@@ -774,12 +1037,37 @@ async def apply_saved_triage_changes(access_token: str, payload: dict[str, Any])
                     raise ValueError(f"Gmail label not found: {label_name}")
                 await modify_gmail_message_labels(access_token, raw_message_id, add_label_ids=[label_id])
                 action = "labeled"
+            elif suggestion.get("kind") == "reply" and suggestion.get("draft"):
+                # The one place applying a triage suggestion actually writes
+                # beyond a label: explicitly checking a reply suggestion and
+                # hitting Save is the human selection this app requires
+                # before ever touching Gmail's Drafts. Still never sends —
+                # that stays a separate, explicit action of its own.
+                if await _draft_proposal_already_executed(access_token, message_id):
+                    # The matching save_draft proposal (see _propose_saving_draft)
+                    # was already approved and executed from the Review page —
+                    # this same reply is already sitting in Gmail Drafts.
+                    # Never create a second, duplicate draft for it here.
+                    action = "drafted"
+                else:
+                    subject = str(suggestion.get("subject") or "")
+                    draft = await create_gmail_draft(
+                        access_token,
+                        to=str(suggestion.get("fromEmail") or ""),
+                        subject=subject if subject.casefold().startswith("re:") else f"Re: {subject}",
+                        body=str(suggestion.get("draft") or ""),
+                        thread_id=str(suggestion.get("threadId") or "") or None,
+                    )
+                    action = "drafted"
+                    # The reverse direction — reconcile the other approval
+                    # surface's PENDING proposal for this same draft so it
+                    # doesn't go on asking to save something already saved.
+                    await _resolve_matching_draft_proposal(access_token, message_id, str(draft.get("id") or ""))
             else:
-                # "reply"/"task" suggestions with no historical label have no
-                # filing action to take — actually replying or creating a task
-                # happens through their own explicit UI (the Reply button,
-                # Google Tasks), never invented here. Applying just
-                # acknowledges the review.
+                # "task" suggestions (and any "reply" with no draft to save)
+                # have no filing action to take — creating a task happens
+                # through its own explicit UI (Google Tasks), never invented
+                # here. Applying just acknowledges the review.
                 action = "reviewed"
             await modify_gmail_message_labels(access_token, raw_message_id, remove_label_ids=["UNREAD"])
             suggestion["appliedAction"] = action

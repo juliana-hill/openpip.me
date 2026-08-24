@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from datetime import UTC, date, datetime, timedelta
+from email.message import EmailMessage
 from email.utils import parseaddr
 from typing import Any
 from urllib.parse import quote
@@ -323,6 +324,10 @@ def _normalize_gmail_message(detail: dict[str, Any], *, include_body: bool = Fal
         # standard deep-link form (works regardless of which label/folder
         # the message is under, unlike "#inbox/{id}").
         "gmailUrl": f"https://mail.google.com/mail/u/0/#all/{message_id}",
+        # Gmail's own conversation grouping — needed to create a reply draft
+        # that lands in the same thread instead of a new top-level one (see
+        # create_gmail_draft).
+        "threadId": str(detail.get("threadId") or ""),
         "date": _gmail_date(str(detail.get("internalDate", "")), _gmail_header(headers, "Date")),
         "unread": "UNREAD" in detail.get("labelIds", []),
         "source": "gmail",
@@ -415,6 +420,40 @@ async def create_gmail_label(access_token: str, name: str) -> dict[str, Any]:
             json_body={"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"},
         )
     return _normalize_gmail_label(label) or {"id": str(label.get("id") or ""), "name": name, "color": _fallback_gmail_label_color(name), "createdAt": "", "updatedAt": ""}
+
+
+async def create_gmail_draft(
+    access_token: str,
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    thread_id: str | None = None,
+) -> dict[str, Any]:
+    """Create a real Gmail draft — deliberately the one exception to this
+    project's "propose, never act" rule for email. A draft is private (only
+    the signed-in user ever sees it) and fully reversible (delete it in
+    Gmail like any other draft), unlike actually sending, which stays
+    proposal-gated as its own, later, separate approval. thread_id (Gmail's
+    own conversation id, not an RFC822 Message-ID) keeps a reply grouped
+    with the message it's answering instead of starting a new thread.
+    """
+    message = EmailMessage()
+    message["To"] = to
+    message["Subject"] = subject
+    message.set_content(body)
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    draft_message: dict[str, Any] = {"raw": raw}
+    if thread_id:
+        draft_message["threadId"] = thread_id
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        return await _request_json(
+            client,
+            "POST",
+            "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+            access_token,
+            json_body={"message": draft_message},
+        )
 
 
 async def update_gmail_label(access_token: str, label_id: str, name: str) -> dict[str, Any]:

@@ -7,8 +7,7 @@ import { ArrowUp, Mic, MicOff, X, History, ChevronLeft, SquarePen, Trash2, Rotat
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { idbListChatSessions, idbReadChatSession, idbWriteChatSession, idbWriteChatMessage, idbDeleteChatSession, type ChatMessage, type ChatSession } from "@/lib/idb";
-import { pushUserData, loadAndRestoreUserData, pushPlanningChatSessions, loadAndRestorePlanningChat, pushTasksBackup, loadAndRestoreTasksBackup } from "@/lib/sync";
-import { patchTaskSchedule } from "@/lib/taskStorage";
+import { loadAndRestorePlanningChat } from "@/lib/sync";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { normalizeSkill, SKILL_LABELS, type SkillId } from "@/lib/skills";
 import { RouteComparisonCard } from "@/components/routes/RouteComparisonCard";
@@ -28,17 +27,8 @@ import styles from "@/components/ui/FloatingPanel.module.css";
 import { sendTutorialMessage } from "@/lib/tutorial-ai/provider";
 import { ReadAloudButton, stopReadAloud } from "@/components/ui/ReadAloudButton";
 import { hasNativeSpeechRecognition, prepareOnDeviceTranscription, startLocalRecording, subscribeOnDeviceTranscription, transcribeLocally, type LocalRecording } from "@/lib/speech/onDeviceTranscription";
-import { postToSW } from "@/lib/sw";
 
 type ToolCall = { toolCallId: string; toolName: string; args: Record<string, unknown>; result?: string };
-
-type UiAction =
-  | { type: "flag_task"; taskId: string; source: "google" }
-  | { type: "unflag_task" }
-  | { type: "schedule_task"; taskId: string; scheduledFor: string }
-  | { type: "refresh_tasks" }
-  | { type: "refresh_events" }
-  | { type: "refresh_addresses" };
 
 type FloatingAssistantProps = Readonly<{
   onFlagTask?: (taskId: string, source: "google") => void;
@@ -49,7 +39,7 @@ type FloatingAssistantProps = Readonly<{
 
 type RetryRequest = { message: string; skill: SkillId };
 type DisplayMessage = { role: "user" | "assistant"; content: string; ts: number; toolCalls?: ToolCall[]; retryRequest?: RetryRequest };
-type PendingChat = { sendTs: number; request: RetryRequest; sessionId: string; messageIndex: number };
+type ChatJob = { id: string; status: "running" | "completed" | "failed"; sessionId: string; reply?: string; error?: string };
 
 const TASK_TOOL_NAMES = new Set([
   "get_all_tasks", "get_google_tasks",
@@ -129,7 +119,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
   const bodyRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const msgIndexRef = useRef<number>(0);
-  const pendingChatRef = useRef(new Map<string, PendingChat>());
+  const chatPollCancelRef = useRef<(() => void) | null>(null);
   const loadSession = useCallback(async (sessionId: string): Promise<boolean> => {
     const data = await idbReadChatSession(sessionId);
     if (!data) return false;
@@ -177,86 +167,51 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [messages, sending]);
 
+  const pollChat = useCallback((jobId: string): Promise<ChatJob> => new Promise((resolve, reject) => {
+    let stopped = false;
+    let inFlight = false;
+    let timer: number | null = null;
+
+    const stop = () => {
+      stopped = true;
+      if (timer !== null) window.clearTimeout(timer);
+      if (chatPollCancelRef.current === stop) chatPollCancelRef.current = null;
+    };
+    chatPollCancelRef.current?.();
+    chatPollCancelRef.current = stop;
+
+    const check = async () => {
+      if (stopped || inFlight) return;
+      inFlight = true;
+      try {
+        const response = await proxyFetch(`/agent/chat/status/${jobId}`);
+        if (!response.ok) throw new Error("Chat job was not found.");
+        const job = await response.json() as ChatJob;
+        if (job.status === "completed" || job.status === "failed") {
+          stop();
+          resolve(job);
+          return;
+        }
+        timer = window.setTimeout(() => { void check(); }, 600);
+      } catch (error) {
+        stop();
+        reject(error);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void check();
+  }), []);
+
+  useEffect(() => () => chatPollCancelRef.current?.(), []);
+
   useEffect(() => {
     const el = inputRef.current;
     if (!el) return;
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [text]);
-
-  useEffect(() => {
-    const channel = new BroadcastChannel("route-jobs");
-    const onMessage = (event: MessageEvent<{
-      type?: string;
-      jobId?: string;
-      status?: string;
-      partial?: string;
-      toolCalls?: ToolCall[];
-      uiAction?: UiAction;
-      actions?: Array<{ action: string; route?: string; [key: string]: unknown }>;
-    }>) => {
-      const update = event.data;
-      if ((update.type !== "CHAT_UPDATE" && update.type !== "CHAT_404") || !update.jobId) return;
-      const pending = pendingChatRef.current.get(update.jobId);
-      if (!pending) return;
-
-      const updateAssistant = (content: string, toolCalls?: ToolCall[]) => {
-        setMessages((previous) => {
-          const index = previous.findIndex((message) => message.ts === pending.sendTs + 1);
-          if (index < 0) return [...previous, { role: "assistant", content, ts: pending.sendTs + 1, toolCalls }];
-          const next = [...previous];
-          next[index] = { ...next[index], content, toolCalls: toolCalls ?? next[index].toolCalls };
-          return next;
-        });
-      };
-
-      if (update.type === "CHAT_UPDATE" && update.status === "running") {
-        if (update.partial || update.toolCalls?.length) updateAssistant(update.partial ?? "", update.toolCalls);
-        return;
-      }
-
-      if (update.type === "CHAT_UPDATE" && update.status === "completed") {
-        pendingChatRef.current.delete(update.jobId);
-        const result = update.partial ?? "";
-        updateAssistant(result, update.toolCalls ?? []);
-        for (const action of update.actions ?? []) {
-          if (action.action === "navigate" && typeof action.route === "string") router.push(action.route);
-          else window.dispatchEvent(new CustomEvent("agent-action", { detail: action }));
-        }
-        if (update.uiAction?.type === "flag_task") {
-          onFlagTask?.(update.uiAction.taskId, update.uiAction.source);
-        } else if (update.uiAction?.type === "unflag_task") {
-          onUnflagTask?.();
-        } else if (update.uiAction?.type === "schedule_task") {
-          const { taskId, scheduledFor } = update.uiAction;
-          void patchTaskSchedule(taskId, { scheduledFor }).then(() => onScheduleTask?.(taskId, scheduledFor));
-        }
-        pushPlanningChatSessions().catch((error) => console.warn("[assistant] failed to push chat history:", error));
-        void Promise.all([loadAndRestoreUserData(), loadAndRestoreTasksBackup(), loadAndRestorePlanningChat()]);
-        onAgentAction?.();
-        setChips([]);
-        setSending(false);
-        inputRef.current?.focus();
-        return;
-      }
-
-      if (update.type === "CHAT_404" || (update.type === "CHAT_UPDATE" && update.status === "failed")) {
-        pendingChatRef.current.delete(update.jobId);
-        const failure = "Couldn't reach the assistant — try again.";
-        updateAssistant(failure);
-        setMessages((previous) => previous.map((message) =>
-          message.ts === pending.sendTs ? { ...message, retryRequest: pending.request } : message
-        ));
-        if (update.type === "CHAT_404") {
-          void idbWriteChatMessage(pending.sessionId, pending.messageIndex, "assistant", failure, undefined, "failed");
-        }
-        setSending(false);
-        inputRef.current?.focus();
-      }
-    };
-    channel.addEventListener("message", onMessage);
-    return () => channel.close();
-  }, [onAgentAction, onFlagTask, onScheduleTask, onUnflagTask, router]);
 
   const handleSend = async (retryRequest?: RetryRequest) => {
     const msg = (retryRequest?.message ?? text).trim();
@@ -322,9 +277,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
       return;
     }
 
-    let handedToServiceWorker = false;
     try {
-      await Promise.all([pushUserData(), pushTasksBackup(), pushPlanningChatSessions()]);
       const now = new Date().toLocaleString(undefined, {
         weekday: "long", year: "numeric", month: "long", day: "numeric",
         hour: "numeric", minute: "2-digit", timeZoneName: "short",
@@ -344,46 +297,46 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
         chipContext = `\n\n[Attached context:\n${lines.join("\n")}]`;
       }
 
-      const startRes = await proxyFetch("/agent/chat", {
+      const response = await proxyFetch("/agent/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: `Today: ${now} - ${msg}${chipContext}`, skill: selectedSkill, agentName, sessionId: sessionIdRef.current }),
+        body: JSON.stringify({
+          message: msg,
+          context: `Today: ${now}${chipContext}`,
+          skill: selectedSkill,
+          agentName,
+          sessionId: sessionIdRef.current,
+        }),
       });
-      const startData = (await startRes.json()) as { jobId?: string; error?: string };
-      if (!startRes.ok || !startData.jobId) {
-        const rawErr = startData.error ?? "";
-        const errMsg = rawErr.toLowerCase().includes("no claude backend")
-          ? "The Executive Assistant service is not available yet. Please try again later."
-          : rawErr || "Something went wrong. Please try again.";
+      const startData = (await response.json()) as { id?: string; detail?: string; error?: string };
+      if (!response.ok || !startData.id) {
+        const rawErr = startData.detail ?? startData.error ?? "";
+        const errMsg = rawErr || "Something went wrong. Please try again.";
         await recordFailure(errMsg);
         setSending(false);
         return;
       }
-      const { jobId } = startData;
+      const job = await pollChat(startData.id);
+      if (job.status !== "completed" || !job.reply) {
+        await recordFailure(job.error || "The assistant could not finish this request. Please try again.");
+        setSending(false);
+        return;
+      }
+      if (job.sessionId && job.sessionId !== sessionIdRef.current) {
+        sessionIdRef.current = job.sessionId;
+        setActiveSessionId(job.sessionId);
+      }
       const assistantIndex = msgIndexRef.current;
       msgIndexRef.current += 1;
-      pendingChatRef.current.set(jobId, {
-        sendTs,
-        request,
-        sessionId: sessionIdRef.current!,
-        messageIndex: assistantIndex,
-      });
-      await postToSW({
-        type: "START_CHAT_POLL",
-        jobId,
-        sessionId: sessionIdRef.current,
-        messageIndex: assistantIndex,
-        message: msg,
-      });
+      await idbWriteChatMessage(sessionIdRef.current!, assistantIndex, "assistant", job.reply, undefined, "completed");
+      setMessages((prev) => [...prev, { role: "assistant", content: job.reply!, ts: Date.now() }]);
       setChips([]);
-      handedToServiceWorker = true;
+      onAgentAction?.();
     } catch {
       await recordFailure("Couldn't reach the assistant — try again.");
     } finally {
-      if (!handedToServiceWorker) {
-        setSending(false);
-        inputRef.current?.focus();
-      }
+      setSending(false);
+      inputRef.current?.focus();
     }
   };
 

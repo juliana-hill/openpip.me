@@ -8,7 +8,7 @@ import {
   idbListSearches,
   idbSetUserPrefs,
   pushUserData
-} from "./chunk-EJQYZBM4.js";
+} from "./chunk-PV4AZV46.js";
 import {
   AppHeader,
   Link,
@@ -68,6 +68,8 @@ var DashboardPage_default = {
   pipelineStatus: "DashboardPage_pipelineStatus",
   pipelineText: "DashboardPage_pipelineText",
   pipelineMeta: "DashboardPage_pipelineMeta",
+  pipelineRunningRow: "DashboardPage_pipelineRunningRow",
+  pipelineStartRow: "DashboardPage_pipelineStartRow",
   pipelineStatusDot: "DashboardPage_pipelineStatusDot",
   pipelinePulse: "DashboardPage_pipelinePulse",
   pipelineComplete: "DashboardPage_pipelineComplete",
@@ -465,19 +467,21 @@ function DashboardPage({ userName, userImage }) {
             " in progress"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
-          isPipelineRunning ? (
-            // The pulsing dot already says "a scan is running" — a second,
-            // merely-disabled "Run new scan" button next to it was
-            // redundant and read as broken. Nothing to click while one
-            // is already in flight, so nothing renders here.
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: isPipelineRunning ? (
+          // The pulsing dot already says "a scan is running" — a second,
+          // merely-disabled "Run new scan" button next to it was
+          // redundant and read as broken. Nothing to click while one
+          // is already in flight, so only "Show details" and the dot
+          // render here, side by side.
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.pipelineRunningRow, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.showDetailsLink, onClick: () => setRunHistoryOpen(true), children: "Show details" }),
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" })
-          ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" })
-          ] }),
-          isPipelineRunning ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.showDetailsLink, onClick: () => setRunHistoryOpen(true), children: "Show details" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
-        ] })
+          ] })
+        ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
+        ] }) })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
@@ -490,7 +494,7 @@ function DashboardPage({ userName, userImage }) {
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: "Scan for useful next actions and prepare suggestions for you to review." })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void requestDashboardPipeline(), children: "Start workspace scan" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void requestDashboardPipeline(), children: "Start workspace scan" }) }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
         ] })
       ] })),

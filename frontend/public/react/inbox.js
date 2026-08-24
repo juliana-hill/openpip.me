@@ -4,7 +4,7 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-EJQYZBM4.js";
+} from "./chunk-PV4AZV46.js";
 import {
   AppHeader,
   Link,
@@ -640,7 +640,7 @@ function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onDelete, 
       /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.top, children: [
         /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: `${EmailRow_default.subject} ${email.unread ? EmailRow_default.bold : ""}`, children: email.subject }),
         email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.gmailDraftStatus, children: "Draft" }),
-        email.hasDraft && !email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.draftStatus, children: "Reply suggestion" }),
+        email.hasDraft && !email.gmailDraft && /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: EmailRow_default.draftStatus, children: "Draft" }),
         /* @__PURE__ */ (0, import_jsx_runtime7.jsx)("span", { className: `${EmailRow_default.sourceBadge} ${EmailRow_default.source_gmail}`, children: "Gmail" }),
         assignedTags.map((tag) => /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(TagBadge, { tag, size: "sm", onRemove: () => handleRemove(tag) }, tag.id)),
         assignable.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: EmailRow_default.tagDropdownWrap, onClick: (e) => e.stopPropagation(), children: [

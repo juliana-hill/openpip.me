@@ -90,7 +90,7 @@ export function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onD
         <div className={styles.top}>
           <span className={`${styles.subject} ${email.unread ? styles.bold : ""}`}>{email.subject}</span>
           {email.gmailDraft && <span className={styles.gmailDraftStatus}>Draft</span>}
-          {email.hasDraft && !email.gmailDraft && <span className={styles.draftStatus}>Reply suggestion</span>}
+          {email.hasDraft && !email.gmailDraft && <span className={styles.draftStatus}>Draft</span>}
           <span className={`${styles.sourceBadge} ${styles.source_gmail}`}>Gmail</span>
           {assignedTags.map((tag) => (
             <TagBadge key={tag.id} tag={tag} size="sm" onRemove={() => handleRemove(tag)} />

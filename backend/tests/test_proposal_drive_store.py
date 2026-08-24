@@ -238,6 +238,63 @@ def test_auto_retry_failed_respects_the_attempt_cap(monkeypatch) -> None:
     asyncio.run(run())
 
 
+def test_list_decision_history_spans_every_post_accept_status(monkeypatch) -> None:
+    """"Accepted" history must include a proposal regardless of what
+    happened to it after — still approved, executing, failed, or
+    successfully executed — since the decision (accept) is separate from
+    execution outcome. Sorted by decided_at, not created_at."""
+    fake_send, _files = _fake_drive()
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+
+    async def run():
+        approved_only = await pds.add("token", _proposal(
+            title="Still approved", idempotency_key="k:approved",
+            source=SourceReference(kind="task", id="task:a", title="a"),
+        ))
+        await pds.decide("token", approved_only.id, ProposalStatus.APPROVED)
+
+        executed = await pds.add("token", _proposal(
+            title="Executed", idempotency_key="k:executed",
+            source=SourceReference(kind="task", id="task:b", title="b"),
+        ))
+        await pds.decide("token", executed.id, ProposalStatus.APPROVED)
+        await pds.claim_execution("token", executed.id)
+        await pds.mark_executed("token", executed.id, "mock://actions/1")
+
+        rejected = await pds.add("token", _proposal(
+            title="Rejected", idempotency_key="k:rejected",
+            source=SourceReference(kind="task", id="task:c", title="c"),
+        ))
+        await pds.decide("token", rejected.id, ProposalStatus.REJECTED)
+
+        accepted_history = await pds.list_decision_history("token", "accepted")
+        rejected_history = await pds.list_decision_history("token", "rejected")
+        return accepted_history, rejected_history
+
+    accepted_history, rejected_history = asyncio.run(run())
+    assert {p.title for p in accepted_history} == {"Still approved", "Executed"}
+    assert [p.title for p in rejected_history] == ["Rejected"]
+    # decided_at descending — the more recently decided one comes first.
+    assert accepted_history[0].decided_at >= accepted_history[1].decided_at
+
+
+def test_list_decision_history_respects_the_limit(monkeypatch) -> None:
+    fake_send, _files = _fake_drive()
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+
+    async def run():
+        for i in range(15):
+            proposal = await pds.add("token", _proposal(
+                title=f"Task {i}", idempotency_key=f"k:{i}",
+                source=SourceReference(kind="task", id=f"task:{i}", title=f"t{i}"),
+            ))
+            await pds.decide("token", proposal.id, ProposalStatus.REJECTED)
+        return await pds.list_decision_history("token", "rejected", limit=10)
+
+    result = asyncio.run(run())
+    assert len(result) == 10
+
+
 def test_migrate_legacy_sqlite_proposals_is_idempotent(monkeypatch, tmp_path) -> None:
     fake_send, _files = _fake_drive()
     monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)

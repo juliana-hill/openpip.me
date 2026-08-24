@@ -16,18 +16,10 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton,
-  clearPersistedActiveTask,
-  deleteTaskSchedule,
-  getAllTaskSchedules,
-  getPersistedActiveTask,
-  getTaskSchedule,
   idbAddNotification,
   idbGetUserPrefs,
-  idbSetUserPrefs,
-  postToSW,
-  saveTaskElapsed,
-  setPersistedActiveTask
-} from "./chunk-EJQYZBM4.js";
+  idbSetUserPrefs
+} from "./chunk-PV4AZV46.js";
 import {
   AppHeader,
   Markdown,
@@ -635,6 +627,57 @@ function TaskList({ sections, loading, activeTask, onFlag, onComplete }) {
   }
   return /* @__PURE__ */ (0, import_jsx_runtime9.jsx)("div", { style: { gridColumn: "span 12", width: "100%", minWidth: 0, display: "flex", flexDirection: "column", gap: "24px" }, children: sections.map((section) => /* @__PURE__ */ (0, import_jsx_runtime9.jsx)(SectionBlock, { section, activeTask, onFlag, onComplete }, section.label)) });
 }
+
+// lib/taskStorage.ts
+async function getPersistedActiveTask() {
+  const res = await proxyFetch("/agent/tasks/active");
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.active ?? null;
+}
+async function setPersistedActiveTask(value) {
+  await proxyFetch("/agent/tasks/active", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value)
+  }).catch(() => {
+  });
+}
+async function clearPersistedActiveTask() {
+  await proxyFetch("/agent/tasks/active", { method: "DELETE" }).catch(() => {
+  });
+}
+async function getAllTaskSchedules() {
+  const res = await proxyFetch("/agent/tasks/schedules");
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Object.entries(data.schedules ?? {}).map(([taskId, entry]) => ({ taskId, ...entry }));
+}
+async function getTaskSchedule(taskId) {
+  const res = await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.schedule ?? null;
+}
+async function patchTaskSchedule(taskId, patch) {
+  await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch)
+  }).catch(() => {
+  });
+}
+async function saveTaskElapsed(taskId, elapsedMs) {
+  return patchTaskSchedule(taskId, { elapsedMs });
+}
+async function deleteTaskSchedule(taskId) {
+  await proxyFetch(`/agent/tasks/schedules/${encodeURIComponent(taskId)}`, { method: "DELETE" }).catch(() => {
+  });
+}
+
+// compat/no-sw.ts
+var postToSW = async (_message) => {
+};
 
 // components/tasks/TasksDashboard.module.css
 var TasksDashboard_default = {

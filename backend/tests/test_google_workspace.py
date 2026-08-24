@@ -1,7 +1,13 @@
+import asyncio
+import base64
+import json
+from email import message_from_bytes, policy
+
+import httpx
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app
-from openpip_backend.google_workspace import _extract_gmail_content
+from openpip_backend.google_workspace import _extract_gmail_content, create_gmail_draft
 
 
 def test_google_reads_require_an_oauth_token() -> None:
@@ -310,3 +316,46 @@ def test_agent_user_data_is_stored_in_drive_app_data(monkeypatch) -> None:
     loaded = client.get("/agent/user/data", headers=headers)
     assert loaded.status_code == 200
     assert loaded.json() == saved.json()
+
+
+def test_create_gmail_draft_posts_a_correctly_encoded_message(monkeypatch) -> None:
+    """The one write this app makes beyond labels/trash — worth verifying
+    the raw message is actually a valid, correctly-addressed RFC822
+    message, not just that some request was sent."""
+    captured: dict[str, object] = {}
+
+    async def fake_send(self, request, **kwargs):
+        assert request.method == "POST"
+        assert str(request.url).startswith("https://gmail.googleapis.com/gmail/v1/users/me/drafts")
+        body = json.loads(request.content)
+        captured["body"] = body
+        return httpx.Response(200, json={"id": "draft-1"}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+
+    result = asyncio.run(create_gmail_draft(
+        "oauth-token", to="client@example.com", subject="Re: Invoice",
+        body="Thanks for reaching out.", thread_id="thread-abc",
+    ))
+
+    assert result == {"id": "draft-1"}
+    raw = captured["body"]["message"]["raw"]
+    parsed = message_from_bytes(base64.urlsafe_b64decode(raw), policy=policy.default)
+    assert parsed["To"] == "client@example.com"
+    assert parsed["Subject"] == "Re: Invoice"
+    assert parsed.get_content().strip() == "Thanks for reaching out."
+    assert captured["body"]["message"]["threadId"] == "thread-abc"
+
+
+def test_create_gmail_draft_omits_thread_id_when_not_replying(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_send(self, request, **kwargs):
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "draft-2"}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+
+    asyncio.run(create_gmail_draft("oauth-token", to="a@example.com", subject="Hi", body="Hello"))
+
+    assert "threadId" not in captured["body"]["message"]

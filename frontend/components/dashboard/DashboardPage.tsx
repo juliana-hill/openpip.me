@@ -325,20 +325,20 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
                 // The pulsing dot already says "a scan is running" — a second,
                 // merely-disabled "Run new scan" button next to it was
                 // redundant and read as broken. Nothing to click while one
-                // is already in flight, so nothing renders here.
-                <span className={`${styles.pipelineStatusDot} ${styles.pipelinePulse}`} aria-label="Scan in progress" />
+                // is already in flight, so only "Show details" and the dot
+                // render here, side by side.
+                <div className={styles.pipelineRunningRow}>
+                  <button type="button" className={styles.showDetailsLink} onClick={() => setRunHistoryOpen(true)}>Show details</button>
+                  <span className={`${styles.pipelineStatusDot} ${styles.pipelinePulse}`} aria-label="Scan in progress" />
+                </div>
               ) : (
                 <>
                   <button type="button" className={styles.assistantPrimaryBtn} onClick={() => setRunHistoryOpen(true)}>Review details</button>
                   <button type="button" className={styles.assistantSecondaryBtn} onClick={() => void requestDashboardPipeline()}>
                     Run new scan
                   </button>
+                  <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
                 </>
-              )}
-              {isPipelineRunning ? (
-                <button type="button" className={styles.showDetailsLink} onClick={() => setRunHistoryOpen(true)}>Show details</button>
-              ) : (
-                <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
               )}
             </div>
           </section>
@@ -350,7 +350,13 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
               <p className={styles.assistantPromptCopy}>Scan for useful next actions and prepare suggestions for you to review.</p>
             </div>
             <div className={styles.assistantPromptActions}>
-              <button type="button" className={styles.assistantPrimaryBtn} onClick={() => void requestDashboardPipeline()}>Start workspace scan</button>
+              {/* Alone in the grid's first column, "Start workspace scan"
+                  sat nearer the left than the container's true right edge
+                  — grid-column: 1 / -1 + justify-self: end on this wrapper
+                  pins it there, same treatment as .pipelineRunningRow. */}
+              <div className={styles.pipelineStartRow}>
+                <button type="button" className={styles.assistantPrimaryBtn} onClick={() => void requestDashboardPipeline()}>Start workspace scan</button>
+              </div>
               <p className={styles.assistantPromptTrust}>Nothing is changed without your approval.</p>
             </div>
           </section>

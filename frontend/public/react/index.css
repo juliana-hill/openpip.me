@@ -289,15 +289,21 @@
   font-size: var(--font-size-xs);
   margin: 0;
 }
+.DashboardPage_pipelineRunningRow,
+.DashboardPage_pipelineStartRow {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  grid-column: 1 / -1;
+  justify-self: end;
+}
 .DashboardPage_pipelineStatusDot {
   background: var(--color-text-muted);
   border: 3px solid var(--color-surface);
   border-radius: 50%;
   display: block;
   flex: 0 0 13px;
-  grid-column: 1 / -1;
   height: 13px;
-  justify-self: end;
   margin: 2px;
   width: 13px;
 }

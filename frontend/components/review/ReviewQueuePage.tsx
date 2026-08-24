@@ -7,6 +7,7 @@ import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { ExecutionProgressModal, type ExecutionTick } from "./ExecutionProgressModal";
+import { ReviewHistoryModal } from "./ReviewHistoryModal";
 import styles from "./ReviewQueuePage.module.css";
 
 export type ReviewItem = {
@@ -38,6 +39,7 @@ export function ReviewQueuePage({ userName, userImage }: { userName: string; use
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState<ExecutionTick | null>(null);
   const [progressOpen, setProgressOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const tickTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadItems = useCallback(() => {
@@ -86,10 +88,17 @@ export function ReviewQueuePage({ userName, userImage }: { userName: string; use
       <AppHeader userImage={userImage} userName={userName} initials={initials} backHref="/" backLabel="Home" />
       <main className={styles.page}>
         <div className={styles.heading}>
-          <p className={styles.eyebrow}>Human decision needed</p>
-          <h1>Ready for review</h1>
+          <div className={styles.headingTop}>
+            <div>
+              <p className={styles.eyebrow}>Human decision needed</p>
+              <h1>Ready for review</h1>
+            </div>
+            <button type="button" className={styles.historyBtn} onClick={() => setHistoryOpen(true)}>History</button>
+          </div>
           <p>These are the outcomes your agent prepared. Nothing is sent or submitted without your approval.</p>
         </div>
+
+        <ReviewHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
 
         {showExecutionCard && tick && (
           <section className={styles.executionCard} aria-live="polite">

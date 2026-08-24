@@ -118,6 +118,28 @@ async def list_proposals(access_token: str, status: ProposalStatus | None = None
     return sorted(proposals, key=lambda p: p.created_at, reverse=True)
 
 
+async def list_decision_history(access_token: str, decision: str, limit: int = 10) -> list[Proposal]:
+    """Past decisions for the Review page's History view. "accepted" means
+    everything that was ever approved, regardless of what happened to it
+    since — still approved, executing, failed, or successfully executed —
+    since the decision itself (accept vs reject) is orthogonal to execution
+    status. "rejected" is just the rejected folder. Sorted by decided_at
+    (when the decision was made, not when the proposal was first created)
+    and capped at `limit` — a recent-history view, not a full audit export."""
+    if decision == "rejected":
+        proposals = await list_proposals(access_token, ProposalStatus.REJECTED)
+    elif decision == "accepted":
+        folder_results = await asyncio.gather(
+            list_json_files(access_token, _ACCEPTED_FOLDER),
+            list_json_files(access_token, _COMPLETED_FOLDER),
+        )
+        proposals = [Proposal.model_validate(data) for files in folder_results for data in files.values()]
+    else:
+        raise ValueError("decision must be 'accepted' or 'rejected'")
+    proposals.sort(key=lambda p: p.decided_at or p.created_at, reverse=True)
+    return proposals[:limit]
+
+
 async def add(access_token: str, proposal: Proposal) -> Proposal:
     """Refuses to create a second copy of the same idempotency_key,
     returning the existing one instead — same contract the old

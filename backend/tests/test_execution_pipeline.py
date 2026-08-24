@@ -16,7 +16,7 @@ from test_proposal_drive_store import _fake_drive, _proposal
 
 
 class _FakeExecutor:
-    def execute(self, proposal: Proposal):
+    async def execute(self, proposal: Proposal, access_token: str | None = None):
         from openpip_backend.executor import ExecutionResult
         return ExecutionResult(reference=f"mock://actions/{proposal.id}")
 

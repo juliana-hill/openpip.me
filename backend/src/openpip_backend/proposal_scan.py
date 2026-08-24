@@ -1,12 +1,13 @@
 """Approval-first workspace proposal scan — the Dashboard's "assistant" card.
 
-Unlike the Inbox Assistant (rule-based, no LLM — see inbox_triage.py), this
-scan genuinely needs an agent's judgment: it reads across Tasks, Calendar,
-Contacts, and recent Gmail history and has to weigh which of them, if any,
-is actually worth a human's attention right now, steered by the user's own
-Proactive Proposals guidelines (see agent.py's load_context_documents).
-That's a fundamentally different job than classifying one email against a
-fixed set of patterns.
+Distinct from the Inbox Assistant (see inbox_triage.py), which now also uses
+agent judgment but only ever reads the user's unread Gmail — this scan reads
+across Tasks, Calendar, Contacts, and recent Gmail history and has to weigh
+which of them, if any, is actually worth a human's attention right now,
+steered by the user's own Proactive Proposals guidelines (see agent.py's
+load_context_documents). Neither pipeline drafts a reply on the other's
+behalf: a drafted reply proposal (action="save_draft") only ever comes from
+inbox_triage.py's own run, never from this scan.
 
 Gmail history is the one source too large to hand the model in a single
 prompt, so it's the only one batched (_EMAIL_BATCH_SIZE) — every batch is
@@ -56,8 +57,15 @@ _CONTACT_STALE_DAYS = 21
 # 90 days was missing genuinely-relevant older threads (e.g. a still-open
 # follow-up with a contact last emailed 4 months ago).
 _HISTORICAL_WINDOW_DAYS = 180
-_CALENDAR_LOOKBACK_DAYS = 30
-_CALENDAR_LOOKAHEAD_DAYS = 14
+# Forward-looking only, 6 months out — matching _HISTORICAL_WINDOW_DAYS'
+# precedent. Calendar signals exist to catch unfinished tasks and propose
+# scheduling something in (or reorganizing what's already booked) for the
+# user's future, never to use a past event as "evidence" after the fact —
+# see _calendar_signals.
+_CALENDAR_LOOKAHEAD_DAYS = 180
+# Same forward window, for tasks due later than today — see
+# _open_task_signals' "upcoming" urgency.
+_TASK_LOOKAHEAD_DAYS = 180
 # "Connected multiple times / have an email thread with" — the minimum
 # distinct-message count within the historical window before an untracked
 # correspondent is worth proposing as a contact to track.
@@ -101,9 +109,25 @@ def _event(job: dict[str, Any], event_type: str, title: str, detail: str | None 
 # (e.g. Contacts Drive read) must never block proposals built from the rest.
 
 
+_TASK_URGENCY_PRIORITY = {"overdue": 0, "due_today": 1, "asap": 2, "upcoming": 3}
+
+
 async def _open_task_signals(access_token: str) -> list[dict[str, Any]]:
+    """Overdue/due-today/ASAP tasks need action now. A task due further out
+    (within _TASK_LOOKAHEAD_DAYS) is included too, tagged "upcoming" — not
+    because it needs chasing yet, but because the scan can't match anything
+    against a future-pinned task (e.g. a sale email against a "check out
+    sale" task dated next month — see guideline_templates.py's
+    GOALS_PROACTIVE_REVIEW_SAMPLE) unless that task is actually in context.
+    task_followup's own prompt rule still restricts itself to
+    overdue/ASAP/due-today only — "upcoming" tasks are visible context for
+    other kinds (task_complete, task_followup once genuinely due), not
+    something this signal alone proposes chasing. Overdue/due-today/ASAP
+    tasks are sorted first so a long list of far-future tasks never crowds
+    out what actually needs attention now."""
     tasks = await fetch_google_tasks(access_token)
     today = datetime.now(UTC).date()
+    lookahead = today + timedelta(days=_TASK_LOOKAHEAD_DAYS)
     candidates: list[dict[str, Any]] = []
     for task in tasks:
         if task.get("completed") or not task.get("id"):
@@ -117,12 +141,15 @@ async def _open_task_signals(access_token: str) -> list[dict[str, Any]]:
                     urgency = "overdue"
                 elif due == today:
                     urgency = "due_today"
+                elif due <= lookahead:
+                    urgency = "upcoming"
             except ValueError:
                 pass
         if urgency is None and task.get("priority") == "ASAP":
             urgency = "asap"
         if urgency:
             candidates.append({**task, "urgency": urgency})
+    candidates.sort(key=lambda t: _TASK_URGENCY_PRIORITY.get(t["urgency"], 99))
     return candidates[:20]
 
 
@@ -164,13 +191,14 @@ async def _contact_followup_signals(access_token: str) -> list[dict[str, Any]]:
 
 
 async def _calendar_signals(access_token: str) -> list[dict[str, Any]]:
-    """Both directions, not just ahead — a past event is exactly the kind of
-    evidence that closes a task (e.g. "schedule a doctor visit" already has a
-    calendar entry), and one 7 days out was too narrow to catch anything
-    scheduled slightly further ahead."""
-    from_date = (datetime.now(UTC).date() - timedelta(days=_CALENDAR_LOOKBACK_DAYS)).isoformat()
+    """Forward-looking only. The point of handing the model calendar
+    context is to catch unfinished tasks and propose scheduling something in
+    — or reorganizing what's already on the calendar — for the user's
+    future, never to treat a past event as "evidence" a task is already
+    done after the fact (that read backward, which is exactly what this
+    scan should not do). See _CALENDAR_LOOKAHEAD_DAYS."""
     calendars = await fetch_google_calendars(
-        access_token, from_date=from_date, days=_CALENDAR_LOOKBACK_DAYS + _CALENDAR_LOOKAHEAD_DAYS,
+        access_token, from_date=datetime.now(UTC).date().isoformat(), days=_CALENDAR_LOOKAHEAD_DAYS,
     )
     events = [event for calendar in calendars for event in calendar.get("events", [])]
     return events[:20]

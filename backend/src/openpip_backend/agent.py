@@ -104,7 +104,13 @@ def _executive_assistant_model():
     return BedrockModel(model_id=EXECUTIVE_ASSISTANT_MODEL_ID, region_name=region)
 
 
-def build_executive_assistant(context_block: str = "", agent_name: str = DEFAULT_AGENT_NAME):
+def build_executive_assistant(
+    context_block: str = "",
+    agent_name: str = DEFAULT_AGENT_NAME,
+    *,
+    extra_tools: list[Any] | None = None,
+    messages: list[dict[str, Any]] | None = None,
+):
     """Construct the Executive Assistant with on-demand tools.
 
     Travel is intentionally supplied as a callable tool rather than embedded in
@@ -119,12 +125,26 @@ def build_executive_assistant(context_block: str = "", agent_name: str = DEFAULT
     persistent, standing context about who this assistant is for this user,
     not a one-off request, so it belongs folded into system_prompt here, never
     mixed into a per-turn user prompt like build_briefing_prompt() builds.
+
+    `extra_tools` — currently the two chat-history tools (see
+    tools/chat_history.py) — are appended for callers that need them (the
+    /agent/chat endpoint) without changing the tool surface for callers that
+    don't (proposal_scan.py's workspace scan, which never needs a
+    conversational memory tool). `messages` seeds short-term memory (the
+    chat endpoint's last several turns of the current session) directly
+    into the Agent's own conversation state — see chat_history_store.
+    get_recent_messages; every other caller leaves this unset and starts
+    from an empty conversation, same as before.
     """
     from strands import Agent
 
     prompt = _system_prompt(agent_name.strip() or DEFAULT_AGENT_NAME)
     system_prompt = f"{prompt}\n\n{context_block}" if context_block else prompt
-    return Agent(system_prompt=system_prompt, tools=[travel_agent], model=_executive_assistant_model())
+    tools = [travel_agent, *(extra_tools or [])]
+    return Agent(
+        system_prompt=system_prompt, tools=tools, model=_executive_assistant_model(),
+        messages=messages,
+    )
 
 
 def extract_agent_text(result: Any) -> str:

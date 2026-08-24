@@ -75,7 +75,7 @@ async def _execute_one(access_token: str, proposal_id: str, executor: ActionExec
     except (KeyError, ValueError):
         return None
     try:
-        result = executor.execute(proposal)
+        result = await executor.execute(proposal, access_token)
     except Exception as error:  # noqa: BLE001 - any executor failure must still be recorded, not raised
         return await store.mark_failed(access_token, proposal_id, str(error))
     return await store.mark_executed(access_token, proposal_id, result.reference)

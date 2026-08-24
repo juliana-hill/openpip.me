@@ -199,13 +199,13 @@
 .pipelineStatus:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 42%, transparent); outline-offset: 3px; }
 .pipelineText { color: var(--color-text); font-size: var(--font-size-sm); font-weight: 700; margin: 0; }
 .pipelineMeta { color: var(--color-text-muted); font-size: var(--font-size-xs); margin: 0; }
-/* grid-column: 1 / -1 + justify-self: end pin this to the container's right
- * edge regardless of column packing — as the lone child of
- * .assistantPromptActions' 2-column grid (no second button next to it while
- * a scan is running), justify-items/justify-content on the container alone
- * left it sitting nearer the left than the "Run new scan" button it stands
- * in for used to be. */
-.pipelineStatusDot { background: var(--color-text-muted); border: 3px solid var(--color-surface); border-radius: 50%; display: block; flex: 0 0 13px; grid-column: 1 / -1; height: 13px; justify-self: end; margin: 2px; width: 13px; }
+/* .pipelineRunningRow is the lone child of .assistantPromptActions' grid
+ * while a scan is running — grid-column: 1 / -1 + justify-self: end pin
+ * that row to the container's right edge regardless of column packing, and
+ * the row itself lays "Show details" out to the left of the dot. */
+.pipelineRunningRow,
+.pipelineStartRow { align-items: center; display: flex; gap: 8px; grid-column: 1 / -1; justify-self: end; }
+.pipelineStatusDot { background: var(--color-text-muted); border: 3px solid var(--color-surface); border-radius: 50%; display: block; flex: 0 0 13px; height: 13px; margin: 2px; width: 13px; }
 .pipelinePulse { animation: pipelinePulse 1.2s ease-in-out infinite; background: var(--color-accent); box-shadow: 0 0 0 5px color-mix(in srgb, var(--color-accent) 18%, transparent), 0 0 14px color-mix(in srgb, var(--color-accent) 46%, transparent); }
 .pipelineComplete { background: #2b9d61; }
 .pipelineFailed { background: #d94c44; }

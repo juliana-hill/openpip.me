@@ -101,11 +101,17 @@ card), read directly on every scan. Personalize any section below.
   to it.
 
 ## What matters most
-No specific priorities saved yet — weigh overdue tasks, stale contacts,
-and unread mail on their own merits until you add current priorities here.
+- If an email about a sale matches something I've already pinned as a
+  task or calendar event, propose a task to check out that sale, dated
+  for when the sale is happening.
+
+Beyond that, weigh overdue tasks, stale contacts, and unread mail on
+their own merits.
 
 ## Never propose
-- Never treat a promotional or automated email as evidence of anything.
+- Only treat a promotional or automated email as evidence when it matches
+  something already pinned as a task or calendar event (see "What matters
+  most" above) — otherwise, never treat one as evidence of anything.
 - Never propose the same action again once it's already been rejected —
   respect that decision.
 """
