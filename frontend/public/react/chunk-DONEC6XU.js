@@ -5641,33 +5641,33 @@ var require_react_dom_client_development = __commonJS({
       function pingEngtangledActionScope() {
         if (0 === --currentEntangledPendingCount && (-1 < transitionUpdateTime || (transitionStartTime = -1.1), null !== currentEntangledListeners)) {
           null !== currentEntangledActionThenable && (currentEntangledActionThenable.status = "fulfilled");
-          var listeners = currentEntangledListeners;
+          var listeners2 = currentEntangledListeners;
           currentEntangledListeners = null;
           currentEntangledLane = 0;
           currentEntangledActionThenable = null;
-          for (var i = 0; i < listeners.length; i++) (0, listeners[i])();
+          for (var i = 0; i < listeners2.length; i++) (0, listeners2[i])();
         }
       }
       function chainThenableValue(thenable, result) {
-        var listeners = [], thenableWithOverride = {
+        var listeners2 = [], thenableWithOverride = {
           status: "pending",
           value: null,
           reason: null,
           then: function(resolve) {
-            listeners.push(resolve);
+            listeners2.push(resolve);
           }
         };
         thenable.then(
           function() {
             thenableWithOverride.status = "fulfilled";
             thenableWithOverride.value = result;
-            for (var i = 0; i < listeners.length; i++) (0, listeners[i])(result);
+            for (var i = 0; i < listeners2.length; i++) (0, listeners2[i])(result);
           },
           function(error) {
             thenableWithOverride.status = "rejected";
             thenableWithOverride.reason = error;
-            for (error = 0; error < listeners.length; error++)
-              (0, listeners[error])(void 0);
+            for (error = 0; error < listeners2.length; error++)
+              (0, listeners2[error])(void 0);
           }
         );
         return thenableWithOverride;
@@ -15315,15 +15315,15 @@ var require_react_dom_client_development = __commonJS({
         };
       }
       function accumulateTwoPhaseListeners(targetFiber, reactName) {
-        for (var captureName = reactName + "Capture", listeners = []; null !== targetFiber; ) {
+        for (var captureName = reactName + "Capture", listeners2 = []; null !== targetFiber; ) {
           var _instance3 = targetFiber, stateNode = _instance3.stateNode;
           _instance3 = _instance3.tag;
-          5 !== _instance3 && 26 !== _instance3 && 27 !== _instance3 || null === stateNode || (_instance3 = getListener(targetFiber, captureName), null != _instance3 && listeners.unshift(
+          5 !== _instance3 && 26 !== _instance3 && 27 !== _instance3 || null === stateNode || (_instance3 = getListener(targetFiber, captureName), null != _instance3 && listeners2.unshift(
             createDispatchListener(targetFiber, _instance3, stateNode)
-          ), _instance3 = getListener(targetFiber, reactName), null != _instance3 && listeners.push(
+          ), _instance3 = getListener(targetFiber, reactName), null != _instance3 && listeners2.push(
             createDispatchListener(targetFiber, _instance3, stateNode)
           ));
-          if (3 === targetFiber.tag) return listeners;
+          if (3 === targetFiber.tag) return listeners2;
           targetFiber = targetFiber.return;
         }
         return [];
@@ -15336,18 +15336,18 @@ var require_react_dom_client_development = __commonJS({
         return inst ? inst : null;
       }
       function accumulateEnterLeaveListenersForEvent(dispatchQueue, event, target, common, inCapturePhase) {
-        for (var registrationName = event._reactName, listeners = []; null !== target && target !== common; ) {
+        for (var registrationName = event._reactName, listeners2 = []; null !== target && target !== common; ) {
           var _instance4 = target, alternate = _instance4.alternate, stateNode = _instance4.stateNode;
           _instance4 = _instance4.tag;
           if (null !== alternate && alternate === common) break;
-          5 !== _instance4 && 26 !== _instance4 && 27 !== _instance4 || null === stateNode || (alternate = stateNode, inCapturePhase ? (stateNode = getListener(target, registrationName), null != stateNode && listeners.unshift(
+          5 !== _instance4 && 26 !== _instance4 && 27 !== _instance4 || null === stateNode || (alternate = stateNode, inCapturePhase ? (stateNode = getListener(target, registrationName), null != stateNode && listeners2.unshift(
             createDispatchListener(target, stateNode, alternate)
-          )) : inCapturePhase || (stateNode = getListener(target, registrationName), null != stateNode && listeners.push(
+          )) : inCapturePhase || (stateNode = getListener(target, registrationName), null != stateNode && listeners2.push(
             createDispatchListener(target, stateNode, alternate)
           )));
           target = target.return;
         }
-        0 !== listeners.length && dispatchQueue.push({ event, listeners });
+        0 !== listeners2.length && dispatchQueue.push({ event, listeners: listeners2 });
       }
       function validatePropertiesInDevelopment(type, props) {
         validateProperties$2(type, props);
@@ -19566,15 +19566,15 @@ var require_react_dom_client_development = __commonJS({
       var rendererCursorDEV = createCursor(null);
       var rendererSigil = {};
       var currentlyRenderingFiber$1 = null, lastContextDependency = null, isDisallowedContextReadInDEV = false, AbortControllerLocal = "undefined" !== typeof AbortController ? AbortController : function() {
-        var listeners = [], signal = this.signal = {
+        var listeners2 = [], signal = this.signal = {
           aborted: false,
           addEventListener: function(type, listener) {
-            listeners.push(listener);
+            listeners2.push(listener);
           }
         };
         this.abort = function() {
           signal.aborted = true;
-          listeners.forEach(function(listener) {
+          listeners2.forEach(function(listener) {
             return listener();
           });
         };
@@ -21751,20 +21751,91 @@ function redirectToLogin() {
   window.location.href = proxyLoginUrl(`${window.location.pathname}${window.location.search}`);
 }
 
-// compat/navigation.ts
+// lib/theme.ts
 var import_react = __toESM(require_react());
+var systemMediaQuery = null;
+var systemMediaHandler = null;
+function applyTheme(mode, accent) {
+  const root = document.documentElement;
+  const isDark = mode === "system" ? window.matchMedia("(prefers-color-scheme: dark)").matches : mode === "dark";
+  root.setAttribute("data-theme", isDark ? "dark" : "light");
+  root.setAttribute("data-accent", accent);
+  root.style.colorScheme = isDark ? "dark" : "light";
+  if (systemMediaQuery && systemMediaHandler) {
+    systemMediaQuery.removeEventListener("change", systemMediaHandler);
+    systemMediaQuery = null;
+    systemMediaHandler = null;
+  }
+  if (mode === "system") {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      const nextIsDark = media.matches;
+      root.setAttribute("data-theme", nextIsDark ? "dark" : "light");
+      root.style.colorScheme = nextIsDark ? "dark" : "light";
+    };
+    media.addEventListener("change", handler);
+    systemMediaQuery = media;
+    systemMediaHandler = handler;
+  }
+}
+var cachedMode = "system";
+var cachedAccent = "coral";
+var listeners = /* @__PURE__ */ new Set();
+var themeInitStarted = false;
+function notify() {
+  for (const fn of listeners) fn();
+}
+function notifyThemeChanged(mode, accent) {
+  cachedMode = mode;
+  cachedAccent = accent;
+  applyTheme(mode, accent);
+  notify();
+}
+async function initThemeSync() {
+  try {
+    const res = await proxyFetch("/agent/user/data");
+    if (!res.ok) return;
+    const data = await res.json();
+    const mode = data.theme;
+    const accent = data.accent;
+    if (!mode && !accent) return;
+    cachedMode = mode ?? cachedMode;
+    cachedAccent = accent ?? cachedAccent;
+    applyTheme(cachedMode, cachedAccent);
+    notify();
+  } catch {
+  }
+}
+function useThemeSync() {
+  const [, forceUpdate] = (0, import_react.useState)(0);
+  (0, import_react.useEffect)(() => {
+    const refresh = () => forceUpdate((n) => n + 1);
+    listeners.add(refresh);
+    if (!themeInitStarted) {
+      themeInitStarted = true;
+      void initThemeSync();
+    }
+    return () => {
+      listeners.delete(refresh);
+    };
+  }, []);
+  return { mode: cachedMode, accent: cachedAccent };
+}
+
+// compat/navigation.ts
+var import_react2 = __toESM(require_react());
 function useSearchParams() {
-  return (0, import_react.useMemo)(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
+  return (0, import_react2.useMemo)(() => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search), []);
 }
 function useParams() {
   const pathname = typeof window === "undefined" ? "" : window.location.pathname;
-  return (0, import_react.useMemo)(() => {
+  return (0, import_react2.useMemo)(() => {
     const id = pathname.split("/").filter(Boolean).pop() ?? "";
     return { id };
   }, [pathname]);
 }
 function useRouter() {
-  return (0, import_react.useMemo)(() => ({
+  return (0, import_react2.useMemo)(() => ({
     push: (href) => {
       window.location.href = href;
     },
@@ -21777,7 +21848,7 @@ function useRouter() {
 }
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.mjs
-var import_react4 = __toESM(require_react(), 1);
+var import_react5 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/shared/src/utils/mergeClasses.mjs
 var mergeClasses = (...classes) => classes.filter((className, index, array) => {
@@ -21800,7 +21871,7 @@ var toPascalCase = (string) => {
 };
 
 // node_modules/lucide-react/dist/esm/Icon.mjs
-var import_react3 = __toESM(require_react(), 1);
+var import_react4 = __toESM(require_react(), 1);
 
 // node_modules/lucide-react/dist/esm/defaultAttributes.mjs
 var defaultAttributes = {
@@ -21826,12 +21897,12 @@ var hasA11yProp = (props) => {
 };
 
 // node_modules/lucide-react/dist/esm/context.mjs
-var import_react2 = __toESM(require_react(), 1);
-var LucideContext = (0, import_react2.createContext)({});
-var useLucideContext = () => (0, import_react2.useContext)(LucideContext);
+var import_react3 = __toESM(require_react(), 1);
+var LucideContext = (0, import_react3.createContext)({});
+var useLucideContext = () => (0, import_react3.useContext)(LucideContext);
 
 // node_modules/lucide-react/dist/esm/Icon.mjs
-var Icon = (0, import_react3.forwardRef)(
+var Icon = (0, import_react4.forwardRef)(
   ({ color, size, strokeWidth, absoluteStrokeWidth, className = "", children, iconNode, ...rest }, ref) => {
     const {
       size: contextSize = 24,
@@ -21841,7 +21912,7 @@ var Icon = (0, import_react3.forwardRef)(
       className: contextClass = ""
     } = useLucideContext() ?? {};
     const calculatedStrokeWidth = absoluteStrokeWidth ?? contextAbsoluteStrokeWidth ? Number(strokeWidth ?? contextStrokeWidth) * 24 / Number(size ?? contextSize) : strokeWidth ?? contextStrokeWidth;
-    return (0, import_react3.createElement)(
+    return (0, import_react4.createElement)(
       "svg",
       {
         ref,
@@ -21855,7 +21926,7 @@ var Icon = (0, import_react3.forwardRef)(
         ...rest
       },
       [
-        ...iconNode.map(([tag, attrs]) => (0, import_react3.createElement)(tag, attrs)),
+        ...iconNode.map(([tag, attrs]) => (0, import_react4.createElement)(tag, attrs)),
         ...Array.isArray(children) ? children : [children]
       ]
     );
@@ -21864,8 +21935,8 @@ var Icon = (0, import_react3.forwardRef)(
 
 // node_modules/lucide-react/dist/esm/createLucideIcon.mjs
 var createLucideIcon = (iconName, iconNode) => {
-  const Component = (0, import_react4.forwardRef)(
-    ({ className, ...props }, ref) => (0, import_react4.createElement)(Icon, {
+  const Component = (0, import_react5.forwardRef)(
+    ({ className, ...props }, ref) => (0, import_react5.createElement)(Icon, {
       ref,
       iconNode,
       className: mergeClasses(
@@ -22395,6 +22466,8 @@ export {
   proxyFetch,
   redirectToLogin,
   require_jsx_runtime,
+  notifyThemeChanged,
+  useThemeSync,
   useSearchParams,
   useParams,
   useRouter,

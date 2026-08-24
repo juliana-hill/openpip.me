@@ -1,7 +1,9 @@
 import {
+  proxyFetch,
   require_jsx_runtime,
-  require_react
-} from "./chunk-Y73BQP5V.js";
+  require_react,
+  useThemeSync
+} from "./chunk-DONEC6XU.js";
 import {
   __commonJS,
   __export,
@@ -339,7 +341,7 @@ var require_extend = __commonJS({
 
 // compat/Image.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
-function Image2(props) {
+function Image(props) {
   const { fill: _fill, priority: _priority, ...imgProps } = props;
   return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", { ...imgProps });
 }
@@ -352,44 +354,12 @@ function Link({ children, ...props }) {
 
 // lib/agentIdentity.ts
 var import_react = __toESM(require_react());
-
-// lib/agentIcon.ts
-async function saveAgentIcon(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = reject;
-      img.onload = () => {
-        const SIZE = 128;
-        const canvas = document.createElement("canvas");
-        canvas.width = SIZE;
-        canvas.height = SIZE;
-        const ctx = canvas.getContext("2d");
-        const side = Math.min(img.width, img.height);
-        const sx = (img.width - side) / 2;
-        const sy = (img.height - side) / 2;
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
-        resolve(canvas.toDataURL("image/png"));
-      };
-      img.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-  });
-}
-function setAgentIcon(dataUrl) {
-  localStorage.setItem("agent-icon", dataUrl);
-}
-function clearAgentIcon() {
-  localStorage.removeItem("agent-icon");
-}
-
-// lib/agentIdentity.ts
 var DEFAULT_NAME = "OpenPip";
 var cachedName = DEFAULT_NAME;
 var cachedIcon = null;
+var cachedLoaded = false;
 var listeners = /* @__PURE__ */ new Set();
+var initStarted = false;
 function notify() {
   for (const fn of listeners) fn();
 }
@@ -412,16 +382,39 @@ function notifyAgentIdentityChanged(name2, icon) {
   }
   notify();
 }
+async function initAgentIdentity() {
+  try {
+    const res = await proxyFetch("/agent/user/data");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (typeof data.agentName === "string" && data.agentName.trim()) {
+      cachedName = data.agentName.trim();
+    }
+    cachedIcon = typeof data.agentIcon === "string" && data.agentIcon ? data.agentIcon : null;
+    if (typeof document !== "undefined") {
+      document.title = cachedName;
+      setFavicon(cachedIcon);
+    }
+  } catch {
+  } finally {
+    cachedLoaded = true;
+    notify();
+  }
+}
 function useAgentIdentity() {
   const [, forceUpdate] = (0, import_react.useState)(0);
   (0, import_react.useEffect)(() => {
     const refresh = () => forceUpdate((n) => n + 1);
     listeners.add(refresh);
+    if (!initStarted) {
+      initStarted = true;
+      void initAgentIdentity();
+    }
     return () => {
       listeners.delete(refresh);
     };
   }, []);
-  return { name: cachedName, icon: cachedIcon };
+  return { name: cachedName, icon: cachedIcon, loading: !cachedLoaded };
 }
 
 // components/app-header.module.css
@@ -434,6 +427,8 @@ var app_header_default = {
   logoLink: "app_header_logoLink",
   logoImg: "app_header_logoImg",
   wordmark: "app_header_wordmark",
+  wordmarkSpinner: "app_header_wordmarkSpinner",
+  wordmarkSpin: "app_header_wordmarkSpin",
   left: "app_header_left",
   backLink: "app_header_backLink",
   date: "app_header_date"
@@ -443,7 +438,8 @@ var app_header_default = {
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function AppHeader({ userImage, userName, initials, backHref, backLabel }) {
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
-  const { name: agentName, icon: agentIcon } = useAgentIdentity();
+  const { name: agentName, icon: agentIcon, loading: identityLoading } = useAgentIdentity();
+  useThemeSync();
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("header", { className: app_header_default.header, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: app_header_default.inner, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: app_header_default.left, children: [
       backHref && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Link, { href: backHref, className: app_header_default.backLink, children: [
@@ -453,8 +449,8 @@ function AppHeader({ userImage, userName, initials, backHref, backLabel }) {
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: app_header_default.date, children: today })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Link, { href: "/", className: app_header_default.logoLink, children: [
-      agentIcon ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: agentIcon, alt: agentName, width: 32, height: 32, className: app_header_default.logoImg }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Image2, { src: "/trippy-transparent.png", alt: agentName, width: 32, height: 32, className: app_header_default.logoImg }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: app_header_default.wordmark, children: agentName })
+      agentIcon ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: agentIcon, alt: agentName, width: 32, height: 32, className: app_header_default.logoImg }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Image, { src: "/trippy-transparent.png", alt: agentName, width: 32, height: 32, className: app_header_default.logoImg }),
+      identityLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: app_header_default.wordmarkSpinner, "aria-label": "Loading", role: "status" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: app_header_default.wordmark, children: agentName })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(Link, { href: "/settings", className: app_header_default.avatarLink, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: app_header_default.avatar, children: userImage ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("img", { src: userImage, alt: userName, referrerPolicy: "no-referrer", className: app_header_default.avatarImg }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: initials }) }) })
   ] }) });
@@ -13134,9 +13130,6 @@ export {
   Link,
   Markdown,
   remarkGfm,
-  saveAgentIcon,
-  setAgentIcon,
-  clearAgentIcon,
   notifyAgentIdentityChanged,
   useAgentIdentity,
   AppHeader

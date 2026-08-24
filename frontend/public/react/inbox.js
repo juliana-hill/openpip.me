@@ -4,11 +4,12 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-VZIUBKB3.js";
+} from "./chunk-EJQYZBM4.js";
 import {
   AppHeader,
-  Link
-} from "./chunk-XIKOZ5LE.js";
+  Link,
+  useAgentIdentity
+} from "./chunk-GKLEY6TF.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -19,7 +20,7 @@ import {
   require_react,
   require_react_dom,
   useSearchParams
-} from "./chunk-Y73BQP5V.js";
+} from "./chunk-DONEC6XU.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -1406,6 +1407,7 @@ function displaySuggestionLabel(suggestion) {
   return label;
 }
 function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSaveChanges, onMarkUnread, onClose }) {
+  const { name: agentName } = useAgentIdentity();
   const [selectedRunId, setSelectedRunId] = (0, import_react7.useState)(currentRun?.id ?? "latest");
   const [historyOpen, setHistoryOpen] = (0, import_react7.useState)(false);
   const [selectedMessageIds, setSelectedMessageIds] = (0, import_react7.useState)(/* @__PURE__ */ new Set());
@@ -1525,7 +1527,7 @@ function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSav
           }
         ) }),
         /* @__PURE__ */ (0, import_jsx_runtime11.jsxs)("div", { className: TriageDetailsModal_default.rowMain, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.rowTop, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.sender, children: suggestion.sender || "OpenPip assistant" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.rowTop, children: /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("span", { className: TriageDetailsModal_default.sender, children: suggestion.sender || `${agentName} assistant` }) }),
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.subject, children: suggestion.subject || "Email suggestion" }),
           /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("div", { className: TriageDetailsModal_default.snippet, children: suggestion.reason }),
           suggestion.draft && /* @__PURE__ */ (0, import_jsx_runtime11.jsx)("pre", { className: TriageDetailsModal_default.draft, children: suggestion.draft }),
@@ -1598,6 +1600,19 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     if (triagePoll.current) window.clearInterval(triagePoll.current);
     triagePoll.current = null;
   }, []);
+  const loadTriageDetails = (0, import_react8.useCallback)(async () => {
+    try {
+      const res = await proxyFetch("/agent/inbox/network/details");
+      if (res.ok) {
+        const data = await res.json();
+        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
+        setTriageCurrentRun(currentRun);
+        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
+        setTriageHistory(data.history ?? []);
+      }
+    } catch {
+    }
+  }, []);
   const pollTriage = (0, import_react8.useCallback)((jobId) => {
     stopTriagePolling();
     const update = async () => {
@@ -1616,13 +1631,14 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
       if (progress.status !== "running") {
         stopTriagePolling();
         void loadTags();
+        void loadTriageDetails().then(() => setTriageDetailsOpen(true));
       }
     };
     triagePoll.current = window.setInterval(() => {
       void update();
     }, 350);
     void update();
-  }, [loadTags, stopTriagePolling]);
+  }, [loadTags, loadTriageDetails, stopTriagePolling]);
   (0, import_react8.useEffect)(() => () => stopTriagePolling(), [stopTriagePolling]);
   (0, import_react8.useEffect)(() => {
     if (!loading && !hasFinishedInitialLoad.current) {
@@ -1792,19 +1808,6 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     } catch {
     }
   };
-  const loadTriageDetails = (0, import_react8.useCallback)(async () => {
-    try {
-      const res = await proxyFetch("/agent/inbox/network/details");
-      if (res.ok) {
-        const data = await res.json();
-        const currentRun = data.currentRun ?? { id: "latest", suggestions: data.suggestions ?? [] };
-        setTriageCurrentRun(currentRun);
-        setTriageSuggestions(currentRun.suggestions ?? data.suggestions ?? []);
-        setTriageHistory(data.history ?? []);
-      }
-    } catch {
-    }
-  }, []);
   const openTriageDetails = async () => {
     await loadTriageDetails();
     setTriageDetailsOpen(true);

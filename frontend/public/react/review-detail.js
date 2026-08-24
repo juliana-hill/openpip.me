@@ -5,11 +5,11 @@ import {
   startLocalRecording,
   subscribeOnDeviceTranscription,
   transcribeLocally
-} from "./chunk-VZIUBKB3.js";
+} from "./chunk-EJQYZBM4.js";
 import {
   AppHeader,
   Link
-} from "./chunk-XIKOZ5LE.js";
+} from "./chunk-GKLEY6TF.js";
 import "./chunk-OHWNV7E6.js";
 import {
   Mic,
@@ -22,7 +22,7 @@ import {
   require_react,
   useParams,
   useRouter
-} from "./chunk-Y73BQP5V.js";
+} from "./chunk-DONEC6XU.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

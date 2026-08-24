@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
+import { useAgentIdentity } from "@/lib/agentIdentity";
+import { ExecutionProgressModal, type ExecutionTick } from "./ExecutionProgressModal";
 import styles from "./ReviewQueuePage.module.css";
 
 export type ReviewItem = {
@@ -31,18 +33,53 @@ const TYPE_LABEL: Record<ReviewItem["kind"], string> = {
 
 export function ReviewQueuePage({ userName, userImage }: { userName: string; userImage: string }) {
   const initials = userName.split(" ").map((name) => name[0]).join("").toUpperCase().slice(0, 2);
+  const { name: agentName } = useAgentIdentity();
   const [items, setItems] = useState<ReviewItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tick, setTick] = useState<ExecutionTick | null>(null);
+  const [progressOpen, setProgressOpen] = useState(false);
+  const tickTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const loadItems = useCallback(() => {
+    return proxyFetch("/agent/review")
+      .then(async (response) => response.ok ? response.json() as Promise<{ items?: ReviewItem[] }> : { items: [] })
+      .then((data) => setItems(data.items ?? []))
+      .catch(() => setItems([]));
+  }, []);
 
   useEffect(() => {
     let active = true;
-    proxyFetch("/agent/review")
-      .then(async (response) => response.ok ? response.json() as Promise<{ items?: ReviewItem[] }> : { items: [] })
-      .then((data) => { if (active) setItems(data.items ?? []); })
-      .catch(() => { if (active) setItems([]); })
-      .finally(() => { if (active) setLoading(false); });
+    void loadItems().finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, []);
+  }, [loadItems]);
+
+  // Drives approved proposals to execution one at a time while this page is
+  // open (see execution_pipeline.py's tick — there's no server-side worker,
+  // this polling *is* the mechanism). Keeps polling as long as there's
+  // still something executing or waiting its turn, stops once idle so an
+  // empty queue doesn't poll forever.
+  const runTick = useCallback(async () => {
+    try {
+      const res = await proxyFetch("/agent/proposals/execution/tick", { method: "POST" });
+      if (!res.ok) return;
+      const data = await res.json() as ExecutionTick;
+      setTick(data);
+      if (data.executing) void loadItems(); // a proposal just left "pending" or finished — refresh the list
+      if (data.executing || data.queuedCount > 0) {
+        if (!tickTimer.current) tickTimer.current = window.setInterval(() => { void runTick(); }, 2000);
+      } else if (tickTimer.current) {
+        window.clearInterval(tickTimer.current);
+        tickTimer.current = null;
+      }
+    } catch { /* the next scheduled poll retries; a transient failure here isn't worth surfacing */ }
+  }, [loadItems]);
+
+  useEffect(() => {
+    void runTick();
+    return () => { if (tickTimer.current) window.clearInterval(tickTimer.current); };
+  }, [runTick]);
+
+  const showExecutionCard = Boolean(tick && (tick.executing || tick.queuedCount > 0));
 
   return (
     <div className={styles.shell}>
@@ -53,6 +90,28 @@ export function ReviewQueuePage({ userName, userImage }: { userName: string; use
           <h1>Ready for review</h1>
           <p>These are the outcomes your agent prepared. Nothing is sent or submitted without your approval.</p>
         </div>
+
+        {showExecutionCard && tick && (
+          <section className={styles.executionCard} aria-live="polite">
+            <div>
+              <p className={styles.executionKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>
+              <h2 className={styles.executionTitle}>
+                {tick.executing ? `Working on "${tick.executing.title}"` : "Picking up the next approved action"}
+              </h2>
+              <p className={styles.executionCopy}>
+                {tick.queuedCount > 0
+                  ? `${tick.queuedCount} more approved action${tick.queuedCount === 1 ? "" : "s"} waiting its turn.`
+                  : "Finishing up — nothing else waiting."}
+                {tick.recoveredCount > 0 && " Picked back up something that looked stuck."}
+                {tick.retriedCount > 0 && " Retrying something that failed earlier."}
+              </p>
+              <button type="button" className={styles.viewProgressLink} onClick={() => setProgressOpen(true)}>View Progress</button>
+            </div>
+            <span className={styles.executionDot} aria-label="Executing" />
+          </section>
+        )}
+
+        <ExecutionProgressModal open={progressOpen} tick={tick} onClose={() => setProgressOpen(false)} />
 
         {loading ? (
           <div className={styles.list} aria-label="Loading review items">

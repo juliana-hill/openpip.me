@@ -5,8 +5,9 @@ import {
   require_client,
   require_jsx_runtime,
   require_react,
-  useRouter
-} from "./chunk-Y73BQP5V.js";
+  useRouter,
+  useThemeSync
+} from "./chunk-DONEC6XU.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -186,6 +187,7 @@ var STATUS_FILTERS = [
   { value: "followed_up", label: "Followed up" }
 ];
 function ContactsBoard() {
+  useThemeSync();
   const [contacts, setContacts] = (0, import_react.useState)([]);
   const [loading, setLoading] = (0, import_react.useState)(true);
   const [activeStatus, setActiveStatus] = (0, import_react.useState)("all");

@@ -8,14 +8,14 @@ import {
   idbListSearches,
   idbSetUserPrefs,
   pushUserData
-} from "./chunk-VZIUBKB3.js";
+} from "./chunk-EJQYZBM4.js";
 import {
   AppHeader,
   Link,
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-XIKOZ5LE.js";
+} from "./chunk-GKLEY6TF.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -24,7 +24,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-Y73BQP5V.js";
+} from "./chunk-DONEC6XU.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -62,6 +62,7 @@ var DashboardPage_default = {
   assistantPromptMeta: "DashboardPage_assistantPromptMeta",
   assistantPromptTrust: "DashboardPage_assistantPromptTrust",
   assistantPromptActions: "DashboardPage_assistantPromptActions",
+  showDetailsLink: "DashboardPage_showDetailsLink",
   assistantPrimaryBtn: "DashboardPage_assistantPrimaryBtn",
   assistantSecondaryBtn: "DashboardPage_assistantSecondaryBtn",
   pipelineStatus: "DashboardPage_pipelineStatus",
@@ -268,12 +269,13 @@ function DashboardPage({ userName, userImage }) {
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
+  const isPipelineRunning = latestPipelineAction?.status === "queued" || latestPipelineAction?.status === "running";
   const refreshScheduledActions = (0, import_react2.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/scheduled-actions");
       const data = response.ok ? await response.json() : { actions: [] };
       const actions = data.actions ?? [];
-      const active = actions.filter((action) => action.status === "queued" || action.status === "running");
+      const active = actions.filter((action) => action.status === "approved" || action.status === "executing");
       setPipelineActions(active);
       setScheduledPlan(active[0] ?? null);
       setLatestPipelineAction((current) => current ?? actions[0] ?? null);
@@ -451,8 +453,8 @@ function DashboardPage({ userName, userImage }) {
             agentName,
             " assistant"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? "Reviewing your workspace" : latestPipelineAction.status === "completed" ? "Your workspace review is ready" : "Something needs your attention" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? "Your assistant is looking for useful next actions. You can keep working while it finishes." : latestPipelineStatus || "Your assistant prepared an item for you to review." }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: isPipelineRunning ? "Reviewing your workspace" : latestPipelineAction.status === "completed" ? "Your workspace review is ready" : "Something needs your attention" }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: isPipelineRunning ? "Your assistant is looking for useful next actions. You can keep working while it finishes." : latestPipelineStatus || "Your assistant prepared an item for you to review." }),
           latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: latestPipelineDetail }),
           latestPipelineAction.status === "failed" && !latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The scan did not finish. You can try again whenever you are ready." }),
           pipelineActions.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
@@ -464,18 +466,17 @@ function DashboardPage({ userName, userImage }) {
           ] })
         ] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
-          latestPipelineAction.status === "queued" || latestPipelineAction.status === "running" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
-            "button",
-            {
-              type: "button",
-              className: DashboardPage_default.assistantSecondaryBtn,
-              onClick: () => void requestDashboardPipeline(),
-              disabled: latestPipelineAction.status === "queued" || latestPipelineAction.status === "running",
-              children: "Run new scan"
-            }
-          ),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
+          isPipelineRunning ? (
+            // The pulsing dot already says "a scan is running" — a second,
+            // merely-disabled "Run new scan" button next to it was
+            // redundant and read as broken. Nothing to click while one
+            // is already in flight, so nothing renders here.
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" })
+          ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" })
+          ] }),
+          isPipelineRunning ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.showDetailsLink, onClick: () => setRunHistoryOpen(true), children: "Show details" }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
         ] })
       ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [

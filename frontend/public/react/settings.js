@@ -6,7 +6,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-DTSQCJHG.js";
+} from "./chunk-45GXUIC7.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -14,14 +14,11 @@ import {
   FloatingAssistant,
   getUserData,
   patchUserData
-} from "./chunk-VZIUBKB3.js";
+} from "./chunk-EJQYZBM4.js";
 import {
   AppHeader,
-  clearAgentIcon,
-  notifyAgentIdentityChanged,
-  saveAgentIcon,
-  setAgentIcon
-} from "./chunk-XIKOZ5LE.js";
+  notifyAgentIdentityChanged
+} from "./chunk-GKLEY6TF.js";
 import "./chunk-OHWNV7E6.js";
 import {
   Bot,
@@ -37,12 +34,14 @@ import {
   Trash2,
   User,
   clearSession,
+  notifyThemeChanged,
   proxyFetch,
   redirectToLogin,
   require_client,
   require_jsx_runtime,
-  require_react
-} from "./chunk-Y73BQP5V.js";
+  require_react,
+  useThemeSync
+} from "./chunk-DONEC6XU.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -52,41 +51,6 @@ var import_client = __toESM(require_client());
 
 // components/settings/AppearanceSection.tsx
 var import_react = __toESM(require_react());
-
-// lib/theme.ts
-var systemMediaQuery = null;
-var systemMediaHandler = null;
-function applyTheme(mode, accent) {
-  const root = document.documentElement;
-  const isDark = mode === "system" ? window.matchMedia("(prefers-color-scheme: dark)").matches : mode === "dark";
-  root.setAttribute("data-theme", isDark ? "dark" : "light");
-  root.setAttribute("data-accent", accent);
-  root.style.colorScheme = isDark ? "dark" : "light";
-  if (systemMediaQuery && systemMediaHandler) {
-    systemMediaQuery.removeEventListener("change", systemMediaHandler);
-    systemMediaQuery = null;
-    systemMediaHandler = null;
-  }
-  if (mode === "system") {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const handler = () => {
-      const nextIsDark = media.matches;
-      root.setAttribute("data-theme", nextIsDark ? "dark" : "light");
-      root.style.colorScheme = nextIsDark ? "dark" : "light";
-    };
-    media.addEventListener("change", handler);
-    systemMediaQuery = media;
-    systemMediaHandler = handler;
-  }
-  localStorage.setItem("theme-mode", mode);
-  localStorage.setItem("theme-accent", accent);
-}
-function loadSavedTheme() {
-  const mode = localStorage.getItem("theme-mode") ?? "system";
-  const accent = localStorage.getItem("theme-accent") ?? "coral";
-  applyTheme(mode, accent);
-  return { mode, accent };
-}
 
 // components/settings/AppearanceSection.module.css
 var AppearanceSection_default = {
@@ -113,34 +77,21 @@ var ACCENTS = [
   { key: "lilac", color: "#9b72cf", label: "Lilac" }
 ];
 function AppearanceSection() {
-  const [mode, setMode] = (0, import_react.useState)("system");
-  const [accent, setAccent] = (0, import_react.useState)("coral");
+  const synced = useThemeSync();
+  const [mode, setMode] = (0, import_react.useState)(synced.mode);
+  const [accent, setAccent] = (0, import_react.useState)(synced.accent);
   (0, import_react.useEffect)(() => {
-    const saved = loadSavedTheme();
-    setMode(saved.mode);
-    setAccent(saved.accent);
-    getUserData().then((data) => {
-      const driveMode = data.theme;
-      const driveAccent = data.accent;
-      if (driveMode && driveMode !== saved.mode) {
-        setMode(driveMode);
-        applyTheme(driveMode, driveAccent ?? saved.accent);
-      }
-      if (driveAccent && driveAccent !== saved.accent) {
-        setAccent(driveAccent);
-        applyTheme(driveMode ?? saved.mode, driveAccent);
-      }
-    }).catch(() => {
-    });
-  }, []);
+    setMode(synced.mode);
+    setAccent(synced.accent);
+  }, [synced.mode, synced.accent]);
   function handleMode(m) {
     setMode(m);
-    applyTheme(m, accent);
+    notifyThemeChanged(m, accent);
     void patchUserData({ theme: m, accent });
   }
   function handleAccent(a) {
     setAccent(a);
-    applyTheme(mode, a);
+    notifyThemeChanged(mode, a);
     void patchUserData({ theme: mode, accent: a });
   }
   return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", { className: AppearanceSection_default.section, children: [
@@ -169,6 +120,32 @@ function AppearanceSection() {
 
 // components/settings/AgentSection.tsx
 var import_react2 = __toESM(require_react());
+
+// lib/agentIcon.ts
+async function saveAgentIcon(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const SIZE = 128;
+        const canvas = document.createElement("canvas");
+        canvas.width = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext("2d");
+        const side = Math.min(img.width, img.height);
+        const sx = (img.width - side) / 2;
+        const sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, SIZE, SIZE);
+        resolve(canvas.toDataURL("image/png"));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 // components/settings/AgentSection.module.css
 var AgentSection_default = {
@@ -222,7 +199,6 @@ function AgentSection() {
     setIconSaving(true);
     try {
       await patchUserData({ agentIcon: dataUrl });
-      setAgentIcon(dataUrl);
       setIcon(dataUrl);
       notifyAgentIdentityChanged(void 0, dataUrl);
     } catch (err) {
@@ -242,7 +218,6 @@ function AgentSection() {
         body: JSON.stringify(current)
       });
       if (!putRes.ok) throw new Error("Clear failed");
-      clearAgentIcon();
       setIcon(null);
       if (inputRef.current) inputRef.current.value = "";
       notifyAgentIdentityChanged(void 0, null);
