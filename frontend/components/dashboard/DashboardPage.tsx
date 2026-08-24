@@ -97,7 +97,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
         // date — wrong on either side of midnight UTC for any user not on
         // UTC. Always anchor it to the user's own local date.
         proxyFetch(`/agent/calendars?days=1&from=${localToday()}`),
-        proxyFetch(`/agent/inbox/count?localDate=${localToday()}`),
+        proxyFetch("/agent/inbox/count"),
       ]);
 
       const googleTasks: GoogleTask[] = googleTasksRes.ok ? ((await googleTasksRes.json()).tasks ?? []) : [];
@@ -148,8 +148,9 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
         return tier === 0 || tier === 1;
       }).length;
       setTasksTotal(todayTaskCount);
-      // "Open" is the combined workload across today's Google Tasks,
-      // calendar events, and unread email—not the total number of open tasks.
+      // "Open" combines today's Google Tasks + today's calendar events with
+      // the total unread email count (not date-scoped — see /agent/inbox/count;
+      // older unread mail is still work waiting on you, not just today's).
       setOpenTotal(todayTaskCount + eventCount + (inboxData.unread ?? 0));
 
       type UrgentTask = { title: string; priority: number; source: string; tier: number };
@@ -361,7 +362,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
           {tasksLoading ? <div className={styles.skeleton} /> : <>
             <p className={styles.outcomeMetric}>{tasksTotal} Google task{tasksTotal === 1 ? "" : "s"}</p>
             <p className={styles.outcomeDescription}>Overdue or due today, from your connected Google Tasks account.</p>
-            <p className={styles.outcomeDescription}>{eventsTotal} calendar event{eventsTotal === 1 ? "" : "s"} · {unreadCount ?? 0} unread email{unreadCount === 1 ? "" : "s"} today</p>
+            <p className={styles.outcomeDescription}>{eventsTotal} calendar event{eventsTotal === 1 ? "" : "s"} today · {unreadCount ?? 0} unread email{unreadCount === 1 ? "" : "s"}</p>
             {tasks.slice(0, 3).map((task, index) => (
               <div key={index} className={styles.taskRow}>
                 <span className={styles.checkbox} />

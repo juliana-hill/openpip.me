@@ -823,17 +823,17 @@ async def delete_gmail_messages(payload: dict[str, Any], token: str = Depends(ge
 
 @app.get("/agent/inbox/count")
 @app.get("/api/google/gmail/count")
-async def google_gmail_count(
-    local_date: str | None = Query(default=None, alias="localDate"),
-    token: str = Depends(get_google_token),
-):
+async def google_gmail_count(token: str = Depends(get_google_token)):
+    """Total unread Inbox messages — not scoped to any date. Same fix as
+    Inbox's "Unread" tab: unread mail from before today is still unread,
+    and a "today" restriction here silently reported 0 for anyone with an
+    older backlog. page_size=1 is enough — `total` (from Gmail's own
+    paginated listing) is what's actually returned, not the fetched page."""
     try:
-        messages, _ = await fetch_gmail_messages(token, local_date=local_date, page_size=100)
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
+        _, total = await fetch_gmail_messages(token, unread_only=True, page_size=1)
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return {"unread": sum(1 for message in messages if message["unread"])}
+    return {"unread": total}
 
 
 @app.get("/agent/inbox/tags")

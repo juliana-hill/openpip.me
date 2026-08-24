@@ -309,7 +309,7 @@ function DashboardPage({ userName, userImage }) {
         // date — wrong on either side of midnight UTC for any user not on
         // UTC. Always anchor it to the user's own local date.
         proxyFetch(`/agent/calendars?days=1&from=${localToday()}`),
-        proxyFetch(`/agent/inbox/count?localDate=${localToday()}`)
+        proxyFetch("/agent/inbox/count")
       ]);
       const googleTasks = googleTasksRes.ok ? (await googleTasksRes.json()).tasks ?? [] : [];
       const calendarData = calendarRes.ok ? await calendarRes.json() : { calendars: [] };
@@ -518,11 +518,10 @@ function DashboardPage({ userName, userImage }) {
             eventsTotal,
             " calendar event",
             eventsTotal === 1 ? "" : "s",
-            " \xB7 ",
+            " today \xB7 ",
             unreadCount ?? 0,
             " unread email",
-            unreadCount === 1 ? "" : "s",
-            " today"
+            unreadCount === 1 ? "" : "s"
           ] }),
           tasks.slice(0, 3).map((task, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.taskRow, children: [
             /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.checkbox }),

@@ -153,22 +153,23 @@ def test_gmail_drafts_are_exposed_as_a_mailbox_state(monkeypatch) -> None:
     assert response.json()["messages"][0]["tags"] == []
 
 
-def test_gmail_unread_count_honors_the_local_date(monkeypatch) -> None:
-    async def fake_fetch(_token: str, *, local_date=None, label_id=None, unread_only=False, page_size=100):
-        assert local_date == "2026-08-22"
-        assert label_id is None
-        assert unread_only is False
-        assert page_size == 100
-        return ([{"id": "gmail-1", "unread": True}], 1)
+def test_gmail_unread_count_is_not_scoped_to_any_date(monkeypatch) -> None:
+    # Same fix as Inbox's "Unread" tab: a date restriction here made unread
+    # mail from before today invisible, silently reporting 0 for anyone with
+    # an older backlog. Total unread count, no date filter at all.
+    async def fake_fetch(_token: str, *, unread_only=False, page_size=100):
+        assert unread_only is True
+        assert page_size == 1
+        return ([], 7)
 
     monkeypatch.setattr("openpip_backend.app.fetch_gmail_messages", fake_fetch)
     response = TestClient(app).get(
-        "/agent/inbox/count?localDate=2026-08-22",
+        "/agent/inbox/count",
         headers={"x-google-token": "oauth-token"},
     )
 
     assert response.status_code == 200
-    assert response.json() == {"unread": 1}
+    assert response.json() == {"unread": 7}
 
 
 def test_gmail_message_detail_decodes_html_and_attachments() -> None:

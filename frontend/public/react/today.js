@@ -76,7 +76,8 @@ function TodayPage({ userName, userImage }) {
     Promise.all([
       proxyFetch("/agent/google/tasks"),
       proxyFetch(`/agent/calendars?days=1&from=${date}`),
-      proxyFetch(`/agent/inbox/count?localDate=${date}`)
+      // Not date-scoped — unread mail from before today is still unread.
+      proxyFetch("/agent/inbox/count")
     ]).then(async ([googleResponse, calendarResponse, inboxResponse]) => {
       const google = googleResponse.ok ? (await googleResponse.json()).tasks ?? [] : [];
       const calendar = calendarResponse.ok ? await calendarResponse.json() : { calendars: [] };
