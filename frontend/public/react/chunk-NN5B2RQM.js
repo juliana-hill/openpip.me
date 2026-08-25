@@ -44,28 +44,6 @@ import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
 
-// compat/no-local-store.ts
-var idbListSearches = async () => [];
-var idbGetUserPrefs = async () => ({});
-var idbSetUserPrefs = async (_prefs) => {
-};
-var idbAddNotification = async (_value) => {
-};
-var idbListChatSessions = async () => [];
-var idbReadChatSession = async (_id) => null;
-var idbWriteChatSession = async (_value) => {
-};
-var idbWriteChatMessage = async (_id, _value) => {
-};
-var idbDeleteChatSession = async (_id) => {
-};
-
-// compat/no-sync.ts
-var pushUserData = async () => {
-};
-var loadAndRestorePlanningChat = async () => {
-};
-
 // components/ui/ReadAloudButton.tsx
 var import_react = __toESM(require_react());
 
@@ -2375,46 +2353,50 @@ function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, onAgentAc
   const inputRef = (0, import_react8.useRef)(null);
   const bodyRef = (0, import_react8.useRef)(null);
   const sessionIdRef = (0, import_react8.useRef)(null);
-  const msgIndexRef = (0, import_react8.useRef)(0);
   const chatPollCancelRef = (0, import_react8.useRef)(null);
-  const loadSession = (0, import_react8.useCallback)(async (sessionId) => {
-    const data = await idbReadChatSession(sessionId);
-    if (!data) return false;
-    const failedUserIndexes = /* @__PURE__ */ new Set();
-    let mostRecentUser = null;
-    for (const message of data.messages) {
-      if (message.role === "user") mostRecentUser = message;
-      if (message.role === "assistant" && message.status === "failed" && mostRecentUser) {
-        failedUserIndexes.add(mostRecentUser.index);
-      }
+  const loadChatSessions = (0, import_react8.useCallback)(async () => {
+    try {
+      const response = await proxyFetch("/agent/chat/sessions");
+      if (!response.ok) return [];
+      const data = await response.json();
+      const next = data.sessions ?? [];
+      setSessions(next);
+      return next;
+    } catch {
+      return [];
     }
-    const lastStoredMessage = data.messages.at(-1);
-    if (lastStoredMessage?.role === "user") failedUserIndexes.add(lastStoredMessage.index);
-    const sessionSkill = normalizeSkill(data.session.skill);
-    const display = data.messages.filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({
-      role: m.role,
-      content: m.message,
-      ts: m.createdAt,
-      toolCalls: m.toolCalls,
-      retryRequest: m.role === "user" && failedUserIndexes.has(m.index) ? { message: m.message, skill: sessionSkill } : void 0
-    }));
-    setMessages(display);
-    setActiveSessionId(sessionId);
-    sessionIdRef.current = sessionId;
-    msgIndexRef.current = data.messages.length;
-    if (data.session.skill) setSkill(sessionSkill);
-    return true;
+  }, []);
+  const loadSession = (0, import_react8.useCallback)(async (sessionId) => {
+    try {
+      const response = await proxyFetch(`/agent/chat/sessions/${encodeURIComponent(sessionId)}`);
+      if (!response.ok) return false;
+      const data = await response.json();
+      if (!data.session) return false;
+      const sessionSkill = normalizeSkill(data.session.skill);
+      const display = (data.messages ?? []).filter((m) => m.role === "user" || m.role === "assistant").map((m) => ({
+        role: m.role,
+        content: m.message,
+        ts: m.createdAt,
+        retryRequest: void 0
+      }));
+      setMessages(display);
+      setActiveSessionId(sessionId);
+      sessionIdRef.current = sessionId;
+      if (data.session.skill) setSkill(sessionSkill);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
   (0, import_react8.useEffect)(() => {
     if (!open) return;
     setTimeout(() => inputRef.current?.focus(), 100);
-    loadAndRestorePlanningChat().then(() => idbListChatSessions()).then(async (all) => {
-      setSessions(all);
+    loadChatSessions().then(async (all) => {
       if (all.length === 0) return;
       await loadSession(all[0].id);
     }).catch(() => {
     });
-  }, [open, loadSession]);
+  }, [open, loadChatSessions, loadSession]);
   (0, import_react8.useEffect)(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
   }, [messages, sending]);
@@ -2473,15 +2455,8 @@ function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, onAgentAc
     if (!sessionIdRef.current) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sendTs.toString()));
       sessionIdRef.current = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
-      msgIndexRef.current = 0;
-      await idbWriteChatSession(sessionIdRef.current, sendTs, void 0, msg.slice(0, 80), selectedSkill);
       setActiveSessionId(sessionIdRef.current);
-      idbListChatSessions().then(setSessions).catch(() => {
-      });
     }
-    const userIndex = msgIndexRef.current;
-    msgIndexRef.current += 1;
-    await idbWriteChatMessage(sessionIdRef.current, userIndex, "user", msg);
     const request = { message: msg, skill: selectedSkill };
     const markRequestRetryable = () => {
       setMessages((prev) => prev.map((message) => message.ts === sendTs ? { ...message, retryRequest: request } : message));
@@ -2489,14 +2464,6 @@ function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, onAgentAc
     const recordFailure = async (content) => {
       markRequestRetryable();
       const failedAt = Date.now();
-      if (sessionIdRef.current) {
-        const assistantIndex = msgIndexRef.current;
-        msgIndexRef.current += 1;
-        try {
-          await idbWriteChatMessage(sessionIdRef.current, assistantIndex, "assistant", content, void 0, "failed");
-        } catch {
-        }
-      }
       setMessages((prev) => [...prev, { role: "assistant", content, ts: failedAt }]);
     };
     if (selectedSkill === "general") {
@@ -2506,9 +2473,6 @@ function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, onAgentAc
         for (const action of response.actions ?? []) {
           if (action.type === "navigate") router.push(action.route);
         }
-        const asstIdx = msgIndexRef.current;
-        msgIndexRef.current += 1;
-        await idbWriteChatMessage(sessionIdRef.current, asstIdx, "assistant", response.text, void 0, "completed");
         setMessages((prev) => [...prev, { role: "assistant", content: response.text, ts: Date.now() }]);
       } catch {
         setMessages((prev) => [...prev, { role: "assistant", content: "Setup guide encountered an error \u2014 please try again.", ts: Date.now() }]);
@@ -2573,11 +2537,9 @@ ${lines.join("\n")}]`;
         sessionIdRef.current = job.sessionId;
         setActiveSessionId(job.sessionId);
       }
-      const assistantIndex = msgIndexRef.current;
-      msgIndexRef.current += 1;
-      await idbWriteChatMessage(sessionIdRef.current, assistantIndex, "assistant", job.reply, void 0, "completed");
       setMessages((prev) => [...prev, { role: "assistant", content: job.reply, ts: Date.now() }]);
       setChips([]);
+      void loadChatSessions();
       onAgentAction?.();
     } catch {
       await recordFailure("Couldn't reach the assistant \u2014 try again.");
@@ -2735,10 +2697,7 @@ ${lines.join("\n")}]`;
     ),
     /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": `Open ${agentName} assistant`, onClick: () => {
       setOpen((v) => {
-        if (v) {
-          sessionIdRef.current = null;
-          msgIndexRef.current = 0;
-        }
+        if (v) sessionIdRef.current = null;
         return !v;
       });
     }, className: FloatingPanel_default.fab, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("img", { src: agentIcon ?? "/trippy-transparent.png", alt: agentName, className: FloatingPanel_default.headerIcon }) }),
@@ -2746,7 +2705,10 @@ ${lines.join("\n")}]`;
       /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("div", { className: FloatingPanel_default.overlay, onClick: () => setOpen(false) }),
       /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: FloatingPanel_default.panel, children: [
         /* @__PURE__ */ (0, import_jsx_runtime15.jsxs)("div", { className: FloatingPanel_default.header, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": showHistory ? "Back to chat" : "Chat history", onClick: () => setShowHistory((v) => !v), className: FloatingPanel_default.iconBtn, children: showHistory ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChevronLeft, { size: 16 }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RotateCcwClock, { size: 16 }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": showHistory ? "Back to chat" : "Chat history", onClick: () => {
+            if (!showHistory) void loadChatSessions();
+            setShowHistory((v) => !v);
+          }, className: FloatingPanel_default.iconBtn, children: showHistory ? /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(ChevronLeft, { size: 16 }) : /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(RotateCcwClock, { size: 16 }) }),
           !showHistory && /* eslint-disable-next-line @next/next/no-img-element */
           /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("img", { src: agentIcon ?? "/trippy-transparent.png", alt: agentName, className: FloatingPanel_default.headerIcon }),
           /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("span", { className: FloatingPanel_default.headerTitle, children: showHistory ? "Past conversations" : agentName }),
@@ -2755,7 +2717,6 @@ ${lines.join("\n")}]`;
               setMessages([]);
               setChips([]);
               sessionIdRef.current = null;
-              msgIndexRef.current = 0;
               setActiveSessionId(null);
             }, className: FloatingPanel_default.iconBtn, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(SquarePen, { size: 16 }) }),
             /* @__PURE__ */ (0, import_jsx_runtime15.jsx)("button", { type: "button", "aria-label": "Close", onClick: () => setOpen(false), className: FloatingPanel_default.iconBtn, children: /* @__PURE__ */ (0, import_jsx_runtime15.jsx)(X, { size: 16 }) })
@@ -2788,16 +2749,12 @@ ${lines.join("\n")}]`;
                     style: { flexShrink: 0, color: "var(--color-text-muted)" },
                     onClick: async (e) => {
                       e.stopPropagation();
-                      await Promise.all([
-                        idbDeleteChatSession(s.id),
-                        proxyFetch(`/agent/chat/sessions/${s.id}`, { method: "DELETE" }).catch(() => {
-                        })
-                      ]);
+                      const response = await proxyFetch(`/agent/chat/sessions/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+                      if (!response.ok) return;
                       setSessions((prev) => prev.filter((x) => x.id !== s.id));
                       if (s.id === activeSessionId) {
                         setMessages([]);
                         sessionIdRef.current = null;
-                        msgIndexRef.current = 0;
                         setActiveSessionId(null);
                       }
                     },
@@ -2918,11 +2875,6 @@ ${lines.join("\n")}]`;
 }
 
 export {
-  idbListSearches,
-  idbGetUserPrefs,
-  idbSetUserPrefs,
-  idbAddNotification,
-  pushUserData,
   ReadAloudButton,
   getUserData,
   patchUserData,

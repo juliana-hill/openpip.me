@@ -1,14 +1,15 @@
 import {
+  idbGetUserPrefs,
+  idbListSearches,
+  idbSetUserPrefs
+} from "./chunk-4JWWYGPH.js";
+import {
   Dialog_default
 } from "./chunk-VGRKXESR.js";
 import {
   FloatingAssistant,
-  ReadAloudButton,
-  idbGetUserPrefs,
-  idbListSearches,
-  idbSetUserPrefs,
-  pushUserData
-} from "./chunk-PV4AZV46.js";
+  ReadAloudButton
+} from "./chunk-NN5B2RQM.js";
 import {
   AppHeader,
   Link,
@@ -117,6 +118,10 @@ var DashboardPage_default = {
   emptyText: "DashboardPage_emptyText",
   contactList: "DashboardPage_contactList",
   contactRow: "DashboardPage_contactRow"
+};
+
+// compat/no-sync.ts
+var pushUserData = async () => {
 };
 
 // components/dashboard/ReviewDashboardCard.tsx
