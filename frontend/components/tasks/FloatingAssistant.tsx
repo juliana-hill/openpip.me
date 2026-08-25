@@ -6,8 +6,6 @@ import { useRouter } from "next/navigation";
 import { ArrowUp, Mic, MicOff, X, History, ChevronLeft, SquarePen, Trash2, RotateCcw } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { idbListChatSessions, idbReadChatSession, idbWriteChatSession, idbWriteChatMessage, idbDeleteChatSession, type ChatMessage, type ChatSession } from "@/lib/idb";
-import { loadAndRestorePlanningChat } from "@/lib/sync";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { normalizeSkill, SKILL_LABELS, type SkillId } from "@/lib/skills";
 import { RouteComparisonCard } from "@/components/routes/RouteComparisonCard";
@@ -40,6 +38,8 @@ type FloatingAssistantProps = Readonly<{
 type RetryRequest = { message: string; skill: SkillId };
 type DisplayMessage = { role: "user" | "assistant"; content: string; ts: number; toolCalls?: ToolCall[]; retryRequest?: RetryRequest };
 type ChatJob = { id: string; status: "running" | "completed" | "failed"; sessionId: string; reply?: string; error?: string };
+type ChatSession = { id: string; skill: string; createdAt: number; title?: string };
+type StoredChatMessage = { role: "user" | "assistant"; message: string; createdAt: number };
 
 const TASK_TOOL_NAMES = new Set([
   "get_all_tasks", "get_google_tasks",
@@ -118,50 +118,54 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const msgIndexRef = useRef<number>(0);
   const chatPollCancelRef = useRef<(() => void) | null>(null);
-  const loadSession = useCallback(async (sessionId: string): Promise<boolean> => {
-    const data = await idbReadChatSession(sessionId);
-    if (!data) return false;
-    const failedUserIndexes = new Set<number>();
-    let mostRecentUser: ChatMessage | null = null;
-    for (const message of data.messages) {
-      if (message.role === "user") mostRecentUser = message;
-      if (message.role === "assistant" && message.status === "failed" && mostRecentUser) {
-        failedUserIndexes.add(mostRecentUser.index);
-      }
+
+  const loadChatSessions = useCallback(async (): Promise<ChatSession[]> => {
+    try {
+      const response = await proxyFetch("/agent/chat/sessions");
+      if (!response.ok) return [];
+      const data = await response.json() as { sessions?: ChatSession[] };
+      const next = data.sessions ?? [];
+      setSessions(next);
+      return next;
+    } catch {
+      return [];
     }
-    const lastStoredMessage = data.messages.at(-1);
-    if (lastStoredMessage?.role === "user") failedUserIndexes.add(lastStoredMessage.index);
-    const sessionSkill = normalizeSkill(data.session.skill);
-    const display: DisplayMessage[] = data.messages
-      .filter((m: ChatMessage) => m.role === "user" || m.role === "assistant")
-      .map((m: ChatMessage) => ({
+  }, []);
+
+  const loadSession = useCallback(async (sessionId: string): Promise<boolean> => {
+    try {
+      const response = await proxyFetch(`/agent/chat/sessions/${encodeURIComponent(sessionId)}`);
+      if (!response.ok) return false;
+      const data = await response.json() as { session?: ChatSession; messages?: StoredChatMessage[] };
+      if (!data.session) return false;
+      const sessionSkill = normalizeSkill(data.session.skill);
+      const display: DisplayMessage[] = (data.messages ?? [])
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m: StoredChatMessage) => ({
         role: m.role,
         content: m.message,
         ts: m.createdAt,
-        toolCalls: m.toolCalls,
-        retryRequest: m.role === "user" && failedUserIndexes.has(m.index)
-          ? { message: m.message, skill: sessionSkill }
-          : undefined,
+        retryRequest: undefined,
       }));
-    setMessages(display);
-    setActiveSessionId(sessionId);
-    sessionIdRef.current = sessionId;
-    msgIndexRef.current = data.messages.length;
-    if (data.session.skill) setSkill(sessionSkill);
-    return true;
+      setMessages(display);
+      setActiveSessionId(sessionId);
+      sessionIdRef.current = sessionId;
+      if (data.session.skill) setSkill(sessionSkill);
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   useEffect(() => {
     if (!open) return;
     setTimeout(() => inputRef.current?.focus(), 100);
-    loadAndRestorePlanningChat().then(() => idbListChatSessions()).then(async (all) => {
-      setSessions(all);
+    loadChatSessions().then(async (all) => {
       if (all.length === 0) return;
       await loadSession(all[0].id);
     }).catch(() => {});
-  }, [open, loadSession]);
+  }, [open, loadChatSessions, loadSession]);
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
@@ -228,14 +232,8 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
     if (!sessionIdRef.current) {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(sendTs.toString()));
       sessionIdRef.current = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 16);
-      msgIndexRef.current = 0;
-      await idbWriteChatSession(sessionIdRef.current, sendTs, undefined, msg.slice(0, 80), selectedSkill);
       setActiveSessionId(sessionIdRef.current);
-      idbListChatSessions().then(setSessions).catch(() => {});
     }
-    const userIndex = msgIndexRef.current;
-    msgIndexRef.current += 1;
-    await idbWriteChatMessage(sessionIdRef.current, userIndex, "user", msg);
     const request = { message: msg, skill: selectedSkill };
     const markRequestRetryable = () => {
       setMessages((prev) => prev.map((message) => message.ts === sendTs ? { ...message, retryRequest: request } : message));
@@ -243,15 +241,6 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
     const recordFailure = async (content: string) => {
       markRequestRetryable();
       const failedAt = Date.now();
-      if (sessionIdRef.current) {
-        const assistantIndex = msgIndexRef.current;
-        msgIndexRef.current += 1;
-        try {
-          await idbWriteChatMessage(sessionIdRef.current, assistantIndex, "assistant", content, undefined, "failed");
-        } catch {
-          // The retry control remains usable for this open chat even if local persistence is unavailable.
-        }
-      }
       setMessages((prev) => [...prev, { role: "assistant", content, ts: failedAt }]);
     };
 
@@ -264,9 +253,6 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
         for (const action of (response.actions ?? [])) {
           if (action.type === "navigate") router.push(action.route);
         }
-        const asstIdx = msgIndexRef.current;
-        msgIndexRef.current += 1;
-        await idbWriteChatMessage(sessionIdRef.current!, asstIdx, "assistant", response.text, undefined, "completed");
         setMessages((prev) => [...prev, { role: "assistant", content: response.text, ts: Date.now() }]);
       } catch {
         setMessages((prev) => [...prev, { role: "assistant", content: "Setup guide encountered an error — please try again.", ts: Date.now() }]);
@@ -326,11 +312,9 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
         sessionIdRef.current = job.sessionId;
         setActiveSessionId(job.sessionId);
       }
-      const assistantIndex = msgIndexRef.current;
-      msgIndexRef.current += 1;
-      await idbWriteChatMessage(sessionIdRef.current!, assistantIndex, "assistant", job.reply, undefined, "completed");
       setMessages((prev) => [...prev, { role: "assistant", content: job.reply!, ts: Date.now() }]);
       setChips([]);
+      void loadChatSessions();
       onAgentAction?.();
     } catch {
       await recordFailure("Couldn't reach the assistant — try again.");
@@ -489,7 +473,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
         }}
       />
 
-      <button type="button" aria-label={`Open ${agentName} assistant`} onClick={() => { setOpen((v) => { if (v) { sessionIdRef.current = null; msgIndexRef.current = 0; } return !v; }); }} className={styles.fab}>
+      <button type="button" aria-label={`Open ${agentName} assistant`} onClick={() => { setOpen((v) => { if (v) sessionIdRef.current = null; return !v; }); }} className={styles.fab}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={agentIcon ?? "/trippy-transparent.png"} alt={agentName} className={styles.headerIcon} />
       </button>
@@ -499,7 +483,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
           <div className={styles.overlay} onClick={() => setOpen(false)} />
           <div className={styles.panel}>
             <div className={styles.header}>
-              <button type="button" aria-label={showHistory ? "Back to chat" : "Chat history"} onClick={() => setShowHistory((v) => !v)} className={styles.iconBtn}>
+              <button type="button" aria-label={showHistory ? "Back to chat" : "Chat history"} onClick={() => { if (!showHistory) void loadChatSessions(); setShowHistory((v) => !v); }} className={styles.iconBtn}>
                 {showHistory ? <ChevronLeft size={16} /> : <History size={16} />}
               </button>
               {!showHistory && (
@@ -509,7 +493,7 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
               <span className={styles.headerTitle}>{showHistory ? "Past conversations" : agentName}</span>
               <div className={styles.headerActions}>
                 {!showHistory && (
-                  <button type="button" aria-label="New chat" onClick={() => { setMessages([]); setChips([]); sessionIdRef.current = null; msgIndexRef.current = 0; setActiveSessionId(null); }} className={styles.iconBtn}>
+                  <button type="button" aria-label="New chat" onClick={() => { setMessages([]); setChips([]); sessionIdRef.current = null; setActiveSessionId(null); }} className={styles.iconBtn}>
                     <SquarePen size={16} />
                   </button>
                 )}
@@ -548,15 +532,12 @@ export function FloatingAssistant({ onFlagTask, onUnflagTask, onScheduleTask, on
                             style={{ flexShrink: 0, color: "var(--color-text-muted)" }}
                             onClick={async (e) => {
                               e.stopPropagation();
-                              await Promise.all([
-                                idbDeleteChatSession(s.id),
-                                proxyFetch(`/agent/chat/sessions/${s.id}`, { method: "DELETE" }).catch(() => {}),
-                              ]);
+                              const response = await proxyFetch(`/agent/chat/sessions/${encodeURIComponent(s.id)}`, { method: "DELETE" });
+                              if (!response.ok) return;
                               setSessions((prev) => prev.filter((x) => x.id !== s.id));
                               if (s.id === activeSessionId) {
                                 setMessages([]);
                                 sessionIdRef.current = null;
-                                msgIndexRef.current = 0;
                                 setActiveSessionId(null);
                               }
                             }}

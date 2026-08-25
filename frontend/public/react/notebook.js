@@ -3,7 +3,7 @@ import {
 } from "./chunk-H5AG5GHM.js";
 import {
   FloatingAssistant
-} from "./chunk-PV4AZV46.js";
+} from "./chunk-NN5B2RQM.js";
 import {
   AppHeader
 } from "./chunk-GKLEY6TF.js";

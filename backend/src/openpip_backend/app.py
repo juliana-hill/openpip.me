@@ -12,6 +12,7 @@ from .agent import (
     create_briefing,
     discover_quote_via_grounding,
 )
+from . import chat_history_store
 from .chat import get_chat_progress, queue_chat
 from .executor import ActionExecutor, DefaultActionExecutor
 from .demo_data import demo_contacts, demo_request
@@ -608,8 +609,8 @@ async def goals_n_guidelines(skill: str, token: str = Depends(get_google_token))
 
 
 @app.post("/agent/chat")
-async def agent_chat(payload: dict[str, Any], token: str | None = Depends(get_google_token_optional)):
-    """Queue one Executive Assistant turn; the browser polls its status."""
+async def agent_chat(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Queue one Drive-persisted Executive Assistant turn; the browser polls its status."""
     try:
         return await queue_chat(payload, token)
     except ValueError as error:
@@ -617,11 +618,39 @@ async def agent_chat(payload: dict[str, Any], token: str | None = Depends(get_go
 
 
 @app.get("/agent/chat/status/{job_id}")
-def agent_chat_progress(job_id: str, token: str | None = Depends(get_google_token_optional)):
+def agent_chat_progress(job_id: str, token: str = Depends(get_google_token)):
     progress = get_chat_progress(token, job_id)
     if progress is None:
         raise HTTPException(status_code=404, detail="Chat job not found")
     return progress
+
+
+@app.get("/agent/chat/sessions")
+async def agent_chat_sessions(token: str = Depends(get_google_token)):
+    try:
+        return {"sessions": await chat_history_store.list_sessions(token)}
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.get("/agent/chat/sessions/{session_id}")
+async def agent_chat_session(session_id: str, token: str = Depends(get_google_token)):
+    try:
+        session = await chat_history_store.get_session(token, session_id)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    if session is None:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    return session
+
+
+@app.delete("/agent/chat/sessions/{session_id}")
+async def delete_agent_chat_session(session_id: str, token: str = Depends(get_google_token)):
+    try:
+        await chat_history_store.delete_session(token, session_id)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+    return {"ok": True}
 
 
 TASKS_FOLDER = "OpenPip/tasks"

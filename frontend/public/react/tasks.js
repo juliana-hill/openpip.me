@@ -2,6 +2,11 @@ import {
   TrippyIcon
 } from "./chunk-OTRGV5GS.js";
 import {
+  idbAddNotification,
+  idbGetUserPrefs,
+  idbSetUserPrefs
+} from "./chunk-4JWWYGPH.js";
+import {
   Skeleton_default
 } from "./chunk-WNLM7UWS.js";
 import {
@@ -15,11 +20,8 @@ import {
 } from "./chunk-QLVTPJOM.js";
 import {
   FloatingAssistant,
-  ReadAloudButton,
-  idbAddNotification,
-  idbGetUserPrefs,
-  idbSetUserPrefs
-} from "./chunk-PV4AZV46.js";
+  ReadAloudButton
+} from "./chunk-NN5B2RQM.js";
 import {
   AppHeader,
   Markdown,
