@@ -2,7 +2,7 @@
 
 Short-term memory (the last several turns of the *current* session) is
 seeded directly into the Strands Agent's own `messages` on every /agent/chat
-call (see app.py, chat_history_store.get_recent_messages) — cheap, always-
+call (see chat.py, chat_history_store.get_recent_messages) — cheap, always-
 available immediate context that needs no tool round-trip. These two tools
 are for the model to call itself when it needs more than that: get_chat_
 history for reading the rest of the current session in full, search_chat_
@@ -10,6 +10,11 @@ history for keyword recall across every past session and skill. Ported from
 ~/Projects/Personal/travel-agent's own get_chat_history / search_chat_
 history MCP tools (see that project's src/mcp/task-tools.ts) — same
 descriptions, same "nothing is auto-loaded, call this" framing.
+
+search_chat_history takes a *list* of queries in one call, not one query
+per call — see this package's own __init__.py docstring for why (the
+batched-tool-call convention, ported from travel-agent's search_web_multi /
+schedule_linear_tasks).
 
 Built as factories (build_get_chat_history_tool / build_search_chat_history_
 tool), not bare module-level @tool functions, because each needs its own
@@ -63,23 +68,38 @@ def build_get_chat_history_tool(access_token: str, session_id: str | None) -> An
     return get_chat_history
 
 
+async def search_queries(access_token: str, queries: list[str]) -> dict[str, list[dict[str, Any]]]:
+    """The plain, directly-testable core of search_chat_history — kept
+    separate from the @tool-decorated function below because Strands wraps
+    a decorated function into a DecoratedFunctionTool that isn't callable
+    like a normal function anymore, so tests exercise this instead. Loops
+    sequentially (one query at a time), same as travel-agent's own
+    search_web_multi — the win from batching is fewer model round trips,
+    not concurrent execution."""
+    return {query: await chat_history_store.search_chat_history(access_token, query) for query in queries}
+
+
 def build_search_chat_history_tool(access_token: str) -> Any:
     @tool(
         name="search_chat_history",
         description=(
             "Search across EVERY past conversation (every skill, full history — "
-            "not just this session's recent turns) for a keyword or topic. Use "
-            "this when the user references something they told you before that "
-            "isn't in your currently loaded context — a plan they described, a "
-            "decision, specific details from an earlier conversation. Reaches "
-            "into OTHER sessions instead of asking the user to repeat themselves "
-            "or re-paste something they already gave you."
+            "not just this session's recent turns) for one or more keywords or "
+            "topics. Use this when the user references something they told you "
+            "before that isn't in your currently loaded context — a plan they "
+            "described, a decision, specific details from an earlier "
+            "conversation. Reaches into OTHER sessions instead of asking the "
+            "user to repeat themselves or re-paste something they already gave "
+            "you. Pass every keyword you need in one call — it counts as one "
+            "tool call regardless of how many queries you pass, unlike calling "
+            "this once per keyword."
         ),
     )
-    async def search_chat_history(query: str) -> str:
-        results = await chat_history_store.search_chat_history(access_token, query)
-        if not results:
-            return f'No past conversation turns found mentioning "{query}".'
+    async def search_chat_history(queries: list[str]) -> str:
+        results = await search_queries(access_token, queries)
+        if not any(results.values()):
+            joined = ", ".join(f'"{query}"' for query in queries)
+            return f"No past conversation turns found mentioning {joined}."
         return json.dumps(results)
 
     return search_chat_history
