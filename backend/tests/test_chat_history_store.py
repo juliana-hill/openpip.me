@@ -124,3 +124,29 @@ def test_list_sessions_sorts_newest_first() -> None:
 
     sessions = asyncio.run(run())
     assert [s["id"] for s in sessions] == ["s2", "s1"]
+
+
+def test_get_session_returns_messages_in_display_order() -> None:
+    async def run():
+        await chs.append_turn("token", "s1", "executive-assistant", "user", "hello", "hello")
+        await chs.append_turn("token", "s1", "executive-assistant", "assistant", "hi", "hello")
+        return await chs.get_session("token", "s1")
+
+    session = asyncio.run(run())
+    assert session is not None
+    assert session["session"]["id"] == "s1"
+    assert [message["message"] for message in session["messages"]] == ["hello", "hi"]
+
+
+def test_delete_session_removes_only_that_session() -> None:
+    async def run():
+        await chs.append_turn("token", "s1", "executive-assistant", "user", "one", "one")
+        await chs.append_turn("token", "s2", "executive-assistant", "user", "two", "two")
+        deleted = await chs.delete_session("token", "s1")
+        return deleted, await chs.get_session("token", "s1"), await chs.get_session("token", "s2")
+
+    deleted, removed, remaining = asyncio.run(run())
+    assert deleted is True
+    assert removed is None
+    assert remaining is not None
+    assert remaining["session"]["id"] == "s2"

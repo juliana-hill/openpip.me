@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from .google_drive_docs import list_json_files, read_json_file, write_json_file
+from .google_drive_docs import delete_json_file, list_json_files, read_json_file, write_json_file
 
 _CHAT_SESSIONS_FOLDER = "OpenPip/chat-sessions"
 # travel-agent's own search_chat_history cap — bounded by match count, not
@@ -198,3 +198,45 @@ async def list_sessions(access_token: str) -> list[dict[str, Any]]:
         sessions.extend(s for s in data["sessions"] if isinstance(s, dict))
     sessions.sort(key=lambda s: s.get("createdAt", 0), reverse=True)
     return sessions
+
+
+async def get_session(access_token: str, session_id: str) -> dict[str, Any] | None:
+    """Return one session plus its stored turns in display order."""
+    day = await _find_session_day(access_token, session_id)
+    if day is None:
+        return None
+    data = await _read_day_file(access_token, day)
+    session = next(
+        (s for s in data["sessions"] if isinstance(s, dict) and s.get("id") == session_id),
+        None,
+    )
+    if session is None:
+        return None
+    messages = [
+        message for message in data["messages"]
+        if isinstance(message, dict) and message.get("sessionId") == session_id
+    ]
+    messages.sort(key=lambda message: message.get("index", 0))
+    return {"session": session, "messages": messages}
+
+
+async def delete_session(access_token: str, session_id: str) -> bool:
+    """Delete one session's transcript while leaving other days/sessions intact."""
+    day = await _find_session_day(access_token, session_id)
+    if day is None:
+        return False
+    data = await _read_day_file(access_token, day)
+    data["sessions"] = [
+        session for session in data["sessions"]
+        if not isinstance(session, dict) or session.get("id") != session_id
+    ]
+    data["messages"] = [
+        message for message in data["messages"]
+        if not isinstance(message, dict) or message.get("sessionId") != session_id
+    ]
+    filename = f"{day}.json"
+    if data["sessions"] or data["messages"]:
+        await write_json_file(access_token, _CHAT_SESSIONS_FOLDER, filename, data)
+    else:
+        await delete_json_file(access_token, _CHAT_SESSIONS_FOLDER, filename)
+    return True
