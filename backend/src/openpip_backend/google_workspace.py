@@ -7,7 +7,7 @@ import base64
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from email.utils import parseaddr
-from typing import Any
+from typing import Any, Awaitable, Callable
 from urllib.parse import quote
 
 import httpx
@@ -144,6 +144,17 @@ async def fetch_google_tasks(access_token: str, *, include_completed: bool = Fal
         return [task for batch in batches for task in batch]
 
 
+async def fetch_google_task(access_token: str, list_id: str, task_id: str) -> dict[str, Any]:
+    """Fetch one complete Google Task for the final memory pass."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        payload = await _get_json(
+            client,
+            f"https://tasks.googleapis.com/tasks/v1/lists/{quote(list_id, safe='')}/tasks/{quote(task_id, safe='')}",
+            access_token,
+        )
+    return payload
+
+
 def _priority_for_list(name: str) -> str:
     normalized = name.strip().lower()
     return {"asap": "ASAP", "high": "HIGH", "medium": "MEDIUM", "low": "LOW"}.get(normalized, "MEDIUM")
@@ -201,8 +212,19 @@ async def fetch_google_drive_files(access_token: str, *, page_size: int = 50) ->
     ]
 
 
-async def fetch_google_drive_documents(access_token: str) -> list[dict[str, Any]]:
-    """Fetch every Google Doc and Google Sheet's metadata."""
+async def fetch_google_drive_documents(
+    access_token: str,
+    *,
+    modified_start: date | None = None,
+    modified_end: date | None = None,
+    page_size: int = 1000,
+) -> list[dict[str, Any]]:
+    """Fetch document metadata, optionally limited to one modified-date window."""
+    date_filter = ""
+    if modified_start:
+        date_filter += f" and modifiedTime >= '{modified_start.isoformat()}T00:00:00Z'"
+    if modified_end:
+        date_filter += f" and modifiedTime < '{modified_end.isoformat()}T00:00:00Z'"
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         files: list[dict[str, Any]] = []
         page_token: str | None = None
@@ -211,8 +233,8 @@ async def fetch_google_drive_documents(access_token: str) -> list[dict[str, Any]
                 client,
                 "https://www.googleapis.com/drive/v3/files",
                 access_token,
-                q="trashed = false and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.spreadsheet')",
-                pageSize=1000,
+                q="trashed = false and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.spreadsheet')" + date_filter,
+                pageSize=max(1, min(page_size, 1000)),
                 orderBy="modifiedTime",
                 fields="nextPageToken,files(id,name,webViewLink,modifiedTime)",
                 **({"pageToken": page_token} if page_token else {}),
@@ -233,6 +255,58 @@ async def fetch_google_drive_documents(access_token: str) -> list[dict[str, Any]
     ]
 
 
+async def find_oldest_drive_document_date(
+    access_token: str,
+    *,
+    start: date | None = None,
+    end: date | None = None,
+) -> date | None:
+    """Ask Drive for the oldest document metadata using ascending modifiedTime."""
+    date_filter = ""
+    if start:
+        date_filter += f" and modifiedTime >= '{start.isoformat()}T00:00:00Z'"
+    if end:
+        date_filter += f" and modifiedTime < '{end.isoformat()}T00:00:00Z'"
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        payload = await _get_json(
+            client,
+            "https://www.googleapis.com/drive/v3/files",
+            access_token,
+            q="trashed = false and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.spreadsheet')" + date_filter,
+            pageSize=1,
+            orderBy="modifiedTime",
+            fields="files(modifiedTime)",
+        )
+    files = payload.get("files") or []
+    if not files or not files[0].get("modifiedTime"):
+        return None
+    try:
+        return date.fromisoformat(str(files[0]["modifiedTime"])[:10])
+    except ValueError:
+        return None
+
+
+async def find_newest_drive_document_date(access_token: str) -> date | None:
+    """Ask Drive for the newest document metadata using descending modifiedTime."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        payload = await _get_json(
+            client,
+            "https://www.googleapis.com/drive/v3/files",
+            access_token,
+            q="trashed = false and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.spreadsheet')",
+            pageSize=1,
+            orderBy="modifiedTime desc",
+            fields="files(modifiedTime)",
+        )
+    files = payload.get("files") or []
+    if not files or not files[0].get("modifiedTime"):
+        return None
+    try:
+        return date.fromisoformat(str(files[0]["modifiedTime"])[:10])
+    except ValueError:
+        return None
+
+
 async def fetch_google_drive_document(access_token: str, file_id: str) -> str:
     """Export one Google Doc as plain text for the current agent page."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
@@ -246,7 +320,13 @@ async def fetch_google_drive_document(access_token: str, file_id: str) -> str:
         return response.text
 
 
-async def fetch_google_spreadsheet_rows(access_token: str, file_id: str) -> list[dict[str, Any]]:
+async def fetch_google_spreadsheet_rows(
+    access_token: str,
+    file_id: str,
+    *,
+    status_callback: Callable[[str], Awaitable[None]] | None = None,
+    max_rows: int | None = None,
+) -> list[dict[str, Any]]:
     """Read a Google Sheet in row pages, preserving the header row per tab."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         metadata = await _get_json(
@@ -262,6 +342,8 @@ async def fetch_google_spreadsheet_rows(access_token: str, file_id: str) -> list
             grid = properties.get("gridProperties") if isinstance(properties.get("gridProperties"), dict) else {}
             row_count = int(grid.get("rowCount") or 0)
             safe_title = title.replace("'", "''")
+            if status_callback:
+                await status_callback("Building your chronological history.")
             header_payload = await _get_json(
                 client,
                 f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A1:ZZ1", safe='')}",
@@ -270,8 +352,15 @@ async def fetch_google_spreadsheet_rows(access_token: str, file_id: str) -> list
             headers = [str(value or "").strip() or f"Column {index + 1}" for index, value in enumerate((header_payload.get("values") or [[]])[0])]
             if not headers:
                 continue
+            rows_read = 0
             for start in range(2, row_count + 1, 100):
+                if max_rows is not None and rows_read >= max_rows:
+                    break
                 end = min(row_count, start + 99)
+                if max_rows is not None:
+                    end = min(end, start + max_rows - rows_read - 1)
+                if status_callback:
+                    await status_callback("Building your chronological history.")
                 payload = await _get_json(
                     client,
                     f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A{start}:ZZ{end}", safe='')}",
@@ -285,7 +374,64 @@ async def fetch_google_spreadsheet_rows(access_token: str, file_id: str) -> list
                         "rowNumber": start + offset,
                         "values": {headers[index]: value for index, value in enumerate(values) if index < len(headers) and str(value or "").strip()},
                     })
+                    rows_read += 1
     return rows
+
+
+async def list_google_spreadsheet_rows(
+    access_token: str,
+    file_id: str,
+    *,
+    max_rows: int | None = None,
+) -> list[dict[str, Any]]:
+    """List spreadsheet row references without reading any cell values."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        metadata = await _get_json(
+            client,
+            f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}",
+            access_token,
+            fields="sheets(properties(title,gridProperties(rowCount)))",
+        )
+    result: list[dict[str, Any]] = []
+    for sheet in metadata.get("sheets", []):
+        properties = sheet.get("properties") if isinstance(sheet.get("properties"), dict) else {}
+        title = str(properties.get("title") or "Sheet1")
+        grid = properties.get("gridProperties") if isinstance(properties.get("gridProperties"), dict) else {}
+        row_count = int(grid.get("rowCount") or 0)
+        for row_number in range(2, row_count + 1):
+            result.append({"sheet": title, "rowNumber": row_number})
+            if max_rows is not None and len(result) >= max_rows:
+                return result
+    return result
+
+
+async def fetch_google_spreadsheet_row(
+    access_token: str,
+    file_id: str,
+    sheet: str,
+    row_number: int,
+) -> dict[str, Any]:
+    """Read one complete spreadsheet row, including its header names."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        safe_title = sheet.replace("'", "''")
+        header_payload = await _get_json(
+            client,
+            f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A1:ZZ1", safe='')}",
+            access_token,
+        )
+        row_payload = await _get_json(
+            client,
+            f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A{row_number}:ZZ{row_number}", safe='')}",
+            access_token,
+        )
+    header_values = (header_payload.get("values") or [[]])[0]
+    values = (row_payload.get("values") or [[]])[0]
+    headers = [str(value or "").strip() or f"Column {index + 1}" for index, value in enumerate(header_values)]
+    return {
+        "sheet": sheet,
+        "rowNumber": row_number,
+        "values": {headers[index]: value for index, value in enumerate(values) if index < len(headers) and str(value or "").strip()},
+    }
 
 
 def _window(from_date: str | None, days: int) -> tuple[str, str]:
@@ -375,6 +521,118 @@ async def fetch_google_calendars(access_token: str, *, from_date: str | None = N
             }
 
         return await asyncio.gather(*(fetch_calendar(calendar) for calendar in calendars))
+
+
+async def fetch_google_calendar_event(access_token: str, calendar_id: str, event_id: str) -> dict[str, Any]:
+    """Fetch one complete Calendar event for the final memory pass."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        payload = await _get_json(
+            client,
+            f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
+            access_token,
+        )
+    start = payload.get("start") if isinstance(payload.get("start"), dict) else {}
+    end = payload.get("end") if isinstance(payload.get("end"), dict) else {}
+    return {
+        "id": event_id,
+        "title": payload.get("summary") or "Untitled event",
+        "description": payload.get("description"),
+        "location": payload.get("location"),
+        "attendees": payload.get("attendees") or [],
+        "start": start.get("dateTime") or start.get("date"),
+        "end": end.get("dateTime") or end.get("date"),
+        "status": payload.get("status"),
+        "htmlLink": payload.get("htmlLink"),
+    }
+
+
+async def find_oldest_calendar_date(
+    access_token: str, *, start: date, end: date,
+) -> date | None:
+    """Ask Calendar for one earliest event per calendar using orderBy=startTime."""
+    time_min, time_max = _window(start.isoformat(), (end - start).days)
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        calendar_payload = await _get_json(
+            client,
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            access_token,
+            maxResults=250,
+        )
+        calendars = [item for item in calendar_payload.get("items", []) if isinstance(item, dict) and item.get("id")]
+
+        async def oldest(calendar: dict[str, Any]) -> date | None:
+            payload = await _get_json(
+                client,
+                f"https://www.googleapis.com/calendar/v3/calendars/{quote(str(calendar['id']), safe='')}/events",
+                access_token,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents="true",
+                orderBy="startTime",
+                maxResults=1,
+                fields="items(start)",
+            )
+            items = payload.get("items") or []
+            if not items:
+                return None
+            start_value = items[0].get("start") or {}
+            value = start_value.get("dateTime") or start_value.get("date")
+            try:
+                return date.fromisoformat(str(value)[:10]) if value else None
+            except ValueError:
+                return None
+
+        dates = await asyncio.gather(*(oldest(calendar) for calendar in calendars))
+    return min((value for value in dates if value), default=None)
+
+
+async def find_newest_calendar_date(
+    access_token: str, *, start: date, end: date,
+) -> date | None:
+    """Probe Calendar event metadata to find the newest event date."""
+    if start >= end:
+        return None
+    time_min, time_max = _window(start.isoformat(), (end - start).days)
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        calendar_payload = await _get_json(
+            client,
+            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+            access_token,
+            maxResults=250,
+        )
+        calendars = [item for item in calendar_payload.get("items", []) if isinstance(item, dict) and item.get("id")]
+
+        async def newest(calendar: dict[str, Any]) -> date | None:
+            page_token: str | None = None
+            newest_value: date | None = None
+            while True:
+                payload = await _get_json(
+                    client,
+                    f"https://www.googleapis.com/calendar/v3/calendars/{quote(str(calendar['id']), safe='')}/events",
+                    access_token,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents="true",
+                    orderBy="startTime",
+                    maxResults=250,
+                    fields="nextPageToken,items(start)",
+                    **({"pageToken": page_token} if page_token else {}),
+                )
+                for item in payload.get("items", []):
+                    start_value = item.get("start") or {}
+                    value = start_value.get("dateTime") or start_value.get("date")
+                    try:
+                        parsed = date.fromisoformat(str(value)[:10]) if value else None
+                    except ValueError:
+                        parsed = None
+                    if parsed and (newest_value is None or parsed > newest_value):
+                        newest_value = parsed
+                page_token = payload.get("nextPageToken")
+                if not page_token or not payload.get("items"):
+                    return newest_value
+
+        values = await asyncio.gather(*(newest(calendar) for calendar in calendars))
+    return max((value for value in values if value), default=None)
 
 
 def _gmail_header(headers: list[dict[str, Any]], name: str) -> str:
@@ -633,6 +891,7 @@ async def fetch_gmail_messages(
     unread_only: bool = False,
     page: int = 1,
     page_size: int = 50,
+    fetch_all_pages: bool = True,
 ) -> tuple[list[dict[str, Any]], int]:
     """Read Gmail messages, optionally scoped to a label or Gmail search.
 
@@ -668,7 +927,11 @@ async def fetch_gmail_messages(
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         refs: list[dict[str, Any]] = []
         next_page_token: str | None = None
+        requested_page = max(1, page)
+        list_page = 0
+        result_size_estimate = 0
         while True:
+            list_page += 1
             request_query = dict(query)
             if next_page_token:
                 request_query["pageToken"] = next_page_token
@@ -679,11 +942,16 @@ async def fetch_gmail_messages(
                 **request_query,
             )
             refs.extend(item for item in listing.get("messages", []) if isinstance(item, dict))
+            result_size_estimate = int(listing.get("resultSizeEstimate") or result_size_estimate or len(refs))
             next_page_token = listing.get("nextPageToken")
-            if not next_page_token or not listing.get("messages"):
+            if (
+                not next_page_token
+                or not listing.get("messages")
+                or (not fetch_all_pages and list_page >= requested_page)
+            ):
                 break
 
-        total = len(refs)
+        total = len(refs) if fetch_all_pages else max(result_size_estimate, len(refs))
         # The API returns at most 100 references per request, but a bounded
         # historical window may ask this helper for every matching message.
         local_page_size = max(1, min(page_size, 1000))
@@ -705,6 +973,80 @@ async def fetch_gmail_messages(
 
         messages = [message for message in await asyncio.gather(*(fetch_message(ref) for ref in page_refs)) if message]
         return messages, total
+
+
+async def find_oldest_gmail_date(
+    access_token: str, *, start: date, end: date, gmail_query: str | None = None,
+) -> date | None:
+    """Find the first day containing Gmail results using metadata-only probes.
+
+    Gmail's list API is newest-first and has no ascending sort option. A
+    binary search over ``after``/``before`` queries finds the oldest day with
+    results without downloading every message just to discover the boundary.
+    """
+    if start >= end:
+        return None
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        async def has_results(day: date) -> bool:
+            parts = [f"after:{day - timedelta(days=1):%Y/%m/%d}", f"before:{end:%Y/%m/%d}"]
+            if gmail_query:
+                parts.insert(0, gmail_query)
+            payload = await _get_json(
+                client,
+                "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+                access_token,
+                includeSpamTrash="false",
+                maxResults=1,
+                q=" ".join(parts),
+            )
+            return bool(payload.get("messages"))
+
+        if not await has_results(start):
+            return None
+        lo, hi = start, end - timedelta(days=1)
+        while lo < hi:
+            mid = lo + (hi - lo) // 2
+            if await has_results(mid):
+                hi = mid
+            else:
+                lo = mid + timedelta(days=1)
+        return lo
+
+
+async def find_newest_gmail_date(
+    access_token: str, *, start: date, end: date, gmail_query: str | None = None,
+) -> date | None:
+    """Read only the newest Gmail message's metadata to establish a boundary."""
+    if start >= end:
+        return None
+    parts = [f"after:{start - timedelta(days=1):%Y/%m/%d}", f"before:{end:%Y/%m/%d}"]
+    if gmail_query:
+        parts.insert(0, gmail_query)
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        listing = await _get_json(
+            client,
+            "https://gmail.googleapis.com/gmail/v1/users/me/messages",
+            access_token,
+            includeSpamTrash="false",
+            maxResults=1,
+            q=" ".join(parts),
+        )
+        message_id = (listing.get("messages") or [{}])[0].get("id")
+        if not message_id:
+            return None
+        detail = await _get_json(
+            client,
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(str(message_id), safe='')}",
+            access_token,
+            format="metadata",
+            metadataHeaders=["Date"],
+            fields="internalDate,payload(headers)",
+        )
+    value = _normalize_gmail_message(detail).get("date")
+    try:
+        return date.fromisoformat(str(value)[:10]) if value else None
+    except ValueError:
+        return None
 
 
 _PEOPLE_FIELDS = "names,emailAddresses,phoneNumbers,organizations,photos"

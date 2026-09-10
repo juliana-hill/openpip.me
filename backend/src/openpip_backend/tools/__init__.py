@@ -41,7 +41,7 @@ pass, never one task per call.
 
 from .chat_history import build_get_chat_history_tool, build_search_chat_history_tool
 from .channel_memory import build_lookup_channel_memory_tool, build_remember_channel_preference_tool
-from .insights import build_lookup_insights_tool, build_remember_insight_tool, build_search_historical_sources_tool
+from .insights import build_lookup_insights_tool, build_read_historical_source_tool, build_remember_insight_tool, build_search_historical_sources_tool
 from .travel_agent import travel_agent
 
 __all__ = [
@@ -51,6 +51,7 @@ __all__ = [
     "build_lookup_channel_memory_tool",
     "build_remember_channel_preference_tool",
     "build_lookup_insights_tool",
+    "build_read_historical_source_tool",
     "build_remember_insight_tool",
     "build_search_historical_sources_tool",
 ]

@@ -261,7 +261,9 @@ function StudyMeCard({
   const [starting, setStarting] = (0, import_react2.useState)(false);
   const running = status.state === "queued" || status.state === "running";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
+  const progressLabel = running && !status.stages?.history?.total ? "Working\u2026" : `${progress}% complete`;
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+  const statusMessage = status.statusMessage && (/^Gathering |^Reading Google Drive history|^Reading spreadsheet/.test(status.statusMessage) ? "Building your chronological history." : status.statusMessage);
   (0, import_react2.useEffect)(() => {
     if (running || status.state === "failed") setStarting(false);
   }, [running, status.state]);
@@ -280,15 +282,14 @@ function StudyMeCard({
         " assistant"
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: running ? `${agentName} is learning more about you` : `${agentName} would like to learn more about you!` }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? status.statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
       running && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
-        progress,
-        "% complete",
+        progressLabel,
         status.insightsWritten ? ` \xB7 ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""
       ] }),
       status.state === "failed" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The review paused. You can resume it whenever you are ready." })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: running ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { "aria-label": `${progress}% complete`, style: { width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" } }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void handleStart(), disabled: starting, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: running ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { "aria-label": progressLabel, style: { width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" } }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void handleStart(), disabled: starting, children: [
       starting && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.studyMeSpinner, "aria-hidden": "true" }),
       starting ? "Starting\u2026" : status.state === "failed" ? "Resume review" : "Study Me"
     ] }) }) })
@@ -322,6 +323,7 @@ function DashboardPage({ userName, userImage }) {
   const briefFetchedRef = (0, import_react3.useRef)(false);
   const scanPollRef = (0, import_react3.useRef)(null);
   const insightPollRef = (0, import_react3.useRef)(null);
+  const insightPollGenerationRef = (0, import_react3.useRef)(0);
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
@@ -372,12 +374,15 @@ function DashboardPage({ userName, userImage }) {
   }, [stopScanPolling, refreshScheduledActions]);
   (0, import_react3.useEffect)(() => () => stopScanPolling(), [stopScanPolling]);
   const stopInsightPolling = (0, import_react3.useCallback)(() => {
-    if (insightPollRef.current) window.clearInterval(insightPollRef.current);
+    insightPollGenerationRef.current += 1;
+    if (insightPollRef.current) window.clearTimeout(insightPollRef.current);
     insightPollRef.current = null;
   }, []);
   const pollInsightGathering = (0, import_react3.useCallback)(() => {
     stopInsightPolling();
+    const generation = insightPollGenerationRef.current;
     const update = async () => {
+      if (generation !== insightPollGenerationRef.current) return;
       try {
         const response = await proxyFetch("/agent/insights/gather");
         if (!response.ok) {
@@ -385,15 +390,19 @@ function DashboardPage({ userName, userImage }) {
           return;
         }
         const next = await response.json();
+        if (generation !== insightPollGenerationRef.current) return;
         setInsightStatus(next);
-        if (next.state !== "queued" && next.state !== "running") stopInsightPolling();
+        if (next.state === "queued" || next.state === "running") {
+          insightPollRef.current = window.setTimeout(() => {
+            void update();
+          }, 1e3);
+        } else {
+          stopInsightPolling();
+        }
       } catch {
         stopInsightPolling();
       }
     };
-    insightPollRef.current = window.setInterval(() => {
-      void update();
-    }, 1e3);
     void update();
   }, [stopInsightPolling]);
   const requestInsightGathering = (0, import_react3.useCallback)(async () => {

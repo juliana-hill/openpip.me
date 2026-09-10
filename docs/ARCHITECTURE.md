@@ -67,15 +67,17 @@ remain optional infrastructure integrations. There are no mock providers or
 fake records in the actual frontend.
 
 The Dashboard's **Study Me** flow is an onboarding/legacy-user pipeline, not a
-chat command. It runs at most once after completion. It reads a bounded five
-years of retrospective email/calendar history plus a one-year forward calendar
-window, collecting provider pages in 90-day windows and sorting records oldest
-first. It includes Gmail, Calendar, Tasks, Contacts, Google Docs, and Google
-Sheets; spreadsheet tabs are read in row pages so a large CRM is not loaded
-into one prompt. The agent receives one cross-source chronological day at a
-time (capped at ten records for unusually busy days), checkpoints progress
-after every page, and stores durable facts in `OpenPip/memory/insights/`. Each
-fact has a stable key and source evidence; later evidence updates that key
-instead of creating a duplicate. Explicitly documented care-provider and
-appointment facts are allowed, while diagnoses and other sensitive inferences
-are not.
+chat command. It runs at most once after completion. Startup performs only
+metadata boundary probes for Gmail, Calendar, and Drive, recording the oldest
+and newest date for every collection type in the small
+`OpenPip/memory/insights_gathering/manifest/metadata.json` index. It never
+pre-crawls or stores the source archive. The worker advances through dates in
+chronological order; for each source record, the agent uses a
+`read_historical_source` tool to fetch the full record only for that individual
+processing pass. It then stores only the source id, date, reference, a very
+brief key-fact summary, and `status: completed`. After every record for a date
+is indexed, the agent receives that date's summary set, can re-read exact
+sources for precision, extracts durable memories, and advances to the next
+date. Recovery retries only `in_progress` records. Explicitly documented
+care-provider and appointment facts are allowed, while diagnoses and other
+sensitive inferences are not.

@@ -7,6 +7,7 @@ export type InsightGatheringStatus = {
   currentStage?: string | null;
   statusMessage?: string | null;
   insightsWritten?: number;
+  stages?: { history?: { total?: number } };
   error?: string | null;
 };
 
@@ -22,7 +23,11 @@ export function StudyMeCard({
   const [starting, setStarting] = useState(false);
   const running = status.state === "queued" || status.state === "running";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
+  const progressLabel = running && !(status.stages?.history?.total) ? "Working…" : `${progress}% complete`;
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+  const statusMessage = status.statusMessage && (/^Gathering |^Reading Google Drive history|^Reading spreadsheet/.test(status.statusMessage)
+    ? "Building your chronological history."
+    : status.statusMessage);
 
   useEffect(() => {
     if (running || status.state === "failed") setStarting(false);
@@ -44,12 +49,12 @@ export function StudyMeCard({
         </h2>
         <p className={styles.assistantPromptCopy}>
           {running
-            ? (status.statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.`)
+            ? (statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.`)
             : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.`}
         </p>
         {running && (
           <p className={styles.assistantPromptMeta}>
-            {progress}% complete{status.insightsWritten ? ` · ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""}
+            {progressLabel}{status.insightsWritten ? ` · ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""}
           </p>
         )}
         {status.state === "failed" && <p className={styles.assistantPromptMeta}>The review paused. You can resume it whenever you are ready.</p>}
@@ -57,7 +62,7 @@ export function StudyMeCard({
       <div className={styles.assistantPromptActions}>
         {running ? (
           <div className={styles.pipelineStartRow}>
-            <div aria-label={`${progress}% complete`} style={{ width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
+            <div aria-label={progressLabel} style={{ width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
               <div style={{ width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" }} />
             </div>
           </div>

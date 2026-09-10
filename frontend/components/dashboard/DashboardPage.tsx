@@ -46,7 +46,8 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [insightLoaded, setInsightLoaded] = useState(false);
   const briefFetchedRef = useRef(false);
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const insightPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const insightPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const insightPollGenerationRef = useRef(0);
 
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
@@ -109,24 +110,31 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   useEffect(() => () => stopScanPolling(), [stopScanPolling]);
 
   const stopInsightPolling = useCallback(() => {
-    if (insightPollRef.current) window.clearInterval(insightPollRef.current);
+    insightPollGenerationRef.current += 1;
+    if (insightPollRef.current) window.clearTimeout(insightPollRef.current);
     insightPollRef.current = null;
   }, []);
 
   const pollInsightGathering = useCallback(() => {
     stopInsightPolling();
+    const generation = insightPollGenerationRef.current;
     const update = async () => {
+      if (generation !== insightPollGenerationRef.current) return;
       try {
         const response = await proxyFetch("/agent/insights/gather");
         if (!response.ok) { stopInsightPolling(); return; }
         const next = await response.json() as InsightGatheringStatus;
+        if (generation !== insightPollGenerationRef.current) return;
         setInsightStatus(next);
-        if (next.state !== "queued" && next.state !== "running") stopInsightPolling();
+        if (next.state === "queued" || next.state === "running") {
+          insightPollRef.current = window.setTimeout(() => { void update(); }, 1000);
+        } else {
+          stopInsightPolling();
+        }
       } catch {
         stopInsightPolling();
       }
     };
-    insightPollRef.current = window.setInterval(() => { void update(); }, 1000);
     void update();
   }, [stopInsightPolling]);
 
