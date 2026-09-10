@@ -129,6 +129,36 @@ def test_drive_read_timeout_retries_idempotent_request(monkeypatch) -> None:
     assert calls == 2
 
 
+def test_drive_create_timeout_rechecks_before_retrying(monkeypatch) -> None:
+    find_calls = 0
+    post_calls = 0
+
+    async def fake_find_file(*_args, **_kwargs):
+        nonlocal find_calls
+        find_calls += 1
+        if find_calls == 1:
+            return {"id": "created-before-timeout", "webViewLink": "https://drive/file"}
+        return None
+
+    async def fake_post(self, url, **kwargs):
+        nonlocal post_calls
+        post_calls += 1
+        raise httpx.ReadTimeout("temporary Drive timeout", request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(gdd, "_find_file", fake_find_file)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    async def run() -> dict[str, str]:
+        async with httpx.AsyncClient() as client:
+            return await gdd._create_file(client, "token", "folder", "2026-09-10.json", "{}", "application/json")
+
+    result = asyncio.run(run())
+
+    assert result == {"id": "created-before-timeout", "webViewLink": "https://drive/file"}
+    assert post_calls == 1
+    assert find_calls == 1
+
+
 def test_overwrite_document_replaces_existing_content(monkeypatch) -> None:
     folders: dict = {}
     files: dict = {}

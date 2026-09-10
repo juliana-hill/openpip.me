@@ -210,15 +210,60 @@ async def _create_file(
         f"{content}\r\n"
         f"--{boundary}--"
     )
-    response = await client.post(
-        f"{_DRIVE_UPLOAD}/files",
-        params={"uploadType": "multipart", "fields": "id,webViewLink"},
-        content=multipart_body,
-        headers={
+    request_kwargs = {
+        "params": {"uploadType": "multipart", "fields": "id,webViewLink"},
+        "content": multipart_body,
+        "headers": {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": f"multipart/related; boundary={boundary}",
         },
-    )
+    }
+    response: httpx.Response | None = None
+    for attempt in range(_REQUEST_ATTEMPTS):
+        try:
+            response = await client.post(f"{_DRIVE_UPLOAD}/files", **request_kwargs)
+        except (httpx.TimeoutException, httpx.NetworkError):
+            if attempt == _REQUEST_ATTEMPTS - 1:
+                raise
+            # A create request may have reached Drive even when its response
+            # timed out. Check by filename before sending it again so a
+            # recovered request cannot create a duplicate file.
+            existing = await _find_file(client, access_token, parent_id, filename)
+            if existing:
+                return existing
+            delay = 0.5 * (2 ** attempt)
+            _logger.warning(
+                "temporary Google Drive file-create timeout; retrying in %.1fs (attempt %s/%s)",
+                delay,
+                attempt + 1,
+                _REQUEST_ATTEMPTS,
+            )
+            await asyncio.sleep(delay)
+            continue
+        if (
+            response.status_code not in _TRANSIENT_STATUS_CODES
+            or attempt == _REQUEST_ATTEMPTS - 1
+        ):
+            break
+        # Treat a transient response as having an unknown outcome too. A
+        # server may have created the file before returning a 5xx response.
+        existing = await _find_file(client, access_token, parent_id, filename)
+        if existing:
+            return existing
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(0.25, min(float(retry_after or 0.5), 4.0))
+        except ValueError:
+            delay = 0.5 * (2 ** attempt)
+        _logger.warning(
+            "temporary Google Drive file-create response %s; retrying in %.1fs (attempt %s/%s)",
+            response.status_code,
+            delay,
+            attempt + 1,
+            _REQUEST_ATTEMPTS,
+        )
+        await asyncio.sleep(delay)
+    assert response is not None
     if not response.is_success:
         try:
             payload = response.json()
