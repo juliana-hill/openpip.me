@@ -24,22 +24,7 @@ GOOGLE_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 
 async def _get_json(client: httpx.AsyncClient, url: str, access_token: str, **params: Any) -> dict[str, Any]:
-    response: httpx.Response | None = None
-    for attempt in range(3):
-        response = await client.get(
-            url,
-            params=params,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if response.status_code != 429 or attempt == 2:
-            break
-        retry_after = response.headers.get("Retry-After")
-        try:
-            delay = max(0.25, min(float(retry_after or 0.5), 3.0))
-        except ValueError:
-            delay = 0.5 * (2 ** attempt)
-        await asyncio.sleep(delay)
-    assert response is not None
+    response = await _get_response(client, url, access_token, **params)
     if not response.is_success:
         try:
             payload = response.json()
@@ -48,6 +33,33 @@ async def _get_json(client: httpx.AsyncClient, url: str, access_token: str, **pa
             detail = response.text
         raise GoogleApiError(response.status_code, str(detail)[:500])
     return response.json()
+
+
+async def _get_response(client: httpx.AsyncClient, url: str, access_token: str, **params: Any) -> httpx.Response:
+    """Fetch a Google read endpoint with bounded retries for transient failures."""
+    response: httpx.Response | None = None
+    for attempt in range(3):
+        try:
+            response = await client.get(
+                url,
+                params=params,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        except (httpx.TimeoutException, httpx.NetworkError):
+            if attempt == 2:
+                raise
+            await asyncio.sleep(0.5 * (2 ** attempt))
+            continue
+        if response.status_code not in {429, 500, 502, 503, 504} or attempt == 2:
+            break
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(0.25, min(float(retry_after or 0.5), 3.0))
+        except ValueError:
+            delay = 0.5 * (2 ** attempt)
+        await asyncio.sleep(delay)
+    assert response is not None
+    return response
 
 
 async def _request_json(
@@ -310,10 +322,11 @@ async def find_newest_drive_document_date(access_token: str) -> date | None:
 async def fetch_google_drive_document(access_token: str, file_id: str) -> str:
     """Export one Google Doc as plain text for the current agent page."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        response = await client.get(
+        response = await _get_response(
+            client,
             f"https://www.googleapis.com/drive/v3/files/{quote(file_id, safe='')}/export",
-            params={"mimeType": "text/plain"},
-            headers={"Authorization": f"Bearer {access_token}"},
+            access_token,
+            mimeType="text/plain",
         )
         if not response.is_success:
             raise GoogleApiError(response.status_code, response.text[:500])

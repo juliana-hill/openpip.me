@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 from urllib.parse import quote
 
@@ -33,6 +34,10 @@ from .google_workspace import GOOGLE_TIMEOUT, GoogleApiError
 _DRIVE_API = "https://www.googleapis.com/drive/v3"
 _DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
+_RETRYABLE_METHODS = {"GET", "PATCH", "DELETE"}
+_TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+_REQUEST_ATTEMPTS = 3
+_logger = logging.getLogger(__name__)
 
 
 async def _request(
@@ -46,17 +51,53 @@ async def _request(
     content: str | None = None,
     content_type: str = "text/plain",
 ) -> httpx.Response:
-    response = await client.request(
-        method,
-        url,
-        params=params,
-        json=json_body,
-        content=content,
-        headers={
+    normalized_method = method.upper()
+    request_kwargs = {
+        "params": params,
+        "json": json_body,
+        "content": content,
+        "headers": {
             "Authorization": f"Bearer {access_token}",
             **({"Content-Type": content_type} if content is not None else {}),
         },
-    )
+    }
+    response: httpx.Response | None = None
+    for attempt in range(_REQUEST_ATTEMPTS):
+        try:
+            response = await client.request(method, url, **request_kwargs)
+        except (httpx.TimeoutException, httpx.NetworkError):
+            if normalized_method not in _RETRYABLE_METHODS or attempt == _REQUEST_ATTEMPTS - 1:
+                raise
+            delay = 0.5 * (2 ** attempt)
+            _logger.warning(
+                "temporary Google Drive %s timeout; retrying in %.1fs (attempt %s/%s)",
+                normalized_method,
+                delay,
+                attempt + 1,
+                _REQUEST_ATTEMPTS,
+            )
+            await asyncio.sleep(delay)
+            continue
+        if (
+            response.status_code not in _TRANSIENT_STATUS_CODES
+            or normalized_method not in _RETRYABLE_METHODS
+            or attempt == _REQUEST_ATTEMPTS - 1
+        ):
+            break
+        retry_after = response.headers.get("Retry-After")
+        try:
+            delay = max(0.25, min(float(retry_after or 0.5), 4.0))
+        except ValueError:
+            delay = 0.5 * (2 ** attempt)
+        _logger.warning(
+            "temporary Google Drive response %s; retrying in %.1fs (attempt %s/%s)",
+            response.status_code,
+            delay,
+            attempt + 1,
+            _REQUEST_ATTEMPTS,
+        )
+        await asyncio.sleep(delay)
+    assert response is not None
     if response.is_success:
         return response
     try:

@@ -6,17 +6,13 @@ The travel-agent frontend and its marketing landing-page directory are copied ve
 
 ```mermaid
 flowchart LR
-  UI[Express + HJS Today / Review / Settings / Contacts] --> API[FastAPI web API :5501]
-  API --> Store[(SQLite proposal queue\npreferences + audit events)]
+  UI[Cloud Run Express + HJS Today / Review / Settings / Contacts] --> API[Cloud Run FastAPI web API]
+  API --> Store[(SQLite local / durable production store\nproposals + preferences + audit events)]
   API --> Invoker[Agent invocation boundary]
-  Invoker -. local development .-> Local[Strands agent in FastAPI]
-  Invoker -. production option .-> Runtime[Amazon Bedrock AgentCore Runtime]
+  Invoker --> Local[Strands agent in FastAPI]
   Local --> Bedrock[Amazon Bedrock\nNova Pro]
-  Runtime --> Bedrock
   Local --> Context[User working context]
-  Runtime --> Context
   Local --> Providers[Provider interfaces]
-  Runtime --> Providers
   Providers --> GoogleRead[Google OAuth reads\nGmail / Calendar / Tasks / Drive]
   API --> Gate[Approval-only executor]
   Gate -. approved only .-> GoogleWrite[Google writes]
@@ -30,7 +26,9 @@ flowchart LR
   Study --> Timeline[Drive manifest: bounded, paginated chronology]
   Study --> Memories[Drive durable insights]
   Memories -. assistant context .-> Invoker
-  Deploy[OpenPip deploy credentials] -. deploys .-> Runtime
+  Deploy[Cloud Run deployment] -. deploys .-> UI
+  Deploy -. deploys .-> API
+  Deploy -. deploys .-> Local
 ```
 
 In local development, the Express server on `:5500` sends `/api` requests to
@@ -44,11 +42,23 @@ The immutable system instructions define the agent’s tools and safety policy.
 User-authored working context is a separate, editable input used to prioritize
 work and match communication style. It cannot authorize an external action.
 
-AgentCore Runtime is a production hosting option for the Strands agent, not a
-replacement for the web API or frontend. The web API remains responsible for
-sessions, Google OAuth, polling, proposals, review, and execution. In local
-development, the agent runs inside FastAPI; in an AgentCore deployment, the
-invocation boundary can route agent work to the AgentCore runtime instead.
+The Cloud Run FastAPI service hosts the Strands agent and remains responsible
+for sessions, Google OAuth, polling, proposals, review, and approved
+execution. Keeping the agent in the same service preserves the current user's
+Google authorization, deterministic crawl/recovery state, and agentic memory
+step without a remote runtime handoff. The Firebase-hosted landing page and
+fictional `demo.openpip.me` walkthrough remain separate from the connected
+application.
+
+AgentCore was evaluated but is intentionally not part of this deployment. Its
+separate runtime and identity boundaries are a poor fit for OpenPip's fully
+customizable hybrid pipeline, and they are not a suitable place to express the
+application's entire control flow. Daily record pagination and recovery are
+deterministic, while the final memory synthesis is agentic and must share the
+same per-user tools, proposal state, and approval executor. Splitting those
+stages across a second runtime would add token-context and state handoffs,
+duplicate coordination, and extra latency. This is an application-fit and
+efficiency decision, not a limitation imposed by Google Cloud.
 
 Every proposed action includes a source reference. The review lifecycle is:
 
@@ -67,10 +77,15 @@ does not need AgentCore-specific plumbing; it is an outbound provider used by
 the executor. Chat transcripts are persisted separately from a small,
 user-visible Drive-backed channel-memory store: the assistant can remember
 that a specific business uses phone, email, text, or a booking system for a
-specific situation. Chat and workspace-scan agents can record explicit channel
-evidence from conversation, email, calendar, tasks, or contacts. AgentCore Identity, AgentCore Memory, and EventBridge
-remain optional infrastructure integrations. There are no mock providers or
-fake records in the actual frontend.
+specific situation. Chat, workspace-scan, and completed-interaction agents can
+record explicit channel evidence from conversation, email, calendar, tasks,
+contacts, and completed interactions. Channel memories are upserted by a
+normalized subject and situation, so a later fact edits the matching memory
+instead of creating a duplicate while different situations remain separate.
+There are no AgentCore-specific integrations in the deployment. Cloud
+Scheduler can trigger authenticated Cloud Run endpoints when background work
+is needed. There are no mock providers or fake records in the actual
+frontend.
 
 The Dashboard's **Study Me** flow is an onboarding/legacy-user pipeline, not a
 chat command. It runs at most once after completion. Startup performs only

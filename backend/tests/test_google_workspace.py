@@ -7,7 +7,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app
-from openpip_backend.google_workspace import _extract_gmail_content, create_gmail_draft, update_google_calendar_event
+from openpip_backend.google_workspace import _extract_gmail_content, _get_json, create_gmail_draft, update_google_calendar_event
 
 
 def test_google_reads_require_an_oauth_token() -> None:
@@ -17,6 +17,28 @@ def test_google_reads_require_an_oauth_token() -> None:
 
     assert response.status_code == 401
     assert response.json()["detail"] == "Google account is not connected"
+
+
+def test_google_read_timeout_retries_before_failing(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_get(self, url, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadTimeout("temporary Google timeout", request=httpx.Request("GET", url))
+        return httpx.Response(200, json={"items": []}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    async def run() -> dict:
+        async with httpx.AsyncClient() as client:
+            return await _get_json(client, "https://example.test", "oauth-token")
+
+    result = asyncio.run(run())
+
+    assert result == {"items": []}
+    assert calls == 2
 
 
 def test_google_tasks_are_returned_from_the_oauth_adapter(monkeypatch) -> None:

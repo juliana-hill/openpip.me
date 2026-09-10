@@ -30,25 +30,33 @@ This is a from-scratch reference for wiring Google OAuth into the new OpenPip re
 - Add your own Google account(s) as **test users**. Testing mode supports up to 100 test users and works fine for building and recording the demo video — you do not need to complete verification for the hackathon submission.
 - Set `access_type=offline` and `prompt=consent` on the auth request so you get a refresh token on first connect (needed for the agent to run in the background without the user re-logging in every hour).
 
-## 3. Where the token lives — two implementation paths
+## 3. Where the token lives — the current FastAPI session boundary
 
-### Path A (recommended, strengthens Technical Implementation score): AgentCore Identity
-
-Use an [AgentCore Identity OAuth2 credential provider](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/what-is-bedrock-agentcore.html) configured for Google as the identity provider. AgentCore Identity handles the authorization flow, stores and refreshes tokens, and hands your Strands tools a live access token scoped to the calling user — no custom session store or cookie signing to build. This is the cleaner, more "genuinely uses AWS" path and is worth the extra setup time in week 1–2.
-
-### Path B (fallback if Identity integration is too slow to land): small OAuth proxy
-
-If you need to move faster early on, a minimal Express (or FastAPI) route pair does it:
+The current OpenPip web service owns Google OAuth and the user session. A
+minimal Express (or FastAPI) route pair does it:
 
 - `GET /auth/login` — build the Google `https://accounts.google.com/o/oauth2/v2/auth` URL with `client_id`, `redirect_uri`, `response_type=code`, `scope`, `access_type=offline`, `prompt=consent`, and a signed `state` param; redirect the browser there.
-- `GET /auth/callback` — exchange the returned `code` for `access_token` + `refresh_token` at `https://oauth2.googleapis.com/token`, fetch `https://www.googleapis.com/oauth2/v2/userinfo` to get the user's email, then store the tokens server-side (encrypted at rest — e.g. AWS Secrets Manager or a KMS-encrypted DB column) keyed to a signed, `httpOnly` session cookie. Never store tokens in browser storage or in the frontend at all.
+- `GET /auth/callback` — exchange the returned `code` for `access_token` + `refresh_token` at `https://oauth2.googleapis.com/token`, fetch `https://www.googleapis.com/oauth2/v2/userinfo` to get the user's email, then store the tokens server-side (encrypted at rest, using the production database and Google Cloud Secret Manager/KMS controls) keyed to a signed, `httpOnly` session cookie. Never store tokens in browser storage or in the frontend at all.
 - A small refresh-token exchange helper that runs before any tool call whose cached access token has expired.
 
-Migrate to Path A once the MVP loop is proven if time allows — it removes the custom token store entirely.
+This FastAPI-owned boundary is deliberate. The agent's deterministic crawl,
+agentic memory synthesis, proposal state, and approval executor all need the
+same per-user authorization context. AgentCore Identity was evaluated, but
+introducing a separate identity/runtime handoff would add coordination and
+latency without improving this workflow. AgentCore is therefore not part of
+the current deployment plan. This is an application-fit decision, not a
+limitation imposed by Google Cloud.
 
 ## 4. Wiring tokens into Strands tools
 
-However the token is obtained, the pattern for Strands is the same: each MCP tool (calendar, gmail, tasks, drive) takes the current user's access token as a per-call parameter (or reads it from the AgentCore Identity context), calls the relevant Google API endpoint, and returns structured data to the agent. Keep tools read-first — any tool that would *change* something (send a reply, create a calendar event, modify a task) should write a **proposal** instead of executing directly; only the Review-queue "approve" action should call the real Google write endpoint. This is what makes the agent "surface only when there's a real decision to make" instead of acting silently.
+Each MCP tool (calendar, gmail, tasks, drive) takes the current user's access
+token as a per-call parameter, calls the relevant Google API endpoint, and
+returns structured data to the agent. Keep tools read-first — any tool that
+would *change* something (send a reply, create a calendar event, modify a
+task) should write a **proposal** instead of executing directly; only the
+Review-queue "approve" action should call the real Google write endpoint.
+This is what makes the agent "surface only when there's a real decision to
+make" instead of acting silently.
 
 ### Current OpenPip read adapters
 
@@ -79,9 +87,8 @@ FastAPI validates the injected per-user token at each provider/app-data route.
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_OAUTH_REDIRECT_URI=
-SESSION_SIGNING_SECRET=      # Path B only
+SESSION_SIGNING_SECRET=
 AWS_REGION=
-AGENTCORE_IDENTITY_PROVIDER_ID=   # Path A only
 ```
 
 Add all of the above to `.gitignore`'d `.env` files with a checked-in `.env.example` that lists names only, matching this list.

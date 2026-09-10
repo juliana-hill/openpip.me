@@ -1,8 +1,9 @@
 # OpenPip.me — AWS "Agents for Humans" Hackathon Plan
 
-**Repo:** new, public, MIT or Apache-2.0 licensed
+**Repo:** public OpenPip repository, MIT or Apache-2.0 licensed
 **Branding to keep:** OpenPip.me — *Open Performance Improvement Plan*
-**SDK:** Strands Agents SDK, deployed on Amazon Bedrock AgentCore
+**SDK:** Strands Agents SDK
+**Deployment:** Cloud Run web services with the Strands agent running in FastAPI; Amazon Bedrock is the current model provider
 **Track:** Professional Agents *(rationale below)*
 
 ## Frontend source-of-truth rule (non-negotiable)
@@ -32,28 +33,36 @@ Narrow the surface area from the old multi-skill platform (travel planning, care
 4. Proposal & Review pipeline — every autonomous action becomes a proposal with cited source (the email/event/task it's based on); nothing sends/books/schedules until approved in the Review queue.
 5. Minimal contact/relationship memory (lightweight CRM) built from who you actually email — powers "haven't followed up with X in 2 weeks" style proposals.
 6. Business-trip planning — turns a professional travel request from email, calendar, or chat into a proposed itinerary, identifies scheduling conflicts, and prepares approval-gated coordination actions for flights, lodging, ground transportation, and meetings.
-7. CALL-E calling tool — a `propose_action`-compatible tool that places a real outbound phone call (via [CALL-E](https://github.com/CALLE-AI/call-e-integrations)'s SDK/MCP) to confirm or reschedule an appointment found on the calendar, or to follow up on a task that's better resolved by voice than email. Like every other action, a call is only ever a *proposal* until approved in the Review queue — approval is what actually triggers the CALL-E call. See [§9](#9-call-e-integration-dual-hackathon-submission) for how this doubles as the CALL-E hackathon submission.
+7. CALL-E calling tool — a `propose_action`-compatible tool that places a real outbound phone call (via [CALL-E](https://github.com/CALLE-AI/call-e-integrations)'s SDK/MCP) only when an appointment reschedule requires a phone call. Other events remain in their appropriate email, booking-system, or direct Calendar workflow. Like every other action, a call is only ever a *proposal* until approved in the Review queue — approval is what actually triggers the CALL-E call. See [§9](#9-call-e-integration-dual-hackathon-submission) for how this doubles as the CALL-E hackathon submission.
 
 **Explicitly out of scope for the hackathon submission** (roadmap-only, mention briefly in README as "what's next"):
 - Personal/leisure travel planning and broad consumer route comparison
 - Career/job-search campaigns
 - Executive-coaching persona and homework tracking
 
-## 4. Architecture: old pattern → Strands/AWS equivalent
+## 4. Architecture: old pattern → Strands/Cloud Run equivalent
 
-| Old (Claude Agent SDK build) | New (Strands + AgentCore) | Notes |
+| Old (Claude Agent SDK build) | New (Strands + Cloud Run + Bedrock) | Notes |
 |---|---|---|
 | `services/agent.ts` orchestrator on `@anthropic-ai/claude-agent-sdk` | Strands `Agent` with a small set of specialized tool-agents (briefing, inbox, calendar/tasks) | Strands' model-driven loop replaces the custom orchestration code directly. |
 | Custom MCP servers (`mcp/task-tools.ts`, `inbox-network-tools.ts`, etc.) via `@modelcontextprotocol/sdk` | Same MCP servers, consumed through Strands' built-in `MCPClient` | [Strands ships first-class MCP support](https://strandsagents.com/1.0.x/documentation/docs/user-guide/concepts/tools/mcp-tools/), so the tool-server pattern is largely portable — rewrite the tool bodies, keep the MCP shape. |
-| `services/connectors.ts` + proxy OAuth routes (custom Express session store) | AgentCore Identity OAuth2 credential provider | Removes the hand-rolled session/token store; AgentCore issues the agent its own identity and manages the Google OAuth2 token lifecycle. Strengthens Technical Implementation score. Fallback: keep a small OAuth proxy (see `OAUTH_SETUP.md`) if Identity integration is too slow to land in week 1–2. |
-| `data/agent-memory-*.json`, `better-sqlite3` | Drive-backed channel memory plus the one-time, paginated historical-insight pipeline; AgentCore Memory remains optional | Historical facts are stored in visible Drive with stable keys, source evidence, and resumable per-page progress. |
+| `services/connectors.ts` + proxy OAuth routes (custom Express session store) | FastAPI OAuth/session baseline | The current web service owns Google OAuth and session context so each agent tool call receives the correct user's authorization. |
+| `data/agent-memory-*.json`, `better-sqlite3` | Drive-backed channel memory plus the one-time, paginated historical-insight pipeline | Historical facts are stored in visible Drive with stable keys, source evidence, and resumable per-page progress. |
 | `services/proposal-pipeline.ts` + `services/review-workflow.ts` | Same lifecycle, reimplemented as a Strands tool-calling loop: agent emits a `propose_action` tool call with a source reference; nothing executes until a `/review/:id/approve` endpoint calls the actual side-effecting tool | This is the single most important mechanic for both the hackathon theme and the "genuine understanding of the problem space" creativity criterion — keep it front and center in the demo. |
-| `node-cron` scheduler | EventBridge Scheduler (or AgentCore Runtime's async/long-running session) triggering the Daily Briefing agent | Simple, visibly "runs in the background" for the demo. |
+| `node-cron` scheduler | Cloud Scheduler triggering the Daily Briefing agent through an authenticated Cloud Run endpoint | Simple, visibly "runs in the background" for the demo. |
 | Express + HJS frontend | Keep the validated Today / Review / Settings / Contacts UI shape while serving HJS views and per-view Babel outputs over HTTP | No client framework runtime, browser database, or service worker is required. |
-| Observability: `claude-host.log`, ad hoc | AgentCore Observability (OTEL traces) | Nice, free demo material — show the trace of a proposal being generated and approved. |
+| Observability: `claude-host.log`, ad hoc | Cloud Logging and Cloud Trace for Cloud Run | Show the trace of a proposal being generated, approved, and executed. |
 | *(new)* | Approval-gated CALL-E adapter (`backend/src/openpip_backend/calle.py`) plus the portable `skills/email-task-call-proposal/` skill | Reads email, tasks, and calendar signals, chooses email/booking system/phone from the evidence, and invokes CALL-E only after a call proposal is approved. Doubles as the CALL-E hackathon submission (see §9). |
 
-Optional stretch (only if time remains in week 5–6): AgentCore Gateway to turn the Google API calls into governed MCP tools instead of hand-written fetch calls, and AgentCore Code Interpreter if any proposal needs computed output (e.g., cost/time math).
+AgentCore was evaluated and intentionally excluded. It is a useful runtime for
+a self-contained agent, but its separate invocation and identity boundaries
+are a limitation for OpenPip's fully customizable hybrid pipeline:
+deterministic daily crawling and recovery, agentic memory synthesis, per-user
+Google authorization, proposal/review state, and approval-gated external
+actions all need to remain coordinated in one application boundary. Splitting
+that flow across AgentCore would add token-context and state handoffs,
+duplicate coordination, and extra latency without improving the user's
+workflow. This is a product-fit decision, not a GCP limitation.
 
 ## 5. New repo structure
 
@@ -63,37 +72,41 @@ openpip-agent/
 ├── README.md                # Problem / audience / how it works / setup / demo link
 ├── docs/
 │   ├── PLAN.md               # this document
-│   ├── OAUTH_SETUP.md         # Google OAuth + AgentCore Identity setup reference
+│   ├── OAUTH_SETUP.md         # Google OAuth and Cloud Run setup reference
 │   └── ARCHITECTURE.md        # diagram + component descriptions
 ├── backend/
 │   ├── agents/                # Strands Agent definitions (briefing, inbox, orchestrator)
 │   ├── tools/                 # MCP tool servers (calendar, tasks, drive, gmail, proposals, calle-call)
 │   ├── review/                # proposal + review-approval lifecycle
-│   └── agentcore/             # AgentCore Runtime deploy config, Identity provider config
 ├── frontend/                  # Express + HJS app (Today, Review, Settings, Contacts)
-└── infra/                     # IaC (CDK) for AgentCore Runtime + EventBridge schedule
+└── infra/                     # IaC for Cloud Run, Artifact Registry, and the schedule
 ```
 
-Deploy the frontend + API to the existing `openpip.me` domain (swap DNS/hosting target once the new backend is live); keep the current Firebase-hosted landing page or fold it into the new frontend deploy, whichever is less work in week 5.
+Deploy the connected application frontend and API to Cloud Run in the
+`travel-agent-cam-julie` project. Keep the Firebase-hosted landing page and
+`demo.openpip.me` walkthrough in place until the application cutover is
+verified. AgentCore is intentionally not used. The agent remains inside the
+FastAPI service so the deterministic and agentic stages share the same state
+and user context.
 
 ## 6. Six-week timeline
 
 | Week | Milestone |
 |---|---|
 | 1 | Repo scaffold, license, rebranded README skeleton. Google Cloud project + OAuth consent screen (see `OAUTH_SETUP.md`). First Strands agent with one working MCP tool (Calendar read). |
-| 2 | Gmail + Tasks + Drive tools online. AgentCore Identity wired for token lifecycle (or proxy fallback). SQLite/Memory schema for proposals. |
+| 2 | Gmail + Tasks + Drive tools online. FastAPI OAuth/session path verified. SQLite/Memory schema for proposals. |
 | 3 | Daily Briefing agent producing a real end-to-end summary from live data. Inbox triage agent drafting replies + creating tasks. |
 | 4 | Proposal → Review → Approve → Execute loop fully wired (the core theme mechanic). Contact memory / pseudo-CRM populated from real inbox activity, plus explicit situation-specific channel memory. |
-| 5 | Frontend: Today, Review queue, Settings/Connectors, Contacts. Deploy backend to AgentCore Runtime with Observability on. Point openpip.me at the new deploy. |
+| 5 | Frontend: Today, Review queue, Settings/Connectors, Contacts. Deploy frontend and backend to Cloud Run with observability on. Run the Strands agent inside the FastAPI service and verify direct Bedrock access. |
 | 6 | Dedicated demo account with live connected data, README + architecture diagram finalized, 5-minute demo video recorded, builder.aws.com bonus post drafted and published ("Agents for Humans" in the title), full submission checklist run. No frontend demo/mock dataset is permitted. |
 
 ## 7. Judging-criteria alignment
 
-- **Technological Implementation:** Non-trivial multi-agent Strands build (orchestrator + specialized tool-agents), MCP tool servers, AgentCore Runtime deploy, Identity-managed OAuth, Observability traces, live demo link.
+- **Technological Implementation:** Non-trivial Strands build (orchestrator + specialized tool-agents), MCP tool servers, Cloud Run deployment, direct Bedrock model access, observability traces, and a live demo link. AgentCore was considered but intentionally excluded because its runtime boundary would make this stateful, customizable pipeline less efficient.
 - **Design:** Deliberately narrowed to one coherent loop (scan → brief → propose → approve) instead of the old platform's sprawling skill set.
 - **Potential Impact:** Concrete, demonstrable time saved for a named audience (solo professionals managing their own inbox/calendar), shown live against real (sanitized) data.
 - **Creativity & Originality:** The approval-gated proposal pipeline with source-cited evidence is the genuinely non-obvious part — the agent must justify every proposal by linking to the email/event/task that triggered it.
-- **Presentation:** 5-minute video: 30s problem/who/why, 3 min live walkthrough (morning briefing → inbox triage running quietly → one proposal appearing → approving it → result), 1 min architecture/Strands+AgentCore callout.
+- **Presentation:** 5-minute video: 30s problem/who/why, 3 min live walkthrough (morning briefing → inbox triage running quietly → one proposal appearing → approving it → result), 1 min architecture and the Cloud Run + Strands + Bedrock deployment decision.
 
 ## 8. Risks / lessons carried over from the old build
 
@@ -105,12 +118,12 @@ Deploy the frontend + API to the existing `openpip.me` domain (swap DNS/hosting 
 
 OpenPip is also being entered into the separate **CALL-E: Your Code Is Calling** hackathon ([`docs/call-e-hackathon/guidelines-rules.md`](call-e-hackathon/guidelines-rules.md)), run by AIRUDDER, deadline Sep 14 2026 — the same day as the AWS deadline. This is a second, independent Devpost submission built from the *same* underlying agent, not a fork of the product.
 
-**Why it fits without derailing the AWS build:** the proposal/review pipeline (§4) already treats every autonomous action — send email, create event, create task — as a proposal gated behind human approval. A phone call is just one more action type in that same shape: `propose_action("call", {contact, reason, source})` → approved in Review → the approval handler invokes CALL-E instead of the Gmail/Calendar API. No architectural fork needed.
+**Why it fits without derailing the AWS build:** the proposal/review pipeline (§4) already treats every autonomous action — send email, create event, create task — as a proposal gated behind human approval. A phone-required appointment reschedule fits that same shape: `propose_action("call", {contact, reason, source})` → approved in Review → the approval handler invokes CALL-E. Events that can be handled by email, a booking system, or direct Calendar changes stay on those channel-specific paths. No architectural fork is needed.
 
 **Scope for the CALL-E track specifically:**
 1. A reusable `email-task-call-proposal` skill reads bounded email, task, and calendar context. It chooses a phone proposal for work such as rescheduling a hair appointment when the original provider is phone-only, while preserving email or booking-system follow-up when those channels are available.
-2. On approval, `backend/src/openpip_backend/calle.py` calls CALL-E and polls for a structured result (confirmed / needs reschedule / declined / no answer / unclear). For a phone-required reschedule, the approved call carries the exact existing event and proposed time; the Calendar event is updated only after a successful call confirms the change. Failed or unapproved reschedules leave it unchanged.
-3. Nothing here needs AgentCore-specific plumbing — the CALL-E adapter is an outbound provider behind the approval executor and works from whichever backend runtime the AWS build lands on.
+2. On approval, `backend/src/openpip_backend/calle.py` calls CALL-E and polls for a structured result (confirmed / needs reschedule / declined / no answer / unclear). The phone path is limited to appointments whose context requires a call. The approved call carries the exact existing event and proposed time; the Calendar event is updated only after a successful call confirms the change. Failed, declined, or unapproved reschedules leave it unchanged.
+3. Nothing here needs AgentCore-specific plumbing — the CALL-E adapter is an outbound provider behind the approval executor and runs directly from the FastAPI service on Cloud Run.
 
 **Submission mechanics (different from the AWS Devpost flow — easy to get wrong, read carefully):**
 

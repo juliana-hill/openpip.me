@@ -41,3 +41,33 @@ Use `.env.example` only as a names-only template. Never commit OAuth tokens,
 credentials, or real workspace data.
 
 See [the project plan](docs/PLAN.md) and [OAuth setup reference](docs/OAUTH_SETUP.md).
+
+## Deployment decision
+
+The connected application is planned as two Cloud Run services in the
+`travel-agent-cam-julie` Google Cloud project: the Express frontend and the
+FastAPI backend that hosts the Strands agent. Amazon Bedrock remains the model
+provider, accessed from Cloud Run with short-lived federated credentials when
+that cross-cloud connection is retained. Firebase continues to host the
+marketing landing page and the static walkthrough.
+
+We evaluated Amazon Bedrock AgentCore and decided not to use it for this
+application. OpenPip's workflow is a hybrid pipeline: deterministic daily
+record crawling and recovery, followed by agentic memory synthesis, all tied
+to the same user's Google authorization, proposal state, and approval-gated
+actions. AgentCore's separate runtime boundary is not a suitable place to
+express that entire custom control flow. It would require extra token and
+state handoffs, add latency, and make the pipeline less customizable. This is
+an application-fit and efficiency decision, not a limitation of Google Cloud.
+
+## Firebase deployments
+
+The marketing site and the fictional walkthrough are deployed as separate
+Firebase Hosting sites:
+
+- `landing/deploy.sh` publishes `openpip.me` through the `openpip-landing` site.
+- `demo/deploy.sh` publishes `demo.openpip.me` through the `openpip-demo` site.
+
+Run `./deploy.sh` from the repository root to publish both sites. The demo is
+static and uses fictional data only. It does not connect to Google OAuth or a
+real workspace.

@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpenPip — Stop Filling Out Task Forms</title>
-  <meta name="description" content="Just tell OpenPip what needs to happen. It handles the rest — tasks, reminders, calendar, follow-ups." />
+  <title>OpenPip: Open Performance Improvement Plan</title>
+  <meta name="description" content="OpenPip helps business professionals improve their workflows and helps anyone organize life in a fully customizable personal workspace." />
   <meta name="theme-color" content="#fff5f3" />
   <script>(function(){var m=localStorage.getItem('theme-mode')||'system';var a=localStorage.getItem('theme-accent')||'coral';var isDark=m==='system'?window.matchMedia('(prefers-color-scheme:dark)').matches:m==='dark';document.documentElement.setAttribute('data-theme',isDark?'dark':'light');document.documentElement.setAttribute('data-accent',a);document.querySelector('meta[name="theme-color"]').setAttribute('content',isDark?'#1a1816':'#fff5f3');}());</script>
   <link rel="icon" type="image/png" href="assets/img/logo.png" />
 
   <!-- Open Graph -->
-  <meta property="og:title" content="OpenPip — Stop Filling Out Task Forms" />
-  <meta property="og:description" content="Just tell OpenPip what needs to happen. It handles the rest." />
+  <meta property="og:title" content="OpenPip: Open Performance Improvement Plan" />
+  <meta property="og:description" content="Improve your workflows and organize your life in a fully customizable personal workspace." />
   <meta property="og:image" content="/assets/img/stop-filing-in-input-forms.png" />
   <meta property="og:url" content="https://openpip.me" />
   <meta property="og:type" content="website" />
@@ -19,8 +19,8 @@
 
   <!-- Twitter Card -->
   <meta name="twitter:card" content="summary" />
-  <meta name="twitter:title" content="OpenPip — Stop Filling Out Task Forms" />
-  <meta name="twitter:description" content="Just tell OpenPip what needs to happen. It handles the rest." />
+  <meta name="twitter:title" content="OpenPip: Open Performance Improvement Plan" />
+  <meta name="twitter:description" content="Improve your workflows and organize your life in a fully customizable personal workspace." />
   <meta name="twitter:image" content="/assets/img/logo.png" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -52,6 +52,7 @@
       flex-direction: column;
       gap: 8px;
       overflow: hidden;
+      min-width: 0;
     }
     .stage-panel.active {
       opacity: 1;
@@ -145,10 +146,12 @@
       overflow-y: auto;
       justify-content: flex-end;
       padding-bottom: 4px;
+      min-width: 0;
     }
 
     .stage-chat-bubble {
       max-width: 85%;
+      min-width: 0;
       border-radius: 14px;
       padding: 9px 12px;
       font-size: 0.575rem;
@@ -186,7 +189,10 @@
       font-size: 0.525rem;
       font-weight: 700;
       color: var(--color-accent);
+      min-width: 0;
     }
+
+    .stage-chat-action span { min-width: 0; overflow-wrap: anywhere; }
 
     .stage-chat-action-dot {
       width: 12px;
@@ -308,6 +314,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 8px;
       flex: 1;
+      min-width: 0;
     }
 
     .stage-dash-card {
@@ -319,6 +326,7 @@
       flex-direction: column;
       gap: 6px;
       transition: background 0.3s ease, border-color 0.3s ease;
+      min-width: 0;
     }
 
     .stage-dash-card.accent-top { border-top: 2.5px solid var(--color-accent); }
@@ -356,6 +364,8 @@
       font-weight: 700;
       color: var(--color-text);
       flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     .stage-dash-item-sub {
@@ -467,7 +477,7 @@
         <img src="assets/img/logo.png" alt="OpenPip" width="28" height="28" style="object-fit:contain;" />
         <span>OpenPip</span>
       </a>
-      <a href="#waitlist" class="btn btn-primary nav-cta">Reserve my spot →</a>
+      <a href="#workspace" class="btn btn-primary nav-cta">Login to Your Workspace →</a>
     </div>
   </header>
 
@@ -476,16 +486,16 @@
     <!-- HERO -->
     <section class="hero">
       <div class="hero-content">
-        <div class="badge animate-fade-up">Now in private beta</div>
+        <div class="badge animate-fade-up">OpenPip for work and life</div>
         <h1 class="hero-headline animate-fade-up delay-1">
-          <span class="accent-text">Stop</span> filling out<br />task forms.
+          Improve your work.<br /><span class="accent-text">Organize your life.</span>
         </h1>
         <p class="hero-sub animate-fade-up delay-2">
-          Just tell OpenPip what needs to happen.<br /><strong>It handles the rest.</strong>
+          OpenPip stands for Open Performance Improvement Plan. It helps business professionals improve workflows and gives anyone a simpler way to organize life.
         </p>
         <div class="hero-actions animate-fade-up delay-3">
-          <a href="#waitlist" class="btn btn-primary btn-lg">Reserve my spot →</a>
-          <span class="hero-hint">No credit card. No noise. Just early access.</span>
+          <a href="#workspace" class="btn btn-primary btn-lg">Login to Your Workspace →</a>
+          <span class="hero-hint">Fully customizable. Plain language. No maze of tabs.</span>
         </div>
       </div>
 
@@ -496,15 +506,15 @@
             <span class="dot dot-red"></span>
             <span class="dot dot-yellow"></span>
             <span class="dot dot-green"></span>
-            <div class="mockup-url" id="mockup-url">others.com</div>
+            <div class="mockup-url" id="mockup-url">scattered-tools.com</div>
           </div>
 
           <div class="mockup-body" style="position:relative;">
             <div class="hero-stage" id="hero-stage">
 
-              <!-- PHASE 1: Others — cluttered form -->
+              <!-- PHASE 1: Scattered tools -->
               <div class="stage-panel active" id="stage-1">
-                <div class="stage-phase-label">Others</div>
+                <div class="stage-phase-label">Scattered tools</div>
                 <div class="stage-form-grid">
                   <div class="stage-form-field">
                     <div class="stage-form-label">Task Title</div>
@@ -572,7 +582,7 @@
 
               <!-- PHASE 2: Chat input (rotates examples) -->
               <div class="stage-panel" id="stage-2">
-                <div class="stage-phase-label" style="color:#28c840;">OpenPip's Way</div>
+                <div class="stage-phase-label" style="color:#28c840;">OpenPip</div>
                 <div class="stage-chat-messages" id="chat-examples">
                   <!-- filled by JS -->
                 </div>
@@ -627,33 +637,33 @@
                     </div>
                   </div>
 
-                  <!-- Reminders card -->
+                  <!-- Review card -->
                   <div class="stage-dash-card">
-                    <div class="stage-dash-card-title">Reminders</div>
+                    <div class="stage-dash-card-title">Needs your review</div>
                     <div class="stage-dash-item">
                       <div class="stage-dash-dot accent"></div>
                       <div style="flex:1">
-                        <div class="stage-dash-item-text">Prep for Dr. Fuller</div>
-                        <div class="stage-dash-item-sub">Thu 9:00 AM</div>
+                        <div class="stage-dash-item-text">Reply to Dr. Fuller</div>
+                        <div class="stage-dash-item-sub">Draft ready</div>
                       </div>
                       <div class="stage-dash-chip new">New</div>
                     </div>
                     <div class="stage-dash-item">
                       <div class="stage-dash-dot"></div>
                       <div style="flex:1">
-                        <div class="stage-dash-item-text">Submit expense report</div>
-                        <div class="stage-dash-item-sub">Fri 5:00 PM</div>
+                        <div class="stage-dash-item-text">Move appointment</div>
+                        <div class="stage-dash-item-sub">Ready to review</div>
                       </div>
                     </div>
                   </div>
 
                   <!-- Calendar card (spans full width) -->
                   <div class="stage-dash-card span-2">
-                    <div class="stage-dash-card-title">Calendar for Thursday</div>
+                    <div class="stage-dash-card-title">Today · Thursday</div>
                     <div style="display:flex;flex-direction:column;gap:4px;">
                       <div class="stage-dash-cal-row">
                         <span style="width:28px;flex-shrink:0;">9 AM</span>
-                        <div class="stage-dash-cal-block" style="flex:1;">Dr. Fuller prep <span style="opacity:0.7;font-weight:600;">(30 min)</span></div>
+                        <div class="stage-dash-cal-block" style="flex:1;">Deep work block <span style="opacity:0.7;font-weight:600;">(2 hours)</span></div>
                       </div>
                       <div class="stage-dash-cal-row">
                         <span style="width:28px;flex-shrink:0;">11 AM</span>
@@ -685,14 +695,14 @@
 
     <!-- PROOF BAR -->
     <div class="proof-bar">
-      <p>Talk naturally &nbsp;·&nbsp; Tasks created &nbsp;·&nbsp; Reminders set &nbsp;·&nbsp; Calendar blocked &nbsp;·&nbsp; Follow-ups tracked</p>
+      <p>Less switching &nbsp;·&nbsp; More clarity &nbsp;·&nbsp; A calmer day &nbsp;·&nbsp; Work that fits you</p>
     </div>
 
     <!-- HOW IT WORKS -->
     <section class="modes" id="modes">
       <div class="section-header">
-        <h2 class="section-title">Your executive function, on demand.</h2>
-        <p class="section-sub">Stop managing software. Describe what you need and OpenPip takes it from there.</p>
+        <h2 class="section-title">More than a chat box.</h2>
+        <p class="section-sub">OpenPip gives you one clear place to ask, see, review, and act. You do not need to learn a maze of sidebars and tabs.</p>
       </div>
       <div class="mode-cards">
         <div class="mode-card slide-in" data-delay="0">
@@ -701,9 +711,9 @@
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
             </svg>
           </div>
-          <div class="mode-label">Capture</div>
-          <h3 class="mode-headline">Just say it.<br />No forms required.</h3>
-          <p class="mode-body">Type naturally. Dump a whole paragraph if you want. OpenPip extracts the tasks, dates, people, and deadlines on its own.</p>
+          <div class="mode-label">Ask</div>
+          <h3 class="mode-headline">Say what you need.</h3>
+          <p class="mode-body">You do not need to translate your life into forms. Tell OpenPip what you need in plain language.</p>
         </div>
         <div class="mode-card slide-in" data-delay="120">
           <div class="mode-icon">
@@ -712,9 +722,9 @@
               <path d="M12 7v5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
             </svg>
           </div>
-          <div class="mode-label">Execute</div>
-          <h3 class="mode-headline">It acts.<br />You stay focused.</h3>
-          <p class="mode-body">Tasks created. Reminders set. Calendar blocked. Follow-ups scheduled. All without you touching a single form field.</p>
+          <div class="mode-label">See</div>
+          <h3 class="mode-headline">Find what matters.</h3>
+          <p class="mode-body">Your day, work, and follow-ups appear in one clear place. Spend less time switching between tools.</p>
         </div>
         <div class="mode-card slide-in" data-delay="240">
           <div class="mode-icon">
@@ -724,10 +734,60 @@
               <path d="M8 14h2M14 14h2M8 17h2M14 17h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
             </svg>
           </div>
-          <div class="mode-label">Monitor</div>
-          <h3 class="mode-headline">Your dashboard.<br />Always in sync.</h3>
-          <p class="mode-body">See what is coming up, what is overdue, and what OpenPip already handled. Your dashboard stays current without any input from you.</p>
+          <div class="mode-label">Shape</div>
+          <h3 class="mode-headline">Make it yours.</h3>
+          <p class="mode-body">Choose the information, guidance, colors, and theme that fit you. OpenPip changes with you.</p>
         </div>
+      </div>
+    </section>
+
+    <!-- CAPABILITIES -->
+    <section class="capabilities" id="capabilities">
+      <div class="section-header">
+        <h2 class="section-title">Everything in one clear place.</h2>
+        <p class="section-sub">Each feature is designed to reduce the effort of staying on top of your life.</p>
+      </div>
+      <div class="capability-grid">
+        <article class="capability-card slide-in" data-delay="0">
+          <div class="capability-kicker">Today</div>
+          <h3>Today at a glance.</h3>
+          <p>See what needs attention before the day gets away from you.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="60">
+          <div class="capability-kicker">Calendar</div>
+          <h3>Plan your time.</h3>
+          <p>Ask for a calendar change and review it before your schedule is updated.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="120">
+          <div class="capability-kicker">Inbox</div>
+          <h3>Clear your inbox.</h3>
+          <p>Find important messages, prepare replies, and turn email into clear next steps.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="180">
+          <div class="capability-kicker">Networking</div>
+          <h3>Keep in touch.</h3>
+          <p>Remember who matters and what to do next after each conversation.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="0">
+          <div class="capability-kicker">Notebook</div>
+          <h3>Keep your notes close.</h3>
+          <p>Store plans and ideas in one place so you can find them when you need them.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="60">
+          <div class="capability-kicker">Memory</div>
+          <h3>Keep helpful memory.</h3>
+          <p>Give OpenPip useful history so its answers improve over time.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="120">
+          <div class="capability-kicker">Review</div>
+          <h3>Review before action.</h3>
+          <p>See what OpenPip plans to do, decide what to approve, and check the result later.</p>
+        </article>
+        <article class="capability-card slide-in" data-delay="180">
+          <div class="capability-kicker">Fully customizable</div>
+          <h3>Fits the way you work.</h3>
+          <p>Choose the information, guidance, colors, and theme that make the workspace yours.</p>
+        </article>
       </div>
     </section>
 
@@ -735,14 +795,14 @@
     <section class="customize" id="customize">
       <div class="customize-inner">
         <div class="customize-copy slide-in">
-          <h2 class="section-title">Built around you,<br />not the other way around.</h2>
-          <p class="section-sub">Choose your theme and accent color. OpenPip adapts to how you work.</p>
+          <h2 class="section-title">Made for your way of working.</h2>
+          <p class="section-sub">Change the preferences, guidance, colors, and theme that shape your workspace. Nothing should feel like it was made for someone else.</p>
         </div>
         <div class="settings-preview slide-in" data-delay="100">
           <div class="settings-card">
             <div class="settings-card-header">
-              <span class="settings-card-title">Appearance</span>
-              <span class="settings-card-subtitle">Personalize your workspace</span>
+              <span class="settings-card-title">Your workspace</span>
+              <span class="settings-card-subtitle">Choose how OpenPip works with you</span>
             </div>
             <div class="settings-row">
               <span class="settings-label">Theme</span>
@@ -763,6 +823,8 @@
               </div>
             </div>
             <div class="settings-preview-card">
+              <div class="preview-context-label">Your preferences</div>
+              <div class="preview-context-copy">Morning focus, brief summaries, and helpful context.</div>
               <div class="preview-mini-card">
                 <div class="preview-mini-header">
                   <div class="preview-mini-dot accent-bg"></div>
@@ -783,7 +845,7 @@
                     <div class="preview-mini-bar narrow muted"></div>
                   </div>
                 </div>
-                <div class="preview-mini-btn accent-bg">Reserve my spot →</div>
+                <div class="preview-mini-btn accent-bg">Context saved</div>
               </div>
             </div>
           </div>
@@ -791,32 +853,27 @@
       </div>
     </section>
 
-    <!-- WAITLIST -->
-    <section class="waitlist" id="waitlist">
+    <!-- WORKSPACE LOGIN -->
+    <section class="waitlist" id="workspace">
       <div class="waitlist-card slide-in">
         <div class="waitlist-header">
-          <h2 class="waitlist-title">Get early access.</h2>
-          <p class="waitlist-sub">We're onboarding a small group first. Drop your info and we'll reach out when your spot opens.</p>
+          <h2 class="waitlist-title">Login to Your Workspace</h2>
+          <p class="waitlist-sub">OpenPip uses Google to keep your workspace connected to the calendar, tasks, inbox, contacts, and notes you choose to use.</p>
         </div>
-        <div id="waitlist-form-wrap">
-          <form class="waitlist-form" id="waitlist-form">
-            <div class="form-group">
-              <label for="name">Full name</label>
-              <input type="text" id="name" name="name" placeholder="Your name" required autocomplete="name" />
-            </div>
-            <div class="form-group">
-              <label for="email">Email address</label>
-              <input type="email" id="email" name="email" placeholder="you@company.com" required autocomplete="email" />
-            </div>
-            <button type="submit" class="btn btn-primary btn-full">Reserve my spot →</button>
-            <p class="form-hint">We don't sell your data. Ever.</p>
-          </form>
+        <div class="workspace-actions">
+          <a class="btn btn-primary btn-full" href="https://openpip.me/login" aria-label="Login to Your Workspace with Google">
+          <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
+            <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
+            <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05"/>
+            <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 6.29C4.672 4.163 6.656 2.58 9 3.58Z" fill="#EA4335"/>
+          </svg>
+          Login to Your Workspace
+          </a>
+          <div class="login-divider" aria-hidden="true"><span>OR</span></div>
+          <a class="btn demo-button btn-full" href="https://demo.openpip.me">Check Out the Demo</a>
         </div>
-        <div class="waitlist-success" id="waitlist-success" hidden>
-          <div class="success-icon">✓</div>
-          <h3>You're on the list.</h3>
-          <p>We'll be in touch when your spot opens. Keep leading.</p>
-        </div>
+        <p class="form-hint">Sign in securely with your Google account.</p>
       </div>
     </section>
 
@@ -849,7 +906,7 @@
       </div>
     </div>
     <div class="footer-bottom">
-      <p class="footer-copy">© 2026 OpenPip, part of the <a href="https://juliluna.com">juliluna</a> family.</p>
+      <p class="footer-copy">© 2026 OpenPip, part of the <a href="https://gurlzine.com">gurlzine.com</a> family.</p>
     </div>
   </footer>
 
@@ -859,16 +916,16 @@
   <!-- HERO MOCKUP ANIMATION -->
   <script>
     (function () {
-      var STAGE_DURS = [1500, 16000, 6000]; // ms per stage — shorter form, longer chat, same dashboard
+      var STAGE_DURS = [1500, 16000, 6000]; // Short form, longer chat, standard dashboard.
 
-      // Single continuous thread showing the full breadth of OpenPip
+      // Single continuous thread showing the real assistant workflow
       var chatThread = [
-        { role: 'user', text: 'Schedule two hours of deep focus time this week with no meetings around it.' },
-        { role: 'ai',   text: 'Done.', actions: ['Focus block added: Tuesday 9 to 11 AM', 'Reminder set for 8:50 AM', 'Calendar marked as busy'], note: 'I also noticed Dr. Fuller replied to your email requesting a follow-up chat. I can respond on your behalf and get it on the calendar. Want me to handle that?' },
-        { role: 'user', text: 'Yes, add it. Also find me a flight from SFO to Chicago next Tuesday under $400.' },
-        { role: 'ai',   text: 'On it.', actions: ['Dr. Fuller follow-up added to Thursday at 10 AM', 'United at $318, departs 7:45 AM', 'Southwest at $341, departs 8:20 AM'] },
-        { role: 'user', text: 'Book the United flight and remind me to follow up with Dr. Fuller beforehand.' },
-        { role: 'ai',   text: 'Done.', actions: ['United flight booked and added to your calendar', 'Reminder set for Wednesday evening', 'Task created: review Dr. Fuller notes'] },
+        { role: 'user', text: 'What needs my attention today?' },
+        { role: 'ai',   text: 'Here is the short version.', actions: ['Today: 3 calendar commitments', 'Inbox: 5 messages ready', 'Needs review: 2 items waiting'], note: 'I kept the related context together so you can decide what happens next.' },
+        { role: 'user', text: 'Move my dentist appointment to next week and follow up with Dr. Fuller.' },
+        { role: 'ai',   text: 'Prepared for review.', actions: ['Calendar change ready to review', 'Reply draft prepared', 'No changes made'] },
+        { role: 'user', text: 'Remember that I prefer mornings for deep work.' },
+        { role: 'ai',   text: 'Context saved.', actions: ['Preference saved', 'Future plans can account for it', 'You can edit it any time'] },
       ];
       var chatHint = 'What else needs to happen?';
 
@@ -999,7 +1056,7 @@
 
       var current = 0;
       var urlEl = document.getElementById('mockup-url');
-      var urls = ['others.com', 'openpip.me', 'openpip.me'];
+      var urls = ['scattered-tools.com', 'openpip.me', 'openpip.me'];
 
       var agentNames = ['OpenPip', 'Pippy', 'Aria', 'Cosmo', 'Remi', 'Max', 'Sage', 'OpenPip'];
       var agentNameIdx = 0;
@@ -1099,11 +1156,11 @@
     <div class="consent-toast-details" id="consent-details" hidden>
       <div class="consent-detail-row">
         <input type="checkbox" checked disabled id="consent-necessary" />
-        <label for="consent-necessary"><strong>Necessary</strong> — theme, form function</label>
+        <label for="consent-necessary"><strong>Necessary</strong>: theme and page function</label>
       </div>
       <div class="consent-detail-row">
         <input type="checkbox" id="consent-analytics-check" />
-        <label for="consent-analytics-check"><strong>Analytics</strong> — Firebase (Google)</label>
+        <label for="consent-analytics-check"><strong>Analytics</strong>: Firebase (Google)</label>
       </div>
       <button class="btn btn-primary consent-toast-btn" id="consent-save">Save</button>
     </div>

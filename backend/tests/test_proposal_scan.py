@@ -307,6 +307,9 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     async def fake_channel_memories(_token: str):
         return []
 
+    async def fake_historical_insights(_token: str):
+        return []
+
     async def fake_context_documents(_token: str, **_kwargs):
         return "some guidelines"
 
@@ -330,6 +333,7 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     monkeypatch.setattr(proposal_scan, "_historical_email_signals", fake_historical)
     monkeypatch.setattr(proposal_scan, "_inbox_pointer_signal", fake_pointer)
     monkeypatch.setattr(proposal_scan, "list_channel_memories", fake_channel_memories)
+    monkeypatch.setattr(proposal_scan, "list_insights", fake_historical_insights)
     monkeypatch.setattr(proposal_scan, "load_context_documents", fake_context_documents)
     monkeypatch.setattr(proposal_scan, "_current_agent_name", fake_agent_name)
     monkeypatch.setattr(

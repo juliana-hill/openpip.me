@@ -121,6 +121,8 @@
   align-items: center;
 }
 
+.hero > * { min-width: 0; }
+
 .hero-content {
   display: flex;
   flex-direction: column;
@@ -190,6 +192,8 @@
 
 .mockup-wrap {
   position: relative;
+  min-width: 0;
+  max-width: 100%;
   animation: float 6s ease-in-out infinite;
   animation-delay: 0.5s;
 }
@@ -570,6 +574,58 @@
 .mode-card:nth-child(2) { transition-delay: 80ms; }
 .mode-card:nth-child(3) { transition-delay: 160ms; }
 
+/* ─── CAPABILITIES ───────────────────────────────────────────────────────── */
+
+.capabilities {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px 96px;
+}
+
+.capability-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.capability-card {
+  min-height: 190px;
+  padding: 24px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+  transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.25s ease, transform 0.25s ease;
+}
+
+.capability-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px);
+}
+
+.capability-kicker {
+  margin-bottom: 14px;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.capability-card h3 {
+  margin-bottom: 9px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.capability-card p {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
 /* ─── CUSTOMIZATION ──────────────────────────────────────────────────────── */
 
 .customize {
@@ -688,6 +744,22 @@
   margin-top: 4px;
 }
 
+.preview-context-label {
+  margin-bottom: 4px;
+  color: var(--color-accent);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.preview-context-copy {
+  margin-bottom: 18px;
+  color: var(--color-text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
 .preview-mini-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
@@ -762,7 +834,7 @@
 .accent-bg  { background: var(--color-accent) !important; transition: background 0.3s ease; }
 .muted-bg   { background: var(--color-border) !important; transition: background 0.3s ease; }
 
-/* ─── WAITLIST ────────────────────────────────────────────────────────────── */
+/* ─── WORKSPACE LOGIN ─────────────────────────────────────────────────────── */
 
 .waitlist {
   max-width: 1200px;
@@ -797,36 +869,38 @@
   line-height: 1.6;
 }
 
-.waitlist-form {
+.workspace-actions {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  text-align: left;
+  gap: 12px;
 }
 
-.form-group { display: flex; flex-direction: column; gap: 6px; }
-
-.form-group label {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--color-text);
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
 }
 
-.form-group input {
-  background: var(--color-bg);
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  height: 1px;
+  flex: 1;
+  background: var(--color-border);
+}
+
+.demo-button {
+  color: var(--color-text-muted);
   border: 1.5px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 12px 16px;
-  font-family: var(--font-sans);
-  font-size: 0.95rem;
-  color: var(--color-text);
-  outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.3s ease;
 }
-.form-group input::placeholder { color: var(--color-text-muted); }
-.form-group input:focus {
+
+.demo-button:hover {
+  color: var(--color-text);
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
 .form-hint {
@@ -834,36 +908,6 @@
   font-size: 0.78rem;
   color: var(--color-text-muted);
   margin-top: 4px;
-}
-
-.waitlist-success {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 24px 0;
-}
-.waitlist-success[hidden] { display: none; }
-.success-icon {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  background: var(--color-accent-light);
-  color: var(--color-accent);
-  font-size: 1.4rem;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.3s ease, color 0.3s ease;
-}
-.waitlist-success h3 {
-  font-size: 1.3rem;
-  font-weight: 800;
-}
-.waitlist-success p {
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
 }
 
 /* ─── FOOTER ─────────────────────────────────────────────────────────────── */
@@ -959,6 +1003,9 @@
 
   .mode-cards { grid-template-columns: 1fr; gap: 16px; }
 
+  .capabilities { padding: 24px 24px 72px; }
+  .capability-grid { grid-template-columns: repeat(2, 1fr); }
+
   .customize-inner {
     grid-template-columns: 1fr;
     gap: 40px;
@@ -968,8 +1015,11 @@
 
 @media (max-width: 600px) {
   .nav-inner { padding: 0 20px; }
+  .nav-cta { font-size: 0.78rem; padding: 8px 12px; }
   .hero { padding: 48px 20px 32px; }
   .modes, .customize, .waitlist { padding: 64px 20px; }
+  .capabilities { padding: 16px 20px 64px; }
+  .capability-grid { grid-template-columns: 1fr; }
   .waitlist-card { padding: 32px 24px; }
 }
 

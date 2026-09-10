@@ -124,33 +124,3 @@ document.querySelector('.nav-cta')
 
 document.querySelector('.btn-lg')
   ?.addEventListener('click', () => window._logEvent?.('cta_clicked', { position: 'hero' }));
-
-/* ─── WAITLIST FORM ─────────────────────────────────────────────────────── */
-
-const form     = document.getElementById('waitlist-form');
-const formWrap = document.getElementById('waitlist-form-wrap');
-const success  = document.getElementById('waitlist-success');
-
-if (form) {
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    window._logEvent?.('cta_clicked', { position: 'waitlist_submit' });
-    const btn = form.querySelector('button[type=submit]');
-    btn.textContent = 'Saving your spot…';
-    btn.disabled = true;
-
-    const name  = form.querySelector('#name').value.trim();
-    const email = form.querySelector('#email').value.trim();
-
-    try {
-      if (typeof window.submitWaitlist === 'function') {
-        await window.submitWaitlist(name, email);
-      }
-    } catch (err) {
-      window._logEvent?.('form_submission_failed', { error: err?.message ?? 'unknown' });
-    }
-
-    formWrap.hidden = true;
-    success.hidden = false;
-  });
-}

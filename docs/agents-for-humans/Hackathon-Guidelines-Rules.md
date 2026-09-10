@@ -50,6 +50,13 @@ An agent that helps groups of people, not just one person: neighborhoods, nonpro
 
 Deploying with AgentCore is a smart architectural choice and will strengthen your Technical Implementation score, but it's not required.  
 
+See the [OpenPip AWS deployment plan](AWS_DEPLOYMENT_PLAN.md) for the
+Cloud Run deployment, Bedrock access, secrets, persistence, and submission
+checklist. OpenPip evaluated AgentCore but is intentionally not using it:
+the separate runtime and identity boundaries would reduce efficiency for its
+fully customizable deterministic-plus-agentic pipeline. This is an
+application-fit decision, not a GCP limitation.
+
  
 ### What to Submit
 - **Text description:** Explain what your project does, who it is for, and how it works.

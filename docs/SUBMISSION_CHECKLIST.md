@@ -18,13 +18,26 @@ for any recorded walkthrough.
 - [ ] Inbox triage agent drafting replies + creating tasks
 - [ ] Proposal → Review → Approve → Execute pipeline fully wired, with source citation on every proposal
 - [ ] Contact/relationship memory populated from real inbox activity
-- [ ] Deployed to Amazon Bedrock AgentCore (strengthens Technical Implementation score; not strictly required)
+- [x] AgentCore evaluated and intentionally not used: its separate runtime and identity boundaries would add token/state handoffs and reduce efficiency for OpenPip's customizable deterministic-plus-agentic pipeline
 - [ ] README (problem / audience / how it works / setup / demo link)
 - [ ] Architecture diagram
 - [ ] CI green (`tsc --noEmit` + build step) — avoid the old repo's build-failure history
 - [ ] Dedicated demo account verified — no personal inbox/calendar content, credentials, tokens, demo fixtures, or mock data committed
 
 ## Devpost submission form
+
+### Deployment decision text for the project story
+
+OpenPip runs its frontend, FastAPI API, and Strands agent on Cloud Run in the
+`travel-agent-cam-julie` project. Amazon Bedrock remains the model provider.
+We evaluated Amazon Bedrock AgentCore, but did not use it because its separate
+runtime and identity boundaries are not a good fit for OpenPip's fully
+customizable pipeline. The product combines deterministic daily crawling and
+recovery with an agentic memory pass, per-user Google authorization,
+proposal/review state, and approval-gated external actions. Moving only the
+agent into AgentCore would require token and state handoffs, add latency, and
+reduce efficiency. This was an application-fit decision, not a limitation of
+GCP.
 
 - [x] Project name — **OpenPip**
 - [x] Elevator pitch
@@ -39,6 +52,7 @@ for any recorded walkthrough.
 - [ ] **Architecture diagram file** (required — pdf/ppt/pptx/png/jpg, max 35MB) — nothing uploaded yet
 - [ ] **AWS Builder ID** (required) — needs your personal Builder ID from `profile.aws.amazon.com` (unrelated to the AWS account/IAM credentials)
 - [ ] **Video demo link** (required, max 5 minutes, YouTube/Vimeo, public) — must show: (1) the project actually working, (2) the problem/audience/why-it-matters pitch
+- [ ] **Submission narrative** explains the deployment decision: Cloud Run hosts the web app and Strands agent, Bedrock remains the model provider, and AgentCore was evaluated but rejected for application-fit and efficiency reasons rather than because of GCP
 - [ ] Testing instructions, if the demo needs login credentials
 - [ ] Final "Terms & Conditions" agreement checkbox
 - [ ] **Submit** (only after everything above is real — draft can be saved and edited freely until the deadline)

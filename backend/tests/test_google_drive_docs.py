@@ -110,6 +110,25 @@ def test_get_or_create_document_reads_existing_content_without_recreating(monkey
     assert create_calls.count(("root", "OpenPip")) == 1
 
 
+def test_drive_read_timeout_retries_idempotent_request(monkeypatch) -> None:
+    calls = 0
+
+    async def fake_send(self, request, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise httpx.ReadTimeout("temporary Drive timeout", request=request)
+        return httpx.Response(200, json={"files": []}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+    gdd._segment_locks.clear()
+
+    result = asyncio.run(gdd.read_json_file("token", "OpenPip/memory", "status.json"))
+
+    assert result is None
+    assert calls == 2
+
+
 def test_overwrite_document_replaces_existing_content(monkeypatch) -> None:
     folders: dict = {}
     files: dict = {}

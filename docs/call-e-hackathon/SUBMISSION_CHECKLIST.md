@@ -2,6 +2,8 @@
 
 Source of truth: [`guidelines-rules.md`](guidelines-rules.md). Devpost draft: `call-e.devpost.com` → project **OpenPip - Open Performance Improvement Plan** (`.../submissions/1146791-openpip-open-performance-improvement-plan`).
 
+Deployment and runtime decision: [`AWS_DEPLOYMENT_PLAN.md`](AWS_DEPLOYMENT_PLAN.md).
+
 **Deadline: September 14, 2026, 11:45am SGT** (note: earlier in the day, US-Pacific-time, than the AWS deadline — check your timezone conversion, don't rely on "same day" intuition)
 
 **Frontend integrity rule:** the existing travel-agent frontend and marketing
@@ -16,6 +18,7 @@ a dedicated real account and connected data.
 - [ ] Wired into OpenPip's existing proposal/review pipeline — a call is proposed like any other action, only placed after Review-queue approval
 - [ ] Call outcome writes back to the calendar + logs in the Review queue (auditable, not a special-cased log entry)
 - [ ] Scope kept narrow — appointment confirm/reschedule only, nothing broader (cold outreach, reminders, surveys are explicitly out of scope per the plan)
+- [ ] Submission narrative explains that AgentCore was evaluated but excluded because its separate runtime boundary would add token/state handoffs and reduce efficiency for OpenPip's customizable daily pipeline; this is not a GCP limitation
 
 ## ⚠️ The part that's easy to get wrong
 
