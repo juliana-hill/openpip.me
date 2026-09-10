@@ -209,7 +209,13 @@ def _email_source(message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
 
 def _chronology_key(entry: dict[str, Any]) -> str:
     record = entry.get("record") if isinstance(entry.get("record"), dict) else {}
-    return str(record.get("date") or record.get("start") or record.get("dueDate") or "9999-12-31")
+    return str(
+        record.get("date")
+        or record.get("start")
+        or record.get("modifiedTime")
+        or record.get("dueDate")
+        or "9999-12-31"
+    )
 
 
 def _chronological(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -387,8 +393,8 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "emails": oldest_values[0].isoformat() if oldest_values[0] else None,
         "calendar": oldest_values[1].isoformat() if oldest_values[1] else None,
         "documents": oldest_values[2].isoformat() if oldest_values[2] else None,
-        # Tasks and contacts have no provider-side historical date cursor.
-        # They are read once at today's cursor, after dated sources finish.
+        # Tasks and contacts have no provider-side historical date cursor, so
+        # their one-day boundary is today.
         "tasks": today.isoformat(),
         "contacts": today.isoformat(),
     }
@@ -399,7 +405,6 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "tasks": today.isoformat(),
         "contacts": today.isoformat(),
     }
-    source_cursors = dict(oldest)
     status["oldestSourceDates"] = oldest
     status["newestSourceDates"] = newest
     status["collection"] = {
@@ -410,8 +415,12 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "version": _MANIFEST_VERSION,
         "oldestSourceDates": oldest,
         "newestSourceDates": newest,
-        "sourceCursors": source_cursors,
-        "currentDate": min((value for value in source_cursors.values() if value), default=None),
+        # The crawl is one chronological daily pass, not one cursor per
+        # source.  Source boundaries say which days are worth querying; the
+        # single currentDate pointer is the recovery checkpoint.
+        "oldestDate": min((value for value in oldest.values() if value), default=None),
+        "newestDate": max((value for value in newest.values() if value), default=None),
+        "currentDate": min((value for value in oldest.values() if value), default=None),
         "dates": [],
         "lastFetchedDate": None,
         "dateStates": {},
@@ -917,18 +926,27 @@ async def _fetch_lazy_day(
     manifest: dict[str, Any],
     indexed: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Fetch only the records at the current source cursors.
+    """Fetch only the records belonging to this exact crawl date.
 
     The source payloads are intentionally ephemeral. Callers persist only the
     resulting index records in the current day's manifest file.
     """
     entries: list[dict[str, Any]] = []
     indexed = indexed or {}
-    cursors = manifest.setdefault("sourceCursors", {})
-    end = date.fromisoformat(str(manifest.get("newestSourceDates", {}).get("calendar") or day)) + timedelta(days=1)
+    oldest = manifest.get("oldestSourceDates") if isinstance(manifest.get("oldestSourceDates"), dict) else {}
+    newest = manifest.get("newestSourceDates") if isinstance(manifest.get("newestSourceDates"), dict) else {}
 
-    if cursors.get("emails") == day.isoformat():
-        _logger.info("historical insight gathering: fetching email records for oldest date=%s", day)
+    def source_has_records(source: str) -> bool:
+        """Return whether this exact day is inside a source's boundaries."""
+        try:
+            source_oldest = date.fromisoformat(str(oldest.get(source))[:10])
+            source_newest = date.fromisoformat(str(newest.get(source))[:10])
+        except (TypeError, ValueError):
+            return False
+        return source_oldest <= day <= source_newest
+
+    if source_has_records("emails"):
+        _logger.info("historical insight gathering: fetching email records for date=%s", day)
         messages, total = await fetch_gmail_messages(
             access_token, local_date=day.isoformat(), page=1, page_size=100,
             fetch_all_pages=False,
@@ -944,8 +962,8 @@ async def _fetch_lazy_day(
                 record, reference = _email_source(message)
                 entries.append({"record": record, "reference": reference})
 
-    if cursors.get("calendar") == day.isoformat():
-        _logger.info("historical insight gathering: fetching calendar records for oldest date=%s", day)
+    if source_has_records("calendar"):
+        _logger.info("historical insight gathering: fetching calendar records for date=%s", day)
         calendars = await fetch_google_calendars(access_token, from_date=day.isoformat(), days=1)
         for calendar in calendars:
             if _is_default_holiday_calendar(calendar):
@@ -959,8 +977,8 @@ async def _fetch_lazy_day(
                     "reference": {"id": source_id, "kind": "calendar", "label": event.get("title") or "Untitled event", "detail": event.get("start") or "", "url": event.get("htmlLink")},
                 })
 
-    if cursors.get("documents") == day.isoformat():
-        _logger.info("historical insight gathering: fetching Drive records for oldest date=%s", day)
+    if source_has_records("documents"):
+        _logger.info("historical insight gathering: fetching Drive records for date=%s", day)
         documents = await fetch_google_drive_documents(
             access_token, modified_start=day, modified_end=day + timedelta(days=1), page_size=100,
         )
@@ -983,22 +1001,23 @@ async def _fetch_lazy_day(
                     "reference": {"id": source_id, "kind": "google_doc", "label": document.get("name") or "Untitled document", "detail": document.get("modifiedTime") or "", "url": document.get("webViewLink")},
                 })
 
-    # Tasks and contacts do not expose an oldest-date query.  Read each only
-    # at the single current-day cursor and then retire that cursor.
-    if cursors.get("tasks") == day.isoformat():
-        _logger.info("historical insight gathering: fetching task records for cursor date=%s", day)
+    # Tasks and contacts do not expose an oldest-date query. Their boundary
+    # probes use today, so they are fetched only when the daily pass reaches
+    # that exact date.
+    if source_has_records("tasks"):
+        _logger.info("historical insight gathering: fetching task records for date=%s", day)
         for task in await fetch_google_tasks(access_token, include_completed=True):
             source_id = f"task:{task.get('source', 'google')}:{task.get('id')}"
             entries.append({
-                # Tasks have no provider-side historical cursor. They are
-                # intentionally indexed on the one cursor date (today), while
+                # Tasks have no provider-side historical date. They are
+                # intentionally indexed on today's boundary date, while
                 # retaining their own dueDate as record detail.
                 "record": {"sourceId": source_id, "date": day.isoformat(), "listId": task.get("listId"), **{key: task.get(key) for key in ("title", "notes", "completed", "dueDate", "projectName", "listName")}},
                 "reference": {"id": source_id, "kind": "task", "label": task.get("title") or "Task", "detail": task.get("dueDate") or "", "url": None},
             })
 
-    if cursors.get("contacts") == day.isoformat():
-        _logger.info("historical insight gathering: fetching contact records for cursor date=%s", day)
+    if source_has_records("contacts"):
+        _logger.info("historical insight gathering: fetching contact records for date=%s", day)
         for resource_name, person in (await fetch_google_contacts(access_token)).items():
             source_id = f"contact:{resource_name}"
             entries.append({
@@ -1014,37 +1033,16 @@ async def _fetch_lazy_day(
     ]
 
 
-async def _advance_lazy_cursors(access_token: str, day: date, manifest: dict[str, Any]) -> None:
-    """Move source cursors while leaving indexed records in the date file."""
-    cursors = manifest.setdefault("sourceCursors", {})
-    newest = manifest.get("newestSourceDates", {})
-    history_end = date.today() + timedelta(days=_LOOKAHEAD_DAYS + 1)
-    if cursors.get("emails") == day.isoformat():
-        next_day = await find_oldest_gmail_date(access_token, start=day + timedelta(days=1), end=date.today() + timedelta(days=1))
-        newest_day = str(newest.get("emails") or "")
-        if next_day and newest_day and next_day.isoformat() > newest_day:
-            next_day = None
-        cursors["emails"] = next_day.isoformat() if next_day else None
-    if cursors.get("calendar") == day.isoformat():
-        next_day = await find_oldest_calendar_date(access_token, start=day + timedelta(days=1), end=history_end)
-        newest_day = str(newest.get("calendar") or "")
-        if next_day and newest_day and next_day.isoformat() > newest_day:
-            next_day = None
-        cursors["calendar"] = next_day.isoformat() if next_day else None
-    if cursors.get("documents") == day.isoformat():
-        next_day = await find_oldest_drive_document_date(access_token, start=day + timedelta(days=1))
-        newest_day = str(newest.get("documents") or "")
-        if next_day and newest_day and next_day.isoformat() > newest_day:
-            next_day = None
-        cursors["documents"] = next_day.isoformat() if next_day else None
-    if cursors.get("tasks") == day.isoformat():
-        cursors["tasks"] = None
-    if cursors.get("contacts") == day.isoformat():
-        cursors["contacts"] = None
+def _advance_daily_date(day: date, manifest: dict[str, Any]) -> None:
+    """Advance exactly one day after that day's index and memory pass finish."""
+    try:
+        newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+    except (TypeError, ValueError):
+        newest_values = [value for value in (manifest.get("newestSourceDates") or {}).values() if value]
+        newest = max((date.fromisoformat(str(value)[:10]) for value in newest_values), default=day)
+    next_day = day + timedelta(days=1)
     manifest["lastFetchedDate"] = day.isoformat()
-    manifest["nextDate"] = min((value for value in cursors.values() if value), default=None)
-    manifest["currentDate"] = manifest["nextDate"]
-    manifest["newestSourceDates"] = newest
+    manifest["currentDate"] = next_day.isoformat() if next_day <= newest else None
 
 
 def _brief_record_summary(entry: dict[str, Any]) -> str:
@@ -1185,10 +1183,25 @@ async def _read_lazy_source_index(
 async def _run_lazy(access_token: str, status: dict[str, Any], context_block: str, agent_name: str) -> None:
     """Review one oldest-date batch at a time while persisting only the index."""
     manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
-    if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION or not isinstance(manifest.get("sourceCursors"), dict):
+    if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION:
         manifest = await _collect_manifest(access_token, status)
         for stage in status["stages"].values():
             stage.update({"status": "pending", "processed": 0, "total": 0})
+    # Older v6 checkpoints used one cursor per source.  Preserve their
+    # currentDate for recovery, but translate the bounds to the daily-pass
+    # shape before doing any more work.
+    source_oldest = manifest.get("oldestSourceDates") if isinstance(manifest.get("oldestSourceDates"), dict) else {}
+    source_newest = manifest.get("newestSourceDates") if isinstance(manifest.get("newestSourceDates"), dict) else {}
+    if not manifest.get("oldestDate"):
+        oldest_values = [value for value in source_oldest.values() if value]
+        manifest["oldestDate"] = min(oldest_values, default=manifest.get("oldestEntryDate"))
+    if not manifest.get("newestDate"):
+        newest_values = [value for value in source_newest.values() if value]
+        manifest["newestDate"] = max(newest_values, default=manifest.get("newestEntryDate"))
+    if not manifest.get("currentDate"):
+        manifest["currentDate"] = manifest.get("currentPointerDate") or manifest.get("oldestDate")
+    manifest.pop("sourceCursors", None)
+    manifest.pop("nextDate", None)
     # Older v6 checkpoints briefly kept all index records in metadata.json.
     # Move those index-only records into their date files before continuing;
     # metadata.json remains pointers-only after this migration.
@@ -1214,9 +1227,18 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     stage["status"] = "running"
 
     while True:
-        cursors = manifest.get("sourceCursors") if isinstance(manifest.get("sourceCursors"), dict) else {}
-        active_dates = [str(value) for value in cursors.values() if value]
-        if not active_dates:
+        try:
+            day = date.fromisoformat(str(manifest.get("currentDate"))[:10])
+            newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+        except (TypeError, ValueError):
+            stage["status"] = "completed"
+            status.update({"state": "completed", "currentStage": None, "currentDate": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
+            manifest["currentDate"] = None
+            await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+            _add_event(status, "Historical insights are ready")
+            await _write_status(access_token, status)
+            return
+        if day > newest:
             stage["status"] = "completed"
             status.update({"state": "completed", "currentStage": None, "currentDate": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
             manifest["currentDate"] = None
@@ -1225,11 +1247,10 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
             await _write_status(access_token, status)
             return
 
-        day = date.fromisoformat(min(active_dates))
         status["currentStage"] = f"history · {day.isoformat()}"
         status["currentDate"] = day.isoformat()
         status["statusMessage"] = f"Fetching records for {day.isoformat()}."
-        _logger.info("historical insight gathering: oldest crawl date=%s", day)
+        _logger.info("historical insight gathering: crawling date=%s", day)
         await _write_status(access_token, status)
         date_key = day.isoformat()
         date_records = await _read_lazy_date_index(access_token, date_key)
@@ -1260,46 +1281,48 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
         # give the complete date dataset to the memory-extraction agent.
         date_states = manifest.setdefault("dateStates", {})
         date_entries = _indexed_date_entries(date_records, date_key)
-        if date_entries and date_states.get(date_key) != "completed":
+        if date_states.get(date_key) != "completed":
             date_states[date_key] = "memory_in_progress"
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-            references = {entry["reference"]["id"]: entry["reference"] for entry in date_entries}
-            indexed_days = [str(value) for value in manifest.get("dates", [])]
-            indexed_days.extend(str(value) for value in (manifest.get("dateStates") or {}).keys())
-            indexed_days.append(date_key)
-            source_index = await _read_lazy_source_index(access_token, indexed_days)
             saved = 0
 
-            def counted() -> None:
-                nonlocal saved
-                saved += 1
+            if date_entries:
+                references = {entry["reference"]["id"]: entry["reference"] for entry in date_entries}
+                indexed_days = [str(value) for value in manifest.get("dates", [])]
+                indexed_days.extend(str(value) for value in (manifest.get("dateStates") or {}).keys())
+                indexed_days.append(date_key)
+                source_index = await _read_lazy_source_index(access_token, indexed_days)
 
-            search_state: dict[str, Any] = {}
-            lookup_state: dict[str, Any] = {}
-            memory_agent = build_executive_assistant(
-                context_block,
-                agent_name=agent_name,
-                extra_tools=[
-                    build_lookup_insights_tool(access_token, lookup_state),
-                    build_read_historical_source_tool(access_token, source_index),
-                    build_search_historical_sources_tool(
-                        access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
-                        references, search_state, source_index,
-                    ),
-                    build_remember_insight_tool(access_token, references, counted, search_state, lookup_state),
-                ],
-            )
-            status["statusMessage"] = f"Reading the complete {date_key} index for durable memories."
-            await _write_status(access_token, status)
-            await _stream_agent_page(memory_agent, _prompt(f"all summarized history for {date_key}", date_entries), status, access_token)
+                def counted() -> None:
+                    nonlocal saved
+                    saved += 1
+
+                search_state: dict[str, Any] = {}
+                lookup_state: dict[str, Any] = {}
+                memory_agent = build_executive_assistant(
+                    context_block,
+                    agent_name=agent_name,
+                    extra_tools=[
+                        build_lookup_insights_tool(access_token, lookup_state),
+                        build_read_historical_source_tool(access_token, source_index),
+                        build_search_historical_sources_tool(
+                            access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
+                            references, search_state, source_index,
+                        ),
+                        build_remember_insight_tool(access_token, references, counted, search_state, lookup_state),
+                    ],
+                )
+                status["statusMessage"] = f"Reading the complete {date_key} index for durable memories."
+                await _write_status(access_token, status)
+                await _stream_agent_page(memory_agent, _prompt(f"all summarized history for {date_key}", date_entries), status, access_token)
             date_states[date_key] = "completed"
             status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
             await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
-        await _advance_lazy_cursors(access_token, day, manifest)
+        _advance_daily_date(day, manifest)
         manifest.setdefault("dates", []).append(day.isoformat())
         manifest["dates"] = list(dict.fromkeys(manifest["dates"]))
-        manifest["currentDate"] = manifest.get("nextDate")
+        status["currentDate"] = manifest.get("currentDate")
         await _write_lazy_date_index(access_token, manifest, date_key, date_records)
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
         _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(date_records)} source records indexed")
@@ -1329,7 +1352,9 @@ async def _run(access_token: str, run_id: str) -> None:
     _logger.info("historical insight gathering: worker started run_id=%s", run_id)
     try:
         status = await _read_status(access_token)
-        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "currentDate": None, "error": None, "statusMessage": "Preparing the historical review."})
+        # Do not reset currentDate here.  The manifest's currentDate is the
+        # durable daily-crawl checkpoint used when a worker is restarted.
+        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
         _add_event(status, "Historical review started")
         await _write_status(access_token, status)
         app_data, context_block = await asyncio.gather(read_drive_app_data(access_token), load_context_documents(access_token))

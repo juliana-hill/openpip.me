@@ -88,6 +88,20 @@ def test_normalize_index_record_drops_legacy_raw_payload() -> None:
     assert normalized["status"] == "in_progress"
 
 
+def test_document_index_uses_modified_date_for_daily_manifest() -> None:
+    normalized = insight_gathering._normalize_index_record({
+        "record": {
+            "sourceId": "document:1",
+            "modifiedTime": "2021-01-02T15:00:00Z",
+            "name": "Offer letter",
+        },
+        "reference": {"id": "document:1", "kind": "google_doc", "label": "Offer letter"},
+    })
+
+    assert normalized is not None
+    assert normalized["date"] == "2021-01-02"
+
+
 def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:
     saved: dict[str, object] = {}
 
@@ -141,6 +155,76 @@ def test_collect_manifest_metadata_contains_pointers_not_records(monkeypatch) ->
 
     assert captured["oldestSourceDates"]["emails"] == "2021-01-01"
     assert captured["newestSourceDates"]["calendar"] == "2021-01-01"
+    assert captured["oldestDate"] == "2021-01-01"
+    assert captured["newestDate"] == date.today().isoformat()
     assert captured["currentDate"] == "2021-01-01"
+    assert "sourceCursors" not in captured
     assert "sources" not in captured
     assert "numberOfEntries" not in captured
+
+
+def test_daily_pointer_advances_one_day_until_newest_date() -> None:
+    manifest = {
+        "oldestDate": "2021-01-01",
+        "newestDate": "2021-01-03",
+        "currentDate": "2021-01-01",
+    }
+
+    insight_gathering._advance_daily_date(date(2021, 1, 1), manifest)
+    assert manifest["currentDate"] == "2021-01-02"
+
+    insight_gathering._advance_daily_date(date(2021, 1, 2), manifest)
+    assert manifest["currentDate"] == "2021-01-03"
+
+    insight_gathering._advance_daily_date(date(2021, 1, 3), manifest)
+    assert manifest["currentDate"] is None
+    assert manifest["lastFetchedDate"] == "2021-01-03"
+
+
+def test_fetch_lazy_day_uses_exact_daily_bounds_not_next_nonempty_cursor(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    async def fake_gmail(*_args, **kwargs):
+        calls.append(("emails", kwargs["local_date"]))
+        return ([{"id": "message-1", "date": "2021-01-02T12:00:00Z", "subject": "Subject"}], 1)
+
+    async def fake_calendar(*_args, **kwargs):
+        calls.append(("calendar", kwargs["from_date"]))
+        return []
+
+    async def fake_documents(*_args, **kwargs):
+        calls.append(("documents", kwargs["modified_start"].isoformat()))
+        return []
+
+    async def fake_tasks(*_args, **_kwargs):
+        calls.append(("tasks", "2021-01-02"))
+        return []
+
+    async def fake_contacts(*_args, **_kwargs):
+        calls.append(("contacts", "2021-01-02"))
+        return {}
+
+    monkeypatch.setattr(insight_gathering, "fetch_gmail_messages", fake_gmail)
+    monkeypatch.setattr(insight_gathering, "fetch_google_calendars", fake_calendar)
+    monkeypatch.setattr(insight_gathering, "fetch_google_drive_documents", fake_documents)
+    monkeypatch.setattr(insight_gathering, "fetch_google_tasks", fake_tasks)
+    monkeypatch.setattr(insight_gathering, "fetch_google_contacts", fake_contacts)
+
+    manifest = {
+        "oldestSourceDates": {
+            "emails": "2021-01-01", "calendar": "2021-01-03",
+            "documents": "2021-01-02", "tasks": "2021-01-02", "contacts": "2021-01-02",
+        },
+        "newestSourceDates": {
+            "emails": "2021-01-03", "calendar": "2021-01-03",
+            "documents": "2021-01-02", "tasks": "2021-01-02", "contacts": "2021-01-02",
+        },
+    }
+
+    entries = asyncio.run(insight_gathering._fetch_lazy_day("token", date(2021, 1, 2), manifest))
+
+    assert {source for source, _ in calls} == {"emails", "documents", "tasks", "contacts"}
+    assert ("emails", "2021-01-02") in calls
+    assert ("documents", "2021-01-02") in calls
+    assert not any(source == "calendar" for source, _ in calls)
+    assert entries[0]["reference"]["id"] == "email:message-1"

@@ -77,10 +77,12 @@ chat command. It runs at most once after completion. Startup performs only
 metadata boundary probes for Gmail, Calendar, and Drive, recording the oldest
 and newest date for every collection type in the small
 `OpenPip/memory/insights_gathering/manifest/metadata.json` pointer file. It
-stores only the oldest/newest source dates, each source's current cursor, the
-current processing date, completed-date pointers, and recovery state; it never
-stores indexed records. The worker advances through dates in chronological
-order; for each source record, the agent uses a `read_historical_source` tool
+stores only the oldest/newest source dates, the global `oldestDate` and
+`newestDate` bounds, the single `currentDate` processing/recovery pointer,
+completed-date pointers, and recovery state; it never
+stores indexed records. The worker advances one calendar day at a time from
+`oldestDate` through `newestDate`; for each source record, the agent uses a
+`read_historical_source` tool
 to fetch the full record only for that individual processing pass. It stores
 the index-only source id, date, reference, a very brief key-fact summary, and
 `status: completed` in that day's `manifest/<date>.json` file. The date file is
