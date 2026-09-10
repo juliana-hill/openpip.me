@@ -34,12 +34,17 @@ async def list_insights(access_token: str, query: str = "") -> list[dict[str, An
     normalized_query = query.strip().lower()
     values = [record for record in records.values() if isinstance(record, dict)]
     if normalized_query:
+        # Match focused words independently so a query such as
+        # "healthcare provider" can find a stable key like
+        # ``healthcare:provider:smith`` even though the words are separated by
+        # punctuation rather than a literal space.
+        query_terms = re.findall(r"[a-z0-9]+", normalized_query)
         values = [
             record for record in values
-            if normalized_query in " ".join(
+            if query_terms and all(term in " ".join(
                 str(record.get(field) or "")
                 for field in ("memoryKey", "category", "subject", "fact")
-            ).lower()
+            ).lower() for term in query_terms)
         ]
     values.sort(key=lambda record: str(record.get("updatedAt") or ""), reverse=True)
     return values[:50]

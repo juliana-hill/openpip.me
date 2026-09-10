@@ -63,6 +63,30 @@ def test_upsert_insight_accepts_schedule_category(monkeypatch) -> None:
     assert result["category"] == "schedule"
 
 
+def test_lookup_matches_terms_across_stable_key_punctuation(monkeypatch) -> None:
+    async def fake_list(_token: str, _folder: str):
+        return {
+            "old": {
+                "memoryKey": "healthcare:provider:smith",
+                "category": "healthcare",
+                "subject": "Care coordination",
+                "fact": "The user started seeing Dr. Smith.",
+            },
+            "other": {
+                "memoryKey": "work:employer:acme",
+                "category": "work",
+                "subject": "Acme",
+                "fact": "The user works at Acme.",
+            },
+        }
+
+    monkeypatch.setattr(insight_memory, "list_json_files", fake_list)
+
+    result = asyncio.run(insight_memory.lookup_insights("token", "healthcare provider"))
+
+    assert [item["memoryKey"] for item in result] == ["healthcare:provider:smith"]
+
+
 def test_generic_holiday_insight_is_not_user_specific() -> None:
     assert insight_memory.is_generic_holiday_insight(
         fact="Columbus Day is a public holiday on October 11, 2021.",

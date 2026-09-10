@@ -34,14 +34,27 @@ def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] |
         description=(
             "Read the user's existing durable historical memories before saving a related fact. "
             "Use a focused query such as a person's name, a business, or a preference. "
-            "This is read-only and helps you update an existing memory instead of duplicating it."
+            "This is read-only and helps you update an existing memory instead of duplicating it. "
+            "A focused lookup is mandatory immediately before every memory save; do not use an "
+            "empty query."
         ),
     )
     async def lookup_historical_insights(query: str = "") -> str:
+        normalized_query = query.strip()
+        if not normalized_query:
+            raise ValueError(
+                "lookup_historical_insights requires a focused query before saving a historical insight"
+            )
+        insights = await insight_memory.lookup_insights(access_token, normalized_query)
         if lookup_state is not None:
             lookup_state["used"] = True
-            lookup_state.setdefault("queries", []).append(query.strip())
-        return json.dumps({"insights": await insight_memory.lookup_insights(access_token, query)})
+            lookup_state["lastQuery"] = normalized_query
+            # Keep the result available to the save gate and to diagnostics. An
+            # empty result is still a valid lookup: it proves the agent checked
+            # before deciding this is a new memory.
+            lookup_state["lastResults"] = insights
+            lookup_state.setdefault("queries", []).append(normalized_query)
+        return json.dumps({"query": normalized_query, "insights": insights})
 
     return lookup_historical_insights
 
@@ -172,7 +185,9 @@ def build_remember_insight_tool(
             "patterns, goal for intentions, communication for contact-channel facts, and context for other "
             "durable facts. Search related historical sources and look up existing memories before every save. For goals, use one stable key for the overarching project or initiative—not one key per task or sub-activity—and update that memory as new supporting actions are found. For employment, use one stable key per employer and role and update that memory "
             "with an end date when later evidence shows the user left; do not save each work-related record "
-            "as its own memory. Generic holiday restatements are skipped."
+            "as its own memory. Generic holiday restatements are skipped. A focused existing-memory lookup "
+            "must have completed immediately before this call; if a related memory is returned, update its "
+            "exact memoryKey instead of creating a second key."
         ),
     )
     async def remember_historical_insight(
@@ -184,33 +199,47 @@ def build_remember_insight_tool(
         source_ids: list[str],
         rationale: str = "",
     ) -> str:
-        if not source_ids:
-            raise ValueError("source_ids must contain at least one exact source id")
-        if search_state is not None and not search_state.get("used"):
-            raise ValueError("search_historical_sources must be called before saving a historical insight")
-        if lookup_state is not None and not lookup_state.get("used"):
-            raise ValueError("lookup_historical_insights must be called before saving a historical insight")
-        missing = [source_id for source_id in source_ids if source_id not in source_references]
-        if missing:
-            raise ValueError(f"unknown source ids: {', '.join(missing)}")
-        if insight_memory.is_generic_holiday_insight(fact=fact, source_references=[source_references[source_id] for source_id in source_ids]):
-            return json.dumps({"status": "skipped", "reason": "Generic holiday facts are not user-specific memories."})
-        record = await insight_memory.upsert_insight(
-            access_token,
-            memory_key=memory_key,
-            category=category,
-            subject=subject,
-            fact=fact,
-            confidence=confidence,
-            source_references=[source_references[source_id] for source_id in source_ids],
-            rationale=rationale,
-        )
-        if on_saved:
-            on_saved()
-        if search_state is not None:
-            search_state["used"] = False
-        if lookup_state is not None:
-            lookup_state["used"] = False
-        return json.dumps({"status": record["status"], "memoryKey": record["memoryKey"]})
+        try:
+            if not source_ids:
+                raise ValueError("source_ids must contain at least one exact source id")
+            if search_state is None or not search_state.get("used"):
+                raise ValueError("search_historical_sources must be called before saving a historical insight")
+            if lookup_state is None or (
+                not lookup_state.get("used") or not str(lookup_state.get("lastQuery") or "").strip()
+            ):
+                raise ValueError(
+                    "lookup_historical_insights with a focused query must be called before saving a historical insight"
+                )
+            missing = [source_id for source_id in source_ids if source_id not in source_references]
+            if missing:
+                raise ValueError(f"unknown source ids: {', '.join(missing)}")
+            if insight_memory.is_generic_holiday_insight(
+                fact=fact,
+                source_references=[source_references[source_id] for source_id in source_ids],
+            ):
+                return json.dumps({"status": "skipped", "reason": "Generic holiday facts are not user-specific memories."})
+            record = await insight_memory.upsert_insight(
+                access_token,
+                memory_key=memory_key,
+                category=category,
+                subject=subject,
+                fact=fact,
+                confidence=confidence,
+                source_references=[source_references[source_id] for source_id in source_ids],
+                rationale=rationale,
+            )
+            if on_saved:
+                on_saved()
+            return json.dumps({"status": record["status"], "memoryKey": record["memoryKey"]})
+        finally:
+            # Every attempt consumes both gates, including a skipped or failed
+            # save. The next memory must repeat the source search and existing
+            # memory lookup instead of reusing stale context.
+            if search_state is not None:
+                search_state["used"] = False
+            if lookup_state is not None:
+                lookup_state["used"] = False
+                lookup_state["lastQuery"] = ""
+                lookup_state["lastResults"] = []
 
     return remember_historical_insight
