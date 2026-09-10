@@ -45,7 +45,13 @@ def build_remember_insight_tool(
             "Save one durable, source-backed fact about the user. Use a stable lowercase memoryKey "
             "for the underlying fact so later batches update the same memory. Only save useful facts "
             "that are supported by the supplied sourceReferences; never infer sensitive information, "
-            "secrets, or an ephemeral detail. sourceIds must exactly match supplied sourceReferences."
+            "secrets, or an ephemeral detail. sourceIds must exactly match supplied sourceReferences. "
+            "Choose any descriptive category that fits the fact; categories are metadata, not a fixed list. "
+            "Use healthcare for explicitly named care providers and care coordination, schedule for dated "
+            "appointments/events/commitments, work for resumes/employment/job history, relationship for "
+            "clients/investors/important people, preference for user preferences, routine for recurring "
+            "patterns, goal for intentions, communication for contact-channel facts, and context for other "
+            "durable facts."
         ),
     )
     async def remember_historical_insight(

@@ -34,3 +34,22 @@ def test_start_is_idempotent_after_completion(monkeypatch) -> None:
     assert result["state"] == "completed"
     assert result["runId"] == "run-1"
     assert not insight_gathering._jobs
+
+
+def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> None:
+    stale = {"version": insight_gathering._STATUS_VERSION, "state": "running", "runId": "run-1"}
+    resumed = {**stale, "state": "queued", "statusMessage": "Resuming the historical review."}
+
+    async def fake_read(_token: str):
+        return stale
+
+    async def fake_start(_token: str):
+        return resumed
+
+    monkeypatch.setattr(insight_gathering, "_read_status", fake_read)
+    monkeypatch.setattr(insight_gathering, "start_insight_gathering", fake_start)
+
+    result = asyncio.run(insight_gathering.get_insight_gathering_status("token"))
+
+    assert result["state"] == "queued"
+    assert result["statusMessage"] == "Resuming the historical review."

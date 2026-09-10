@@ -4,6 +4,7 @@ export type InsightGatheringStatus = {
   state: "not_started" | "queued" | "running" | "completed" | "failed";
   progress?: number;
   currentStage?: string | null;
+  statusMessage?: string | null;
   insightsWritten?: number;
   error?: string | null;
 };
@@ -30,7 +31,7 @@ export function StudyMeCard({
         </h2>
         <p className={styles.assistantPromptCopy}>
           {running
-            ? `Reviewing ${stage.toLowerCase()} to gather useful historical details.`
+            ? (status.statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.`)
             : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.`}
         </p>
         {running && (

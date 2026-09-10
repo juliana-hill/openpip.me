@@ -59,8 +59,8 @@ async def upsert_insight(
     if not _KEY_RE.fullmatch(key):
         raise ValueError("memory_key must be a stable lowercase key (letters, numbers, :, ., /, or -)")
     category = category.strip().lower()
-    if category not in {"preference", "relationship", "routine", "goal", "context", "communication"}:
-        raise ValueError("category is not supported")
+    if not category:
+        raise ValueError("category must not be empty")
     if not subject.strip() or not fact.strip():
         raise ValueError("subject and fact must not be empty")
     if confidence.strip().lower() not in {"high", "medium", "low"}:

@@ -38,3 +38,26 @@ def test_upsert_insight_edits_the_same_stable_memory(monkeypatch) -> None:
     record = next(iter(saved.values()))
     assert record["fact"].endswith("business hours.")
     assert {item["id"] for item in record["evidence"]} == {"calendar:event-1", "email:gmail-2"}
+
+
+def test_upsert_insight_accepts_schedule_category(monkeypatch) -> None:
+    async def run():
+        return await insight_memory.upsert_insight(
+            "token", memory_key="schedule:work:event-2021-09-14",
+            category="schedule", subject="Work event",
+            fact="A work event was scheduled for September 14, 2021.", confidence="high",
+            source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
+        )
+
+    # The Drive write is intentionally not exercised here; the validator is
+    # the regression covered by this test.
+    async def fake_read(*_args):
+        return None
+
+    async def fake_write(*_args):
+        return None
+
+    monkeypatch.setattr(insight_memory, "read_json_file", fake_read)
+    monkeypatch.setattr(insight_memory, "write_json_file", fake_write)
+    result = asyncio.run(run())
+    assert result["category"] == "schedule"

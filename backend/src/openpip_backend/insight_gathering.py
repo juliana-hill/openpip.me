@@ -44,6 +44,7 @@ _STAGES = tuple(_WEIGHTS)
 
 _jobs: dict[str, asyncio.Task[None]] = {}
 _active_jobs: dict[str, str] = {}
+_start_locks: dict[str, asyncio.Lock] = {}
 
 
 def _owner(access_token: str) -> str:
@@ -61,6 +62,7 @@ def _default_status() -> dict[str, Any]:
         "runId": None,
         "progress": 0,
         "currentStage": None,
+        "statusMessage": None,
         "stages": {name: _stage() for name in _STAGES},
         "insightsWritten": 0,
         "events": [],
@@ -104,7 +106,15 @@ async def _write_status(access_token: str, status: dict[str, Any]) -> None:
 
 
 async def get_insight_gathering_status(access_token: str) -> dict[str, Any]:
-    return await _read_status(access_token)
+    status = await _read_status(access_token)
+    if status.get("state") in {"queued", "running"}:
+        owner = _owner(access_token)
+        if owner not in _active_jobs:
+            # The worker is intentionally in memory because the Google token
+            # is never stored durably. If the API container restarts, the next
+            # browser poll uses the Drive checkpoint to resume it.
+            return await start_insight_gathering(access_token)
+    return status
 
 
 def _email_source(message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -172,6 +182,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     try:
         status["currentStage"] = "collecting history"
+        status["statusMessage"] = "Gathering email, calendar, contact, task, and document records."
         await _write_status(access_token, status)
         messages_by_id: dict[str, dict[str, Any]] = {}
         for window_start, window_end in _date_windows(history_start, today + timedelta(days=1)):
@@ -213,6 +224,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     try:
         status["currentStage"] = "collecting history"
+        status["statusMessage"] = "Gathering calendar history and upcoming events."
         await _write_status(access_token, status)
         events_by_id: dict[str, dict[str, Any]] = {}
         for window_start, window_end in _date_windows(history_start, history_end):
@@ -241,6 +253,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     try:
         status["currentStage"] = "collecting history"
+        status["statusMessage"] = "Gathering contacts to connect people to historical activity."
         await _write_status(access_token, status)
         contacts = await fetch_google_contacts(access_token)
         entries = []
@@ -257,6 +270,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     try:
         status["currentStage"] = "collecting history"
+        status["statusMessage"] = "Gathering tasks and commitments."
         await _write_status(access_token, status)
         tasks = await fetch_google_tasks(access_token, include_completed=True)
         entries = []
@@ -273,6 +287,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     try:
         status["currentStage"] = "collecting history"
+        status["statusMessage"] = "Gathering Google Docs and spreadsheet rows."
         await _write_status(access_token, status)
         documents = await fetch_google_drive_documents(access_token)
         entries = []
@@ -314,6 +329,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
     for name in _STAGES:
         status["stages"][name]["total"] = len(manifest["timeline"])
     status["currentStage"] = None
+    status["statusMessage"] = "Historical records are ready for chronological review."
     await write_json_file(access_token, _FOLDER, _MANIFEST_FILE, manifest)
     return manifest
 
@@ -325,10 +341,16 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         f"You are performing the one-time historical insight review, currently reviewing {stage}. "
         "Extract only durable, useful facts about the user that would help an executive assistant "
         "later. Look for recurring relationships, routines, goals, preferences, communication habits, "
+        "scheduled commitments, work history, and explicitly documented care coordination details. "
         "and important context. Do not save ephemeral details, secrets, passwords, or inferred diagnoses. "
         "Explicitly named care providers and appointment dates may be saved as factual care-coordination "
         "context; do not infer a diagnosis or treatment. A fact must be directly supported by one or "
-        "more exact source ids below. Use lookup_historical_insights when a related memory may already "
+        "more exact source ids below. Category guidance: use healthcare for named providers/care "
+        "coordination, schedule for dated commitments, work for resumes/employment/job history, "
+        "relationship for clients/investors/important people, preference for preferences, routine for "
+        "recurring patterns, goal for intentions, communication for channel facts, and context for other "
+        "durable facts. These are conventions, not validation constraints. "
+        "Use lookup_historical_insights when a related memory may already "
         "exist, and use remember_historical_insight for each useful fact. Always reuse the same stable "
         "memoryKey for an existing fact so it is edited rather than duplicated. If nothing is durable, "
         "save nothing. Return a brief completion note after using the tools.\n\n"
@@ -356,11 +378,27 @@ async def _hydrate_page(access_token: str, stage: str, entries: list[dict[str, A
     return await asyncio.gather(*(hydrate(entry) for entry in entries))
 
 
+async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], access_token: str) -> None:
+    """Run one page while translating agent tool activity into safe status text."""
+    async for event in agent.stream_async(prompt):
+        if not isinstance(event, dict):
+            continue
+        tool_use = event.get("current_tool_use")
+        tool_name = tool_use.get("name") if isinstance(tool_use, dict) else None
+        message = {
+            "lookup_historical_insights": "Checking existing memories for related facts.",
+            "remember_historical_insight": "Saving a durable insight with its source evidence.",
+        }.get(str(tool_name))
+        if message and status.get("statusMessage") != message:
+            status["statusMessage"] = message
+            await _write_status(access_token, status)
+
+
 async def _run(access_token: str, run_id: str) -> None:
     owner = _owner(access_token)
     try:
         status = await _read_status(access_token)
-        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None})
+        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
         _add_event(status, "Historical review started")
         await _write_status(access_token, status)
         manifest = await read_json_file(access_token, _FOLDER, _MANIFEST_FILE)
@@ -394,7 +432,9 @@ async def _run(access_token: str, run_id: str) -> None:
                     agent_name=agent_name,
                     extra_tools=[build_lookup_insights_tool(access_token), build_remember_insight_tool(access_token, references, counted)],
                 )
-                await asyncio.to_thread(agent, _prompt(f"history for {page_day}", batch))
+                status["statusMessage"] = f"Reviewing records from {page_day} and comparing them with existing memories."
+                await _write_status(access_token, status)
+                await _stream_agent_page(agent, _prompt(f"history for {page_day}", batch), status, access_token)
                 stage["processed"] = offset + len(batch)
                 stage["page"] = int(stage.get("page") or 0) + 1
                 status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
@@ -403,7 +443,7 @@ async def _run(access_token: str, run_id: str) -> None:
                 offset += len(batch)
             stage["status"] = "completed"
             await _write_status(access_token, status)
-        status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None})
+        status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
         _add_event(status, "Historical insights are ready")
         await _write_status(access_token, status)
     except Exception as error:
@@ -417,17 +457,19 @@ async def _run(access_token: str, run_id: str) -> None:
 
 
 async def start_insight_gathering(access_token: str) -> dict[str, Any]:
-    status = await _read_status(access_token)
-    if status.get("state") == "completed":
-        return status
     owner = _owner(access_token)
-    active_id = _active_jobs.get(owner)
-    if active_id and active_id in _jobs:
+    lock = _start_locks.setdefault(owner, asyncio.Lock())
+    async with lock:
+        status = await _read_status(access_token)
+        if status.get("state") == "completed":
+            return status
+        active_id = _active_jobs.get(owner)
+        if active_id and active_id in _jobs:
+            return status
+        run_id = str(status.get("runId") or uuid4())
+        status.update({"state": "queued", "runId": run_id, "error": None, "statusMessage": "Resuming the historical review."})
+        _add_event(status, "Historical review queued")
+        await _write_status(access_token, status)
+        _active_jobs[owner] = run_id
+        _jobs[run_id] = asyncio.create_task(_run(access_token, run_id))
         return status
-    run_id = str(status.get("runId") or uuid4())
-    status.update({"state": "queued", "runId": run_id, "error": None})
-    _add_event(status, "Historical review queued")
-    await _write_status(access_token, status)
-    _active_jobs[owner] = run_id
-    _jobs[run_id] = asyncio.create_task(_run(access_token, run_id))
-    return status
