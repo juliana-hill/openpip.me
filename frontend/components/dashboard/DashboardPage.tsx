@@ -130,15 +130,17 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
     void update();
   }, [stopInsightPolling]);
 
-  const requestInsightGathering = useCallback(async () => {
+  const requestInsightGathering = useCallback(async (): Promise<boolean> => {
     try {
       const response = await proxyFetch("/agent/insights/gather", { method: "POST" });
-      if (!response.ok) return;
+      if (!response.ok) return false;
       const next = await response.json() as InsightGatheringStatus;
       setInsightStatus(next);
       if (next.state === "queued" || next.state === "running") pollInsightGathering();
+      return next.state === "queued" || next.state === "running";
     } catch {
       // Keep the resume button available if the request itself fails.
+      return false;
     }
   }, [pollInsightGathering]);
 
@@ -360,7 +362,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
       <main className={styles.grid}>
         {showStudyMe ? (
-          <StudyMeCard agentName={agentName} status={insightStatus} onStart={() => void requestInsightGathering()} />
+          <StudyMeCard agentName={agentName} status={insightStatus} onStart={requestInsightGathering} />
         ) : showAssistantPrompt && (latestPipelineAction ? (
           <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }} aria-live="polite">
             <div className={styles.assistantPromptContent}>

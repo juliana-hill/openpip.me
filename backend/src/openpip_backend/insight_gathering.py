@@ -22,12 +22,18 @@ from .google_workspace import (
     fetch_google_spreadsheet_rows,
     fetch_google_tasks,
 )
-from .tools import build_lookup_insights_tool, build_remember_insight_tool
+from .tools import (
+    build_lookup_insights_tool,
+    build_remember_insight_tool,
+    build_search_historical_sources_tool,
+)
 
-_FOLDER = "OpenPip/memory/insight-gathering"
+_FOLDER = "OpenPip/memory/insights_gathering"
+_LEGACY_FOLDER = "OpenPip/memory/insight-gathering"
+_MANIFEST_FOLDER = f"{_FOLDER}/manifest"
 _STATUS_FILE = "status.json"
-_MANIFEST_FILE = "manifest.json"
-_MANIFEST_VERSION = 3
+_MANIFEST_FILE = "metadata.json"
+_MANIFEST_VERSION = 5
 _STATUS_VERSION = 2
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
@@ -91,6 +97,10 @@ def _progress(status: dict[str, Any]) -> int:
 
 async def _read_status(access_token: str) -> dict[str, Any]:
     stored = await read_json_file(access_token, _FOLDER, _STATUS_FILE)
+    if stored is None:
+        # Preserve an in-flight pre-date-file run across the storage-layout
+        # migration; its records will be recollected into the new pages.
+        stored = await read_json_file(access_token, _LEGACY_FOLDER, _STATUS_FILE)
     if not isinstance(stored, dict) or stored.get("version") != _STATUS_VERSION:
         return _default_status()
     result = _default_status()
@@ -158,6 +168,15 @@ def _next_daily_page(entries: list[dict[str, Any]], offset: int) -> list[dict[st
     return page
 
 
+def _date_filename(day: str) -> str:
+    return f"{day}.json"
+
+
+def _manifest_day(entry: dict[str, Any]) -> str:
+    day = _chronology_key(entry)[:10]
+    return "undated" if day == "9999-12-31" else day
+
+
 def _date_windows(start: date, end: date) -> list[tuple[date, date]]:
     windows: list[tuple[date, date]] = []
     cursor = start
@@ -172,6 +191,18 @@ def _build_timeline(sources: dict[str, list[dict[str, Any]]]) -> list[dict[str, 
     """Merge every source into one oldest-first historical timeline."""
     entries = [entry for values in sources.values() for entry in values if isinstance(entry, dict)]
     return _chronological(entries)
+
+
+def _is_default_holiday_calendar(calendar: dict[str, Any]) -> bool:
+    """Exclude Google's built-in holiday calendars from personal history."""
+    calendar_id = str(calendar.get("id") or "").lower()
+    calendar_name = str(calendar.get("name") or "").strip().lower()
+    return (
+        calendar_id.endswith("#holiday")
+        or calendar_name.startswith("holidays in ")
+        or calendar_name in {"us holidays", "public holidays", "national holidays"}
+        or "observances" in calendar_name
+    )
 
 
 async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[str, Any]:
@@ -240,7 +271,16 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
             await _write_status(access_token, status)
         events = list(events_by_id.values())
         entries = []
+        holiday_event_ids = {
+            str(event.get("id"))
+            for calendar in calendars
+            if _is_default_holiday_calendar(calendar)
+            for event in calendar.get("events", [])
+            if event.get("id")
+        }
         for event in events:
+            if str(event.get("id")) in holiday_event_ids:
+                continue
             source_id = f"calendar:{event.get('id')}"
             entries.append({
                 "record": {"sourceId": source_id, **{key: event.get(key) for key in ("title", "description", "location", "attendees", "start", "end", "status")}},
@@ -325,13 +365,55 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         manifest["warnings"].append(f"Google Docs unavailable: {error}")
         manifest["sources"]["documents"] = []
 
-    manifest["timeline"] = _build_timeline(manifest["sources"])
+    timeline = _build_timeline(manifest["sources"])
+    entries_by_date: dict[str, list[dict[str, Any]]] = {}
+    for entry in timeline:
+        day = _manifest_day(entry)
+        entries_by_date.setdefault(day, []).append(entry)
+    dates = sorted(entries_by_date)
+    for day, day_entries in entries_by_date.items():
+        pages = [
+            {"page": page_number, "entries": day_entries[offset:offset + _BATCH_SIZE]}
+            for page_number, offset in enumerate(range(0, len(day_entries), _BATCH_SIZE), start=1)
+        ]
+        await write_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day), {
+            "version": _MANIFEST_VERSION,
+            "date": day,
+            "numberOfEntries": len(day_entries),
+            "pages": pages,
+        })
+    # Keep metadata as a small checkpoint/index. Each date's records live in
+    # its own manifest/<date>.json file, and the agent only receives one page.
+    dated = [day for day in dates if day != "undated"]
+    manifest = {
+        "version": _MANIFEST_VERSION,
+        "oldestEntryDate": dated[0] if dated else None,
+        "newestEntryDate": dated[-1] if dated else None,
+        "numberOfEntries": len(timeline),
+        "dates": dates,
+        "currentPointerDate": None,
+        "currentPointerPage": None,
+        "sourceCounts": {name: len(values) for name, values in manifest["sources"].items()},
+        "warnings": manifest["warnings"],
+    }
     for name in _STAGES:
-        status["stages"][name]["total"] = len(manifest["timeline"])
+        status["stages"][name]["total"] = len(timeline)
     status["currentStage"] = None
     status["statusMessage"] = "Historical records are ready for chronological review."
-    await write_json_file(access_token, _FOLDER, _MANIFEST_FILE, manifest)
+    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     return manifest
+
+
+async def _read_date_page(access_token: str, day: str, page_number: int) -> list[dict[str, Any]]:
+    date_file = await read_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day))
+    if not isinstance(date_file, dict) or date_file.get("version") != _MANIFEST_VERSION:
+        return []
+    pages = date_file.get("pages")
+    if not isinstance(pages, list) or page_number < 1 or page_number > len(pages):
+        return []
+    page = pages[page_number - 1]
+    entries = page.get("entries") if isinstance(page, dict) else None
+    return entries if isinstance(entries, list) else []
 
 
 def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") -> str:
@@ -339,10 +421,31 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
     records = [entry["record"] for entry in entries]
     return (
         f"You are performing the one-time historical insight review, currently reviewing {stage}. "
-        "Extract only durable, useful facts about the user that would help an executive assistant "
-        "later. Look for recurring relationships, routines, goals, preferences, communication habits, "
+        "Treat the records below as evidence to synthesize, not as a checklist where every item becomes "
+        "a memory. Extract only durable, useful facts that are specifically about the user and would "
+        "change how an executive assistant helps them later. Before saving, ask whether the fact is "
+        "user-specific, durable beyond this source item, and useful for future assistance; if not, save "
+        "nothing. Do not create one memory per email, event, task, contact, document, or spreadsheet row. "
+        "Prefer one refined memory supported by multiple records over many restatements of individual items. "
+        "For each potentially useful person, employer, business, or topic, search_historical_sources first "
+        "to find related records on other dates and in other source types, then combine the evidence into "
+        "one memory. Prefer evidence from at least two independent sources when available, such as an email "
+        "plus a calendar event, a contact plus a Google Doc, or a spreadsheet row plus an email. Cite every "
+        "supporting source id used; do not save a source item merely because it exists. "
+        "Look for recurring relationships, routines, goals, preferences, communication habits, "
         "scheduled commitments, work history, and explicitly documented care coordination details. "
-        "and important context. Do not save ephemeral details, secrets, passwords, or inferred diagnoses. "
+        "For employment history, group records for the same employer and role into one timeline memory. "
+        "Use a stable key such as work:employment:<employer> and initially record the start date; if a "
+        "later record shows that the user left, quit, or ended that job, update that same memory to include "
+        "the end date. Never create a separate memory for each work shift, workday, payroll notice, or job "
+        "departure when they describe the same employment relationship. Do not invent dates when the evidence "
+        "only gives an approximate period. "
+        "Do not save generic public or national holidays, religious observances, or default holiday-calendar "
+        "entries; a holiday is only relevant when the user's own notes, attendees, or action make it personal. "
+        "Also skip boilerplate reminders, ordinary workday blocks, invitations where the user's role is "
+        "unknown, and one-off events that do not reveal an ongoing relationship, preference, routine, or "
+        "future action. A date by itself is not a durable user fact. Do not save ephemeral details, secrets, "
+        "passwords, or inferred diagnoses. "
         "Explicitly named care providers and appointment dates may be saved as factual care-coordination "
         "context; do not infer a diagnosis or treatment. A fact must be directly supported by one or "
         "more exact source ids below. Category guidance: use healthcare for named providers/care "
@@ -350,7 +453,7 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "relationship for clients/investors/important people, preference for preferences, routine for "
         "recurring patterns, goal for intentions, communication for channel facts, and context for other "
         "durable facts. These are conventions, not validation constraints. "
-        "Use lookup_historical_insights when a related memory may already "
+        "Use search_historical_sources to find related records and lookup_historical_insights when a related memory may already "
         "exist, and use remember_historical_insight for each useful fact. Always reuse the same stable "
         "memoryKey for an existing fact so it is edited rather than duplicated. If nothing is durable, "
         "save nothing. Return a brief completion note after using the tools.\n\n"
@@ -387,6 +490,7 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
         tool_name = tool_use.get("name") if isinstance(tool_use, dict) else None
         message = {
             "lookup_historical_insights": "Checking existing memories for related facts.",
+            "search_historical_sources": "Searching related email, calendar, document, and contact evidence.",
             "remember_historical_insight": "Saving a durable insight with its source evidence.",
         }.get(str(tool_name))
         if message and status.get("statusMessage") != message:
@@ -401,26 +505,38 @@ async def _run(access_token: str, run_id: str) -> None:
         status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
         _add_event(status, "Historical review started")
         await _write_status(access_token, status)
-        manifest = await read_json_file(access_token, _FOLDER, _MANIFEST_FILE)
+        manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
         if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION:
             manifest = await _collect_manifest(access_token, status)
+            for stage in status["stages"].values():
+                stage.update({"status": "pending", "processed": 0, "page": 0, "dateIndex": 0, "total": manifest.get("numberOfEntries", 0)})
 
         app_data, context_block = await asyncio.gather(read_drive_app_data(access_token), load_context_documents(access_token))
         agent_name = str((app_data.get("userData") or {}).get("agentName") or DEFAULT_AGENT_NAME)
         for stage_name in _STAGES:
             stage = status["stages"][stage_name]
-            entries = manifest.get("timeline", [])
             if stage.get("status") == "completed":
                 continue
-            stage.update({"status": "running", "total": len(entries)})
+            dates = manifest.get("dates") if isinstance(manifest.get("dates"), list) else []
+            total_records = int(manifest.get("numberOfEntries") or 0)
+            stage.update({"status": "running", "total": total_records})
             status["currentStage"] = "history"
             await _write_status(access_token, status)
             offset = int(stage.get("processed") or 0)
-            while offset < len(entries):
-                page = _next_daily_page(entries, offset)
-                page_day = _chronology_key(page[0])[:10] if page else ""
+            date_index = int(stage.get("dateIndex") or 0)
+            page_number = int(stage.get("page") or 0) + 1
+            while date_index < len(dates):
+                page = await _read_date_page(access_token, str(dates[date_index]), page_number)
+                if not page:
+                    date_index += 1
+                    page_number = 1
+                    continue
+                page_day = str(dates[date_index])
                 batch = await _hydrate_page(access_token, stage_name, page)
                 status["currentStage"] = f"history · {page_day}"
+                manifest["currentPointerDate"] = page_day
+                manifest["currentPointerPage"] = page_number
+                await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
                 await _write_status(access_token, status)
                 references = {entry["reference"]["id"]: entry["reference"] for entry in batch}
                 saved = 0
@@ -430,17 +546,26 @@ async def _run(access_token: str, run_id: str) -> None:
                 agent = build_executive_assistant(
                     context_block,
                     agent_name=agent_name,
-                    extra_tools=[build_lookup_insights_tool(access_token), build_remember_insight_tool(access_token, references, counted)],
+                    extra_tools=[
+                        build_lookup_insights_tool(access_token),
+                        build_search_historical_sources_tool(
+                            access_token, _MANIFEST_FOLDER, [str(day) for day in dates],
+                            _MANIFEST_VERSION, references,
+                        ),
+                        build_remember_insight_tool(access_token, references, counted),
+                    ],
                 )
                 status["statusMessage"] = f"Reviewing records from {page_day} and comparing them with existing memories."
                 await _write_status(access_token, status)
                 await _stream_agent_page(agent, _prompt(f"history for {page_day}", batch), status, access_token)
                 stage["processed"] = offset + len(batch)
-                stage["page"] = int(stage.get("page") or 0) + 1
+                stage["dateIndex"] = date_index
+                stage["page"] = page_number
                 status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
                 _add_event(status, f"Reviewed history for {page_day}", f"{stage['processed']} of {stage['total']} records")
                 await _write_status(access_token, status)
                 offset += len(batch)
+                page_number += 1
             stage["status"] = "completed"
             await _write_status(access_token, status)
         status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})

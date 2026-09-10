@@ -61,3 +61,14 @@ def test_upsert_insight_accepts_schedule_category(monkeypatch) -> None:
     monkeypatch.setattr(insight_memory, "write_json_file", fake_write)
     result = asyncio.run(run())
     assert result["category"] == "schedule"
+
+
+def test_generic_holiday_insight_is_not_user_specific() -> None:
+    assert insight_memory.is_generic_holiday_insight(
+        fact="Columbus Day is a public holiday on October 11, 2021.",
+        source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
+    )
+    assert not insight_memory.is_generic_holiday_insight(
+        fact="The user has a hair appointment scheduled on a public holiday.",
+        source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
+    )

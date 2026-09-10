@@ -34,7 +34,7 @@ import {
 var import_client = __toESM(require_client());
 
 // components/dashboard/DashboardPage.tsx
-var import_react2 = __toESM(require_react());
+var import_react3 = __toESM(require_react());
 
 // components/dashboard/DashboardPage.module.css
 var DashboardPage_default = {
@@ -66,6 +66,8 @@ var DashboardPage_default = {
   showDetailsLink: "DashboardPage_showDetailsLink",
   assistantPrimaryBtn: "DashboardPage_assistantPrimaryBtn",
   assistantSecondaryBtn: "DashboardPage_assistantSecondaryBtn",
+  studyMeSpinner: "DashboardPage_studyMeSpinner",
+  studyMeSpin: "DashboardPage_studyMeSpin",
   pipelineStatus: "DashboardPage_pipelineStatus",
   pipelineText: "DashboardPage_pipelineText",
   pipelineMeta: "DashboardPage_pipelineMeta",
@@ -249,15 +251,26 @@ function AgentRunHistoryModal({ open, action, onClose }) {
 }
 
 // components/dashboard/StudyMeCard.tsx
+var import_react2 = __toESM(require_react());
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function StudyMeCard({
   agentName,
   status,
   onStart
 }) {
+  const [starting, setStarting] = (0, import_react2.useState)(false);
   const running = status.state === "queued" || status.state === "running";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+  (0, import_react2.useEffect)(() => {
+    if (running || status.state === "failed") setStarting(false);
+  }, [running, status.state]);
+  const handleStart = async () => {
+    if (starting) return;
+    setStarting(true);
+    const accepted = await onStart();
+    if (!accepted) setStarting(false);
+  };
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
@@ -267,7 +280,7 @@ function StudyMeCard({
         " assistant"
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: running ? `${agentName} is learning more about you` : `${agentName} would like to learn more about you!` }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? status.statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
       running && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
         progress,
         "% complete",
@@ -275,7 +288,10 @@ function StudyMeCard({
       ] }),
       status.state === "failed" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The review paused. You can resume it whenever you are ready." })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: running ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { "aria-label": `${progress}% complete`, style: { width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" } }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: onStart, children: status.state === "failed" ? "Resume review" : "Study Me" }) }) })
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: running ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { "aria-label": `${progress}% complete`, style: { width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" } }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void handleStart(), disabled: starting, children: [
+      starting && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.studyMeSpinner, "aria-hidden": "true" }),
+      starting ? "Starting\u2026" : status.state === "failed" ? "Resume review" : "Study Me"
+    ] }) }) })
   ] });
 }
 
@@ -286,32 +302,32 @@ var localNow = () => (/* @__PURE__ */ new Date()).toLocaleTimeString();
 function DashboardPage({ userName, userImage }) {
   const { name: agentName } = useAgentIdentity();
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
-  const [tasks, setTasks] = (0, import_react2.useState)([]);
-  const [tasksTotal, setTasksTotal] = (0, import_react2.useState)(0);
-  const [openTotal, setOpenTotal] = (0, import_react2.useState)(0);
-  const [eventsTotal, setEventsTotal] = (0, import_react2.useState)(0);
-  const [unreadCount, setUnreadCount] = (0, import_react2.useState)(null);
-  const [route, setRoute] = (0, import_react2.useState)(null);
-  const [scheduledPlan, setScheduledPlan] = (0, import_react2.useState)(null);
-  const [pipelineActions, setPipelineActions] = (0, import_react2.useState)([]);
-  const [latestPipelineAction, setLatestPipelineAction] = (0, import_react2.useState)(null);
-  const [runHistoryOpen, setRunHistoryOpen] = (0, import_react2.useState)(false);
-  const [brief, setBrief] = (0, import_react2.useState)(null);
-  const [briefLoading, setBriefLoading] = (0, import_react2.useState)(true);
-  const [tasksLoading, setTasksLoading] = (0, import_react2.useState)(true);
-  const [dashboardDataReady, setDashboardDataReady] = (0, import_react2.useState)(false);
-  const [reviewLoaded, setReviewLoaded] = (0, import_react2.useState)(false);
-  const [insightStatus, setInsightStatus] = (0, import_react2.useState)(null);
-  const [insightLoaded, setInsightLoaded] = (0, import_react2.useState)(false);
-  const briefFetchedRef = (0, import_react2.useRef)(false);
-  const scanPollRef = (0, import_react2.useRef)(null);
-  const insightPollRef = (0, import_react2.useRef)(null);
+  const [tasks, setTasks] = (0, import_react3.useState)([]);
+  const [tasksTotal, setTasksTotal] = (0, import_react3.useState)(0);
+  const [openTotal, setOpenTotal] = (0, import_react3.useState)(0);
+  const [eventsTotal, setEventsTotal] = (0, import_react3.useState)(0);
+  const [unreadCount, setUnreadCount] = (0, import_react3.useState)(null);
+  const [route, setRoute] = (0, import_react3.useState)(null);
+  const [scheduledPlan, setScheduledPlan] = (0, import_react3.useState)(null);
+  const [pipelineActions, setPipelineActions] = (0, import_react3.useState)([]);
+  const [latestPipelineAction, setLatestPipelineAction] = (0, import_react3.useState)(null);
+  const [runHistoryOpen, setRunHistoryOpen] = (0, import_react3.useState)(false);
+  const [brief, setBrief] = (0, import_react3.useState)(null);
+  const [briefLoading, setBriefLoading] = (0, import_react3.useState)(true);
+  const [tasksLoading, setTasksLoading] = (0, import_react3.useState)(true);
+  const [dashboardDataReady, setDashboardDataReady] = (0, import_react3.useState)(false);
+  const [reviewLoaded, setReviewLoaded] = (0, import_react3.useState)(false);
+  const [insightStatus, setInsightStatus] = (0, import_react3.useState)(null);
+  const [insightLoaded, setInsightLoaded] = (0, import_react3.useState)(false);
+  const briefFetchedRef = (0, import_react3.useRef)(false);
+  const scanPollRef = (0, import_react3.useRef)(null);
+  const insightPollRef = (0, import_react3.useRef)(null);
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
   const latestPipelineDetail = latestPipelineEvent?.detail ?? latestPipelineAction?.error;
   const isPipelineRunning = latestPipelineAction?.status === "queued" || latestPipelineAction?.status === "running";
-  const refreshScheduledActions = (0, import_react2.useCallback)(async () => {
+  const refreshScheduledActions = (0, import_react3.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/scheduled-actions");
       const data = response.ok ? await response.json() : { actions: [] };
@@ -326,11 +342,11 @@ function DashboardPage({ userName, userImage }) {
       return [];
     }
   }, []);
-  const stopScanPolling = (0, import_react2.useCallback)(() => {
+  const stopScanPolling = (0, import_react3.useCallback)(() => {
     if (scanPollRef.current) window.clearInterval(scanPollRef.current);
     scanPollRef.current = null;
   }, []);
-  const pollScan = (0, import_react2.useCallback)((jobId) => {
+  const pollScan = (0, import_react3.useCallback)((jobId) => {
     stopScanPolling();
     const update = async () => {
       try {
@@ -354,12 +370,12 @@ function DashboardPage({ userName, userImage }) {
     }, 800);
     void update();
   }, [stopScanPolling, refreshScheduledActions]);
-  (0, import_react2.useEffect)(() => () => stopScanPolling(), [stopScanPolling]);
-  const stopInsightPolling = (0, import_react2.useCallback)(() => {
+  (0, import_react3.useEffect)(() => () => stopScanPolling(), [stopScanPolling]);
+  const stopInsightPolling = (0, import_react3.useCallback)(() => {
     if (insightPollRef.current) window.clearInterval(insightPollRef.current);
     insightPollRef.current = null;
   }, []);
-  const pollInsightGathering = (0, import_react2.useCallback)(() => {
+  const pollInsightGathering = (0, import_react3.useCallback)(() => {
     stopInsightPolling();
     const update = async () => {
       try {
@@ -380,17 +396,19 @@ function DashboardPage({ userName, userImage }) {
     }, 1e3);
     void update();
   }, [stopInsightPolling]);
-  const requestInsightGathering = (0, import_react2.useCallback)(async () => {
+  const requestInsightGathering = (0, import_react3.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/insights/gather", { method: "POST" });
-      if (!response.ok) return;
+      if (!response.ok) return false;
       const next = await response.json();
       setInsightStatus(next);
       if (next.state === "queued" || next.state === "running") pollInsightGathering();
+      return next.state === "queued" || next.state === "running";
     } catch {
+      return false;
     }
   }, [pollInsightGathering]);
-  const requestDashboardPipeline = (0, import_react2.useCallback)(async () => {
+  const requestDashboardPipeline = (0, import_react3.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/proposals/scan", { method: "POST" });
       if (!response.ok) return;
@@ -400,8 +418,8 @@ function DashboardPage({ userName, userImage }) {
     } catch {
     }
   }, [pollScan]);
-  const handleReviewLoaded = (0, import_react2.useCallback)(() => setReviewLoaded(true), []);
-  (0, import_react2.useEffect)(() => {
+  const handleReviewLoaded = (0, import_react3.useCallback)(() => setReviewLoaded(true), []);
+  (0, import_react3.useEffect)(() => {
     let mounted = true;
     async function loadInsightStatus() {
       try {
@@ -422,7 +440,7 @@ function DashboardPage({ userName, userImage }) {
       stopInsightPolling();
     };
   }, [pollInsightGathering, stopInsightPolling]);
-  (0, import_react2.useEffect)(() => {
+  (0, import_react3.useEffect)(() => {
     const today2 = (/* @__PURE__ */ new Date()).toDateString();
     async function loadTasks() {
       const [googleTasksRes, calendarRes, inboxRes] = await Promise.all([
@@ -543,7 +561,7 @@ function DashboardPage({ userName, userImage }) {
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.shell, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AppHeader, { userImage, userName, initials, pageTitle: today }),
     /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("main", { className: DashboardPage_default.grid, children: [
-      showStudyMe ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(StudyMeCard, { agentName, status: insightStatus, onStart: () => void requestInsightGathering() }) : showAssistantPrompt && (latestPipelineAction ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
+      showStudyMe ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(StudyMeCard, { agentName, status: insightStatus, onStart: requestInsightGathering }) : showAssistantPrompt && (latestPipelineAction ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
             /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),

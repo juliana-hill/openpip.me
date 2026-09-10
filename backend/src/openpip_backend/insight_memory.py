@@ -17,6 +17,11 @@ from .google_drive_docs import list_json_files, read_json_file, write_json_file
 
 _FOLDER = "OpenPip/memory/insights"
 _KEY_RE = re.compile(r"^[a-z0-9][a-z0-9:_./-]{2,160}$")
+_GENERIC_HOLIDAY_RE = re.compile(r"\b(?:public|national|federal|bank|religious)\s+holiday\b", re.IGNORECASE)
+_PERSONAL_HOLIDAY_RE = re.compile(
+    r"\b(?:user|my|their|appointment|meeting|party|travel|trip|reschedul|cancel|attend|host|action)\b",
+    re.IGNORECASE,
+)
 
 
 def _filename(memory_key: str) -> str:
@@ -99,3 +104,14 @@ def format_insight_context(insights: list[dict[str, Any]]) -> str:
         f"(confidence: {item.get('confidence', 'medium')})"
         for item in insights[:30]
     )
+
+
+def is_generic_holiday_insight(
+    *, fact: str, source_references: list[dict[str, Any]],
+) -> bool:
+    """Reject an obvious calendar-fact restatement, not a personal holiday action."""
+    if not source_references or any(not isinstance(reference, dict) for reference in source_references):
+        return False
+    if not all(str(reference.get("kind") or "").lower() == "calendar" for reference in source_references):
+        return False
+    return bool(_GENERIC_HOLIDAY_RE.search(fact)) and not bool(_PERSONAL_HOLIDAY_RE.search(fact))

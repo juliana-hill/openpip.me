@@ -1,4 +1,5 @@
 import styles from "./DashboardPage.module.css";
+import { useEffect, useState } from "react";
 
 export type InsightGatheringStatus = {
   state: "not_started" | "queued" | "running" | "completed" | "failed";
@@ -16,11 +17,23 @@ export function StudyMeCard({
 }: {
   agentName: string;
   status: InsightGatheringStatus;
-  onStart: () => void;
+  onStart: () => boolean | Promise<boolean>;
 }) {
+  const [starting, setStarting] = useState(false);
   const running = status.state === "queued" || status.state === "running";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+
+  useEffect(() => {
+    if (running || status.state === "failed") setStarting(false);
+  }, [running, status.state]);
+
+  const handleStart = async () => {
+    if (starting) return;
+    setStarting(true);
+    const accepted = await onStart();
+    if (!accepted) setStarting(false);
+  };
 
   return (
     <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }} aria-live="polite">
@@ -50,8 +63,9 @@ export function StudyMeCard({
           </div>
         ) : (
           <div className={styles.pipelineStartRow}>
-            <button type="button" className={styles.assistantPrimaryBtn} onClick={onStart}>
-              {status.state === "failed" ? "Resume review" : "Study Me"}
+            <button type="button" className={styles.assistantPrimaryBtn} onClick={() => void handleStart()} disabled={starting}>
+              {starting && <span className={styles.studyMeSpinner} aria-hidden="true" />}
+              {starting ? "Starting…" : status.state === "failed" ? "Resume review" : "Study Me"}
             </button>
           </div>
         )}

@@ -194,6 +194,8 @@
 .assistantSecondaryBtn:disabled { opacity: 0.45; cursor: not-allowed; }
 .assistantPrimaryBtn:disabled:hover,
 .assistantSecondaryBtn:disabled:hover { transform: none; }
+.studyMeSpinner { animation: studyMeSpin .75s linear infinite; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; display: inline-block; height: 13px; margin-right: 7px; vertical-align: -2px; width: 13px; }
+@keyframes studyMeSpin { to { transform: rotate(360deg); } }
 
 .pipelineStatus { background: var(--color-surface); border-left: 4px solid var(--color-accent); font: inherit; gap: 6px; text-align: left; width: 100%; }
 .pipelineStatus:focus-visible { outline: 3px solid color-mix(in srgb, var(--color-accent) 42%, transparent); outline-offset: 3px; }
