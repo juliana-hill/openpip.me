@@ -12,7 +12,7 @@ a dedicated real account and connected data.
 ## The build itself
 
 - [ ] CALL-E account created (20 free calls included) via the [CALL-E Integrations](https://github.com/CALLE-AI/call-e-integrations) setup guide
-- [ ] `tools/calle-call.ts` MCP tool built: wraps CALL-E's SDK/MCP, takes a contact + reason + source reference, places the call, returns a structured outcome (confirmed / rescheduled / no answer)
+- [ ] `email-task-call-proposal` skill and Python CALL-E adapter built: reads email/tasks/calendar, creates an approval-gated call proposal, and returns a structured outcome (confirmed / rescheduled / no answer)
 - [ ] Wired into OpenPip's existing proposal/review pipeline — a call is proposed like any other action, only placed after Review-queue approval
 - [ ] Call outcome writes back to the calendar + logs in the Review queue (auditable, not a special-cased log entry)
 - [ ] Scope kept narrow — appointment confirm/reschedule only, nothing broader (cold outreach, reminders, surveys are explicitly out of scope per the plan)

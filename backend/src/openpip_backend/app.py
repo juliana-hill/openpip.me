@@ -60,6 +60,7 @@ from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
 from . import proposal_drive_store
 from .execution_pipeline import tick as execution_tick
 from .proposal_scan import get_proposal_scan_progress, queue_proposal_scan
+from .insight_gathering import get_insight_gathering_status, start_insight_gathering
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -426,6 +427,7 @@ def _review_item(proposal: Proposal) -> dict[str, Any]:
             "proposal": {
                 "id": proposal.id,
                 "kind": "task_suggestions",
+                "action": proposal.action,
                 "evidence": proposal.rationale,
                 "payload": proposal.payload,
                 # Was dropped entirely before — ReviewDetailPage.tsx already
@@ -524,6 +526,18 @@ async def agent_scheduled_actions(token: str | None = Depends(get_google_token_o
     else:
         approved = store.list(ProposalStatus.APPROVED)
     return {"actions": [_review_item(item) for item in approved]}
+
+
+@app.get("/agent/insights/gather")
+async def agent_insights_gather_status(token: str = Depends(get_google_token)):
+    """Return the persistent one-time historical insight pipeline status."""
+    return await get_insight_gathering_status(token)
+
+
+@app.post("/agent/insights/gather")
+async def agent_insights_gather_start(token: str = Depends(get_google_token)):
+    """Start or resume the one-time historical insight review."""
+    return await start_insight_gathering(token)
 
 
 @app.post("/agent/proposals/execution/tick")

@@ -15,7 +15,7 @@ type Application = { id?: string; company: string; role: string; url?: string; j
 type EmailDraft = { sender: string; senderEmail: string; subject: string; originalText: string; draft: string };
 type Campaign = { id: string; recipientCount: number; templateId?: string; fromAddress?: string };
 type ProposalSource = { kind: "email" | "calendar_event" | "conversation" | "insight" | "goal"; label: string; detail: string; href?: string };
-type Proposal = { id: string; kind: "career_pipeline" | "networking_pipeline" | "trip_plan" | "campaign_prepare" | "task_suggestions"; evidence: string; source?: ProposalSource; payload: Record<string, unknown> };
+type Proposal = { id: string; kind: "career_pipeline" | "networking_pipeline" | "trip_plan" | "campaign_prepare" | "task_suggestions"; action?: string; evidence: string; source?: ProposalSource; payload: Record<string, unknown> };
 
 function getApplication(item: ReviewItem): Application | undefined { return (item as ReviewItem & { data?: { job?: Application } }).data?.job; }
 function getEmail(item: ReviewItem): EmailDraft | undefined { return (item as ReviewItem & { data?: { draft?: EmailDraft } }).data?.draft; }
@@ -113,12 +113,12 @@ export function ReviewDetailPage({ userName, userImage }: { userName: string; us
             {message && <p className={styles.success}>{message} <Link href="/inbox">Open Inbox</Link></p>}
             {error && <p className={styles.errorMessage}>{error}</p>}
             {!message && <footer className={styles.actionFooter}>
-              <p className={styles.actionsNote}>{proposal ? "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox."}</p>
+              <p className={styles.actionsNote}>{proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review. Any calendar update afterward is separate." : "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox."}</p>
               <div className={styles.actions}>
                 {item.kind !== "campaign" && <button className={styles.secondaryAction} disabled={working} onClick={() => openDecisionPrompt("rejected")}>{proposal ? "Decline proposal" : "Reject draft"}</button>}
                 {item.kind === "application" && <button className={styles.primaryAction} disabled={working} onClick={() => openDecisionPrompt("approved")}>{working ? "Saving…" : "Approve application draft"}</button>}
                 {item.kind === "email" && <button className={styles.primaryAction} disabled={working} onClick={() => openDecisionPrompt("approved")}>{working ? "Saving…" : "Approve reply draft"}</button>}
-                {proposal && <button className={styles.primaryAction} disabled={working} onClick={() => openDecisionPrompt("approved")}>{working ? "Scheduling…" : "Approve & schedule"}</button>}
+                {proposal && <button className={styles.primaryAction} disabled={working} onClick={() => openDecisionPrompt("approved")}>{working ? "Saving…" : proposal.action === "call_task" ? "Approve phone call" : "Approve & schedule"}</button>}
                 {item.kind === "campaign" && <button className={styles.primaryAction} disabled={working} onClick={sendCampaign}>{working ? "Starting…" : "Approve & send campaign"}</button>}
               </div>
             </footer>}
@@ -219,19 +219,27 @@ function SourceDetail({ detail, kind, label }: { detail: string; kind: string; l
 
 function ProposalReview({ proposal }: { proposal: Proposal }) {
   const label: Record<Proposal["kind"], string> = { career_pipeline: "Career research & job search", networking_pipeline: "Networking & career navigation", trip_plan: "Trip planning", campaign_prepare: "Campaign preparation", task_suggestions: "Task suggestions" };
+  const isCall = proposal.action === "call_task";
   const scope = proposal.kind === "trip_plan" ? `${proposal.payload.origin ?? ""} → ${proposal.payload.destination ?? ""}` : proposal.kind === "campaign_prepare" ? String(proposal.payload.domain ?? "") : "";
+  const phone = String(proposal.payload.phone ?? "");
+  const maskedPhone = phone.length > 4 ? `${phone.slice(0, 4)}•••${phone.slice(-2)}` : "Phone number provided";
   const source = proposal.source;
   const sourceLabel = source?.kind === "conversation" ? "Based on previous conversations" : source?.kind === "insight" || source?.kind === "goal" ? "Based on saved context" : "Source";
   return <div className={styles.applicationGrid}>
     <div className={styles.stack}>
       <section className={styles.card}>
-        <h2>{label[proposal.kind]}</h2>
+        <h2>{isCall ? "Phone call proposal" : label[proposal.kind]}</h2>
         <p className={styles.contextText}>{proposal.evidence}</p>
         {scope && <dl className={styles.facts}><div><dt>Scope</dt><dd>{scope}</dd></div></dl>}
+        {isCall && <dl className={styles.facts}>
+          <div><dt>Recipient</dt><dd>{String(proposal.payload.recipientName ?? "Specified contact")}</dd></div>
+          <div><dt>Phone</dt><dd>{maskedPhone}</dd></div>
+          <div><dt>Call goal</dt><dd>{String(proposal.payload.goal ?? "Bounded follow-up")}</dd></div>
+        </dl>}
       </section>
       <section className={styles.card}>
         <h2>After your approval</h2>
-        <p className={styles.contextText}>The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone.</p>
+        <p className={styles.contextText}>{isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. It will not silently reschedule the calendar event or take another action from the call." : "The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone."}</p>
       </section>
     </div>
     <aside className={styles.contextStack}>

@@ -80,51 +80,64 @@ async def _request_json(
 async def fetch_google_tasks(access_token: str, *, include_completed: bool = False) -> list[dict[str, Any]]:
     """Fetch the user's Google Tasks lists and flatten their tasks."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        list_payload = await _get_json(
-            client,
-            "https://tasks.googleapis.com/tasks/v1/users/@me/lists",
-            access_token,
-            maxResults=100,
-        )
-        lists = list_payload.get("items", [])
+        lists: list[dict[str, Any]] = []
+        list_page_token: str | None = None
+        while True:
+            list_payload = await _get_json(
+                client,
+                "https://tasks.googleapis.com/tasks/v1/users/@me/lists",
+                access_token,
+                maxResults=100,
+                **({"pageToken": list_page_token} if list_page_token else {}),
+            )
+            lists.extend(item for item in list_payload.get("items", []) if isinstance(item, dict))
+            list_page_token = list_payload.get("nextPageToken")
+            if not list_page_token or not list_payload.get("items"):
+                break
 
         async def fetch_list(task_list: dict[str, Any]) -> list[dict[str, Any]]:
             list_id = task_list.get("id")
             if not list_id:
                 return []
-            payload = await _get_json(
-                client,
-                f"https://tasks.googleapis.com/tasks/v1/lists/{list_id}/tasks",
-                access_token,
-                showCompleted=str(include_completed).lower(),
-                showHidden="false",
-                maxResults=100,
-            )
             result: list[dict[str, Any]] = []
-            for task in payload.get("items", []):
-                if not task.get("id") or not task.get("title"):
-                    continue
-                completed = task.get("status") == "completed"
-                if completed and not include_completed:
-                    continue
-                result.append(
-                    {
-                        "id": task["id"],
-                        "source": "google",
-                        "title": task["title"],
-                        "notes": task.get("notes"),
-                        "completed": completed,
-                        "status": {"name": "Completed" if completed else "Todo", "isResolvedStatus": completed},
-                        "due": task.get("due"),
-                        "dueDate": task.get("due", "")[:10] or None,
-                        "scheduledStart": None,
-                        "duration": None,
-                        "projectName": task_list.get("title", ""),
-                        "listId": list_id,
-                        "listName": task_list.get("title", ""),
-                        "priority": _priority_for_list(task_list.get("title", "")),
-                    }
+            page_token: str | None = None
+            while True:
+                payload = await _get_json(
+                    client,
+                    f"https://tasks.googleapis.com/tasks/v1/lists/{list_id}/tasks",
+                    access_token,
+                    showCompleted=str(include_completed).lower(),
+                    showHidden="false",
+                    maxResults=100,
+                    **({"pageToken": page_token} if page_token else {}),
                 )
+                for task in payload.get("items", []):
+                    if not task.get("id") or not task.get("title"):
+                        continue
+                    completed = task.get("status") == "completed"
+                    if completed and not include_completed:
+                        continue
+                    result.append(
+                        {
+                            "id": task["id"],
+                            "source": "google",
+                            "title": task["title"],
+                            "notes": task.get("notes"),
+                            "completed": completed,
+                            "status": {"name": "Completed" if completed else "Todo", "isResolvedStatus": completed},
+                            "due": task.get("due"),
+                            "dueDate": task.get("due", "")[:10] or None,
+                            "scheduledStart": None,
+                            "duration": None,
+                            "projectName": task_list.get("title", ""),
+                            "listId": list_id,
+                            "listName": task_list.get("title", ""),
+                            "priority": _priority_for_list(task_list.get("title", "")),
+                        }
+                    )
+                page_token = payload.get("nextPageToken")
+                if not page_token or not payload.get("items"):
+                    break
             return result
 
         batches = await asyncio.gather(*(fetch_list(task_list) for task_list in lists))
@@ -188,6 +201,93 @@ async def fetch_google_drive_files(access_token: str, *, page_size: int = 50) ->
     ]
 
 
+async def fetch_google_drive_documents(access_token: str) -> list[dict[str, Any]]:
+    """Fetch every Google Doc and Google Sheet's metadata."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        files: list[dict[str, Any]] = []
+        page_token: str | None = None
+        while True:
+            payload = await _get_json(
+                client,
+                "https://www.googleapis.com/drive/v3/files",
+                access_token,
+                q="trashed = false and (mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/vnd.google-apps.spreadsheet')",
+                pageSize=1000,
+                orderBy="modifiedTime",
+                fields="nextPageToken,files(id,name,webViewLink,modifiedTime)",
+                **({"pageToken": page_token} if page_token else {}),
+            )
+            files.extend(payload.get("files", []))
+            page_token = payload.get("nextPageToken")
+            if not page_token or not payload.get("files"):
+                break
+    return [
+        {
+            "id": str(file["id"]),
+            "name": file.get("name") or "Untitled document",
+            "mimeType": file.get("mimeType") or "application/vnd.google-apps.document",
+            "webViewLink": file.get("webViewLink") or "https://drive.google.com/drive/my-drive",
+            "modifiedTime": file.get("modifiedTime") or "",
+        }
+        for file in files if file.get("id")
+    ]
+
+
+async def fetch_google_drive_document(access_token: str, file_id: str) -> str:
+    """Export one Google Doc as plain text for the current agent page."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        response = await client.get(
+            f"https://www.googleapis.com/drive/v3/files/{quote(file_id, safe='')}/export",
+            params={"mimeType": "text/plain"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if not response.is_success:
+            raise GoogleApiError(response.status_code, response.text[:500])
+        return response.text
+
+
+async def fetch_google_spreadsheet_rows(access_token: str, file_id: str) -> list[dict[str, Any]]:
+    """Read a Google Sheet in row pages, preserving the header row per tab."""
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        metadata = await _get_json(
+            client,
+            f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}",
+            access_token,
+            fields="sheets(properties(sheetId,title,gridProperties(rowCount,columnCount)))",
+        )
+        rows: list[dict[str, Any]] = []
+        for sheet in metadata.get("sheets", []):
+            properties = sheet.get("properties") if isinstance(sheet.get("properties"), dict) else {}
+            title = str(properties.get("title") or "Sheet1")
+            grid = properties.get("gridProperties") if isinstance(properties.get("gridProperties"), dict) else {}
+            row_count = int(grid.get("rowCount") or 0)
+            safe_title = title.replace("'", "''")
+            header_payload = await _get_json(
+                client,
+                f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A1:ZZ1", safe='')}",
+                access_token,
+            )
+            headers = [str(value or "").strip() or f"Column {index + 1}" for index, value in enumerate((header_payload.get("values") or [[]])[0])]
+            if not headers:
+                continue
+            for start in range(2, row_count + 1, 100):
+                end = min(row_count, start + 99)
+                payload = await _get_json(
+                    client,
+                    f"https://sheets.googleapis.com/v4/spreadsheets/{quote(file_id, safe='')}/values/{quote(f"'{safe_title}'!A{start}:ZZ{end}", safe='')}",
+                    access_token,
+                )
+                for offset, values in enumerate(payload.get("values", [])):
+                    if not isinstance(values, list) or not any(str(value or "").strip() for value in values):
+                        continue
+                    rows.append({
+                        "sheet": title,
+                        "rowNumber": start + offset,
+                        "values": {headers[index]: value for index, value in enumerate(values) if index < len(headers) and str(value or "").strip()},
+                    })
+    return rows
+
+
 def _window(from_date: str | None, days: int) -> tuple[str, str]:
     try:
         start = date.fromisoformat(from_date) if from_date else datetime.now(UTC).date()
@@ -202,48 +302,71 @@ async def fetch_google_calendars(access_token: str, *, from_date: str | None = N
     """Fetch calendar metadata and events in a bounded read-only window."""
     time_min, time_max = _window(from_date, days)
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        calendar_payload = await _get_json(
-            client,
-            "https://www.googleapis.com/calendar/v3/users/me/calendarList",
-            access_token,
-            maxResults=250,
-        )
+        calendars: list[dict[str, Any]] = []
+        calendar_page_token: str | None = None
+        while True:
+            calendar_payload = await _get_json(
+                client,
+                "https://www.googleapis.com/calendar/v3/users/me/calendarList",
+                access_token,
+                maxResults=250,
+                **({"pageToken": calendar_page_token} if calendar_page_token else {}),
+            )
+            calendars.extend(item for item in calendar_payload.get("items", []) if isinstance(item, dict))
+            calendar_page_token = calendar_payload.get("nextPageToken")
+            if not calendar_page_token or not calendar_payload.get("items"):
+                break
 
         async def fetch_calendar(calendar: dict[str, Any]) -> dict[str, Any]:
             calendar_id = calendar.get("id")
             if not calendar_id:
                 return {"id": "", "name": "", "color": "#888888", "events": []}
-            payload = await _get_json(
-                client,
-                f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events",
-                access_token,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents="true",
-                orderBy="startTime",
-                maxResults=250,
-            )
             events: list[dict[str, Any]] = []
-            for event in payload.get("items", []):
-                start = event.get("start", {})
-                end = event.get("end", {})
-                start_value = start.get("dateTime") or start.get("date")
-                end_value = end.get("dateTime") or end.get("date")
-                if not event.get("id") or not start_value:
-                    continue
-                events.append(
-                    {
-                        "id": event["id"],
-                        "title": event.get("summary") or "Untitled event",
-                        "description": event.get("description"),
-                        "location": event.get("location"),
-                        "meetLink": event.get("hangoutLink"),
-                        "htmlLink": event.get("htmlLink"),
-                        "start": start_value,
-                        "end": end_value or start_value,
-                        "status": event.get("status"),
-                    }
+            page_token: str | None = None
+            while True:
+                payload = await _get_json(
+                    client,
+                    f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events",
+                    access_token,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents="true",
+                    orderBy="startTime",
+                    maxResults=250,
+                    **({"pageToken": page_token} if page_token else {}),
                 )
+                for event in payload.get("items", []):
+                    start = event.get("start", {})
+                    end = event.get("end", {})
+                    start_value = start.get("dateTime") or start.get("date")
+                    end_value = end.get("dateTime") or end.get("date")
+                    if not event.get("id") or not start_value:
+                        continue
+                    events.append(
+                        {
+                            "id": event["id"],
+                            "title": event.get("summary") or "Untitled event",
+                            "description": event.get("description"),
+                            "location": event.get("location"),
+                            "attendees": [
+                                {
+                                    "email": str(attendee.get("email") or "").strip().lower(),
+                                    "name": attendee.get("displayName"),
+                                    "responseStatus": attendee.get("responseStatus"),
+                                }
+                                for attendee in event.get("attendees", [])
+                                if attendee.get("email")
+                            ],
+                            "meetLink": event.get("hangoutLink"),
+                            "htmlLink": event.get("htmlLink"),
+                            "start": start_value,
+                            "end": end_value or start_value,
+                            "status": event.get("status"),
+                        }
+                    )
+                page_token = payload.get("nextPageToken")
+                if not page_token or not payload.get("items"):
+                    break
             return {
                 "id": calendar_id,
                 "name": calendar.get("summary") or calendar.get("summaryOverride") or calendar_id,
@@ -251,7 +374,7 @@ async def fetch_google_calendars(access_token: str, *, from_date: str | None = N
                 "events": events,
             }
 
-        return await asyncio.gather(*(fetch_calendar(calendar) for calendar in calendar_payload.get("items", [])))
+        return await asyncio.gather(*(fetch_calendar(calendar) for calendar in calendars))
 
 
 def _gmail_header(headers: list[dict[str, Any]], name: str) -> str:
@@ -561,8 +684,11 @@ async def fetch_gmail_messages(
                 break
 
         total = len(refs)
-        start = (max(1, page) - 1) * max(1, min(page_size, 100))
-        page_refs = refs[start:start + max(1, min(page_size, 100))]
+        # The API returns at most 100 references per request, but a bounded
+        # historical window may ask this helper for every matching message.
+        local_page_size = max(1, min(page_size, 1000))
+        start = (max(1, page) - 1) * local_page_size
+        page_refs = refs[start:start + local_page_size]
 
         async def fetch_message(ref: dict[str, Any]) -> dict[str, Any] | None:
             message_id = ref.get("id")
@@ -619,7 +745,7 @@ async def fetch_google_contacts(access_token: str) -> dict[str, dict[str, Any]]:
     contacts: dict[str, dict[str, Any]] = {}
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         page_token: str | None = None
-        for _ in range(10):  # ~10k contacts ceiling — a personal CRM, not a bulk export
+        while True:
             payload = await _get_json(
                 client,
                 "https://people.googleapis.com/v1/people/me/connections",

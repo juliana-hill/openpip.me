@@ -73,36 +73,32 @@ def _system_prompt(agent_name: str) -> str:
         "Summarize the user's work context clearly and concisely. Identify decisions that\n"
         "need the user's judgment, but never claim that an external action was completed.\n"
         "Any send, schedule, booking, edit, or phone call must become a proposal for review.\n"
+        "When choosing how a person or business should be contacted, use the "
+        "lookup_channel_memory tool when it is available and the subject or "
+        "situation matters. Use remember_channel_preference only when the user "
+        "explicitly states a preference, a completed interaction clearly "
+        "establishes the channel, or an email, calendar event, task, or contact "
+        "record explicitly establishes it; never save an inference. Include the specific "
+        "situation in the memory so one business can have different channels for "
+        "different kinds of work, and include the source id in the reason when "
+        "the memory came from workspace data. When updating a known subject and situation, "
+        "edit the existing memory rather than creating a duplicate. These memory "
+        "tools do not contact anyone.\n"
         "Use tools only when they are directly relevant to the user's request.\n"
     )
 
 
 def _executive_assistant_model():
-    """Strands' default Bedrock model provider (plain `Agent(...)`, no
-    `model=`) resolves to an Anthropic Claude model on this account's default
-    boto3 credential chain, which — same AWS_BEARER_TOKEN_BEDROCK
-    auto-detection described in discover_quote_via_grounding's docstring
-    below — lands on the openpip-app account. That account has never
-    submitted AWS's separate "use case details" form Anthropic models
-    require on Bedrock, so every call fails with ResourceNotFoundException.
-    Amazon Nova has no such form and is already confirmed working on the
-    couchbumming account (see NOVA_GROUNDING_MODEL_ID and
-    EXECUTIVE_ASSISTANT_MODEL_ID above) — use it here too, with the same
-    explicit-credential override, until the openpip-app account's Anthropic
-    use-case form is submitted and approved.
-
-    Falls back to boto3's normal credential resolution when the couchbumming
-    keys aren't set (e.g. tests, which stub out strands.Agent entirely and
-    never actually invoke this model) — os.environ.get, not [...], so
-    constructing the Agent never hard-crashes on a missing env var; only an
-    actual call without valid credentials would fail, same as any other
-    boto3 client.
-    """
+    """Use OpenPip's app-scoped Bedrock credentials when configured."""
     from strands.models import BedrockModel
 
     region = os.getenv("AWS_REGION", "us-east-1")
-    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
-    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+    access_key = os.environ.get("AWS_APP_ACCESS_KEY_ID") or os.environ.get(
+        "AWS_ACCESS_KEY_ID"
+    )
+    secret_key = os.environ.get("AWS_APP_SECRET_ACCESS_KEY") or os.environ.get(
+        "AWS_SECRET_ACCESS_KEY"
+    )
     if access_key and secret_key:
         session = boto3.Session(
             aws_access_key_id=access_key,
@@ -135,11 +131,12 @@ def build_executive_assistant(
     not a one-off request, so it belongs folded into system_prompt here, never
     mixed into a per-turn user prompt like build_briefing_prompt() builds.
 
-    `extra_tools` — currently the two chat-history tools (see
-    tools/chat_history.py) — are appended for callers that need them (the
+    `extra_tools` — the chat-history and channel-memory tools (see
+    tools/chat_history.py and tools/channel_memory.py) — are appended for
+    callers that need them (the
     /agent/chat endpoint) without changing the tool surface for callers that
-    don't (proposal_scan.py's workspace scan, which never needs a
-    conversational memory tool). `messages` seeds short-term memory (the
+    don't. Chat and proposal-scan callers both decide which of these tools to
+    supply for their user prompt. `messages` seeds short-term memory (the
     chat endpoint's last several turns of the current session) directly
     into the Agent's own conversation state — see chat_history_store.
     get_recent_messages; every other caller leaves this unset and starts
@@ -364,23 +361,16 @@ def discover_quote_via_grounding() -> tuple[str, list[str]]:
     regular briefing path calls this, so a failure here never blocks a
     Daily Briefing from generating.
 
-    TEMPORARY: explicitly forces the plain AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
-    credentials (see .env.local's TEMPORARY block — currently the couchbumming
-    account, kept separate from openpip.me's own account while its billing
-    situation is unresolved). This is deliberate, not an oversight: boto3's
-    bedrock-runtime client otherwise auto-detects AWS_BEARER_TOKEN_BEDROCK
-    (openpip-app's Bedrock API key) and silently prefers that bearer-token
-    auth path over these access keys for this service specifically, which
-    defeats the point of routing this call at the couchbumming account.
-    Passing credentials explicitly here bypasses that auto-detection.
-    Remove this override (and just call boto3.client(...) with no explicit
-    credentials) once the openpip.me account's billing situation is sorted.
+    Use OpenPip's app-scoped Bedrock credentials explicitly so this call does
+    not accidentally use another project's credentials from the environment.
     """
     client = boto3.client(
         "bedrock-runtime",
         region_name=os.getenv("AWS_REGION", "us-east-1"),
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+        aws_access_key_id=os.environ.get("AWS_APP_ACCESS_KEY_ID")
+        or os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ.get("AWS_APP_SECRET_ACCESS_KEY")
+        or os.environ["AWS_SECRET_ACCESS_KEY"],
     )
     prompt = (
         "Find one real, verifiable quote from a historical, literary, or philosophical figure, "

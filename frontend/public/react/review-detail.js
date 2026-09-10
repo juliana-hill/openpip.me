@@ -437,12 +437,12 @@ function ReviewDetailPage({ userName, userImage }) {
       ] }),
       error && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.errorMessage, children: error }),
       !message && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("footer", { className: ReviewDetailPage_default.actionFooter, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.actionsNote, children: proposal ? "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox." }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.actionsNote, children: proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review. Any calendar update afterward is separate." : "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox." }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: ReviewDetailPage_default.actions, children: [
           item.kind !== "campaign" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.secondaryAction, disabled: working, onClick: () => openDecisionPrompt("rejected"), children: proposal ? "Decline proposal" : "Reject draft" }),
           item.kind === "application" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: () => openDecisionPrompt("approved"), children: working ? "Saving\u2026" : "Approve application draft" }),
           item.kind === "email" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: () => openDecisionPrompt("approved"), children: working ? "Saving\u2026" : "Approve reply draft" }),
-          proposal && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: () => openDecisionPrompt("approved"), children: working ? "Scheduling\u2026" : "Approve & schedule" }),
+          proposal && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: () => openDecisionPrompt("approved"), children: working ? "Saving\u2026" : proposal.action === "call_task" ? "Approve phone call" : "Approve & schedule" }),
           item.kind === "campaign" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: sendCampaign, children: working ? "Starting\u2026" : "Approve & send campaign" })
         ] })
       ] })
@@ -616,22 +616,39 @@ function SourceDetail({ detail, kind, label }) {
 }
 function ProposalReview({ proposal }) {
   const label = { career_pipeline: "Career research & job search", networking_pipeline: "Networking & career navigation", trip_plan: "Trip planning", campaign_prepare: "Campaign preparation", task_suggestions: "Task suggestions" };
+  const isCall = proposal.action === "call_task";
   const scope = proposal.kind === "trip_plan" ? `${proposal.payload.origin ?? ""} \u2192 ${proposal.payload.destination ?? ""}` : proposal.kind === "campaign_prepare" ? String(proposal.payload.domain ?? "") : "";
+  const phone = String(proposal.payload.phone ?? "");
+  const maskedPhone = phone.length > 4 ? `${phone.slice(0, 4)}\u2022\u2022\u2022${phone.slice(-2)}` : "Phone number provided";
   const source = proposal.source;
   const sourceLabel = source?.kind === "conversation" ? "Based on previous conversations" : source?.kind === "insight" || source?.kind === "goal" ? "Based on saved context" : "Source";
   return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: ReviewDetailPage_default.applicationGrid, children: [
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: ReviewDetailPage_default.stack, children: [
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: ReviewDetailPage_default.card, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: label[proposal.kind] }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: isCall ? "Phone call proposal" : label[proposal.kind] }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.contextText, children: proposal.evidence }),
         scope && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dl", { className: ReviewDetailPage_default.facts, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Scope" }),
           /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: scope })
-        ] }) })
+        ] }) }),
+        isCall && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("dl", { className: ReviewDetailPage_default.facts, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Recipient" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: String(proposal.payload.recipientName ?? "Specified contact") })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Phone" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: maskedPhone })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { children: [
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dt", { children: "Call goal" }),
+            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("dd", { children: String(proposal.payload.goal ?? "Bounded follow-up") })
+          ] })
+        ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: ReviewDetailPage_default.card, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "After your approval" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.contextText, children: "The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone." })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.contextText, children: isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. It will not silently reschedule the calendar event or take another action from the call." : "The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone." })
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("aside", { className: ReviewDetailPage_default.contextStack, children: [

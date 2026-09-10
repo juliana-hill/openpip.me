@@ -13,6 +13,7 @@ import { ReviewDashboardCard } from "./ReviewDashboardCard";
 import { ReadAloudButton } from "@/components/ui/ReadAloudButton";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { AgentRunHistoryModal, type AgentRun } from "./AgentRunHistoryModal";
+import { StudyMeCard, type InsightGatheringStatus } from "./StudyMeCard";
 
 type BriefTask = { title: string; priority: string; projectName: string | null; source?: string; dueDate?: string | null };
 type BriefEvent = { title: string; start: string };
@@ -41,8 +42,11 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [tasksLoading, setTasksLoading] = useState(true);
   const [dashboardDataReady, setDashboardDataReady] = useState(false);
   const [reviewLoaded, setReviewLoaded] = useState(false);
+  const [insightStatus, setInsightStatus] = useState<InsightGatheringStatus | null>(null);
+  const [insightLoaded, setInsightLoaded] = useState(false);
   const briefFetchedRef = useRef(false);
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const insightPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
@@ -104,6 +108,40 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
   useEffect(() => () => stopScanPolling(), [stopScanPolling]);
 
+  const stopInsightPolling = useCallback(() => {
+    if (insightPollRef.current) window.clearInterval(insightPollRef.current);
+    insightPollRef.current = null;
+  }, []);
+
+  const pollInsightGathering = useCallback(() => {
+    stopInsightPolling();
+    const update = async () => {
+      try {
+        const response = await proxyFetch("/agent/insights/gather");
+        if (!response.ok) { stopInsightPolling(); return; }
+        const next = await response.json() as InsightGatheringStatus;
+        setInsightStatus(next);
+        if (next.state !== "queued" && next.state !== "running") stopInsightPolling();
+      } catch {
+        stopInsightPolling();
+      }
+    };
+    insightPollRef.current = window.setInterval(() => { void update(); }, 1000);
+    void update();
+  }, [stopInsightPolling]);
+
+  const requestInsightGathering = useCallback(async () => {
+    try {
+      const response = await proxyFetch("/agent/insights/gather", { method: "POST" });
+      if (!response.ok) return;
+      const next = await response.json() as InsightGatheringStatus;
+      setInsightStatus(next);
+      if (next.state === "queued" || next.state === "running") pollInsightGathering();
+    } catch {
+      // Keep the resume button available if the request itself fails.
+    }
+  }, [pollInsightGathering]);
+
   const requestDashboardPipeline = useCallback(async () => {
     try {
       const response = await proxyFetch("/agent/proposals/scan", { method: "POST" });
@@ -117,6 +155,26 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   }, [pollScan]);
 
   const handleReviewLoaded = useCallback(() => setReviewLoaded(true), []);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadInsightStatus() {
+      try {
+        const response = await proxyFetch("/agent/insights/gather");
+        if (mounted && response.ok) {
+          const next = await response.json() as InsightGatheringStatus;
+          setInsightStatus(next);
+          if (next.state === "queued" || next.state === "running") pollInsightGathering();
+        }
+      } catch {
+        // The existing dashboard entry point remains available if this status read is unavailable.
+      } finally {
+        if (mounted) setInsightLoaded(true);
+      }
+    }
+    void loadInsightStatus();
+    return () => { mounted = false; stopInsightPolling(); };
+  }, [pollInsightGathering, stopInsightPolling]);
 
   useEffect(() => {
     const today = new Date().toDateString();
@@ -293,14 +351,17 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   }, [refreshScheduledActions]);
 
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading;
+  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded;
+  const showStudyMe = showAssistantPrompt && insightStatus !== null && insightStatus.state !== "completed";
 
   return (
     <div className={styles.shell}>
       <AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle={today} />
 
       <main className={styles.grid}>
-        {showAssistantPrompt && (latestPipelineAction ? (
+        {showStudyMe ? (
+          <StudyMeCard agentName={agentName} status={insightStatus} onStart={() => void requestInsightGathering()} />
+        ) : showAssistantPrompt && (latestPipelineAction ? (
           <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }} aria-live="polite">
             <div className={styles.assistantPromptContent}>
               <p className={styles.assistantPromptKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>

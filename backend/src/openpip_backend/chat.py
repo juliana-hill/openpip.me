@@ -16,13 +16,20 @@ from typing import Any
 from uuid import uuid4
 
 from . import chat_history_store
+from .channel_memory import format_channel_memory_context, list_channel_memories
+from .insight_memory import format_insight_context, list_insights
 from .agent import (
     DEFAULT_AGENT_NAME,
     build_executive_assistant,
     extract_agent_text,
     load_context_documents,
 )
-from .tools import build_get_chat_history_tool, build_search_chat_history_tool
+from .tools import (
+    build_get_chat_history_tool,
+    build_lookup_channel_memory_tool,
+    build_remember_channel_preference_tool,
+    build_search_chat_history_tool,
+)
 
 _jobs: dict[str, dict[str, Any]] = {}
 
@@ -58,13 +65,22 @@ async def _run_chat(
         recent_messages: list[dict[str, Any]] | None = None
         context_block = ""
         if access_token:
-            context_block, recent_messages = await asyncio.gather(
+            context_block, recent_messages, channel_memories = await asyncio.gather(
                 load_context_documents(access_token),
                 chat_history_store.get_recent_messages(access_token, job["sessionId"]),
+                list_channel_memories(access_token),
             )
+            memory_context = format_channel_memory_context(channel_memories)
+            historical_context = format_insight_context(await list_insights(access_token))
+            if historical_context:
+                memory_context = f"{memory_context}\n\n{historical_context}" if memory_context else historical_context
+            if memory_context:
+                context_block = f"{context_block}\n\n{memory_context}" if context_block else memory_context
             extra_tools = [
                 build_get_chat_history_tool(access_token, job["sessionId"]),
                 build_search_chat_history_tool(access_token),
+                build_lookup_channel_memory_tool(access_token),
+                build_remember_channel_preference_tool(access_token),
             ]
 
         agent = build_executive_assistant(

@@ -248,8 +248,39 @@ function AgentRunHistoryModal({ open, action, onClose }) {
   ] });
 }
 
-// components/dashboard/DashboardPage.tsx
+// components/dashboard/StudyMeCard.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
+function StudyMeCard({
+  agentName,
+  status,
+  onStart
+}) {
+  const running = status.state === "queued" || status.state === "running";
+  const progress = Math.max(0, Math.min(100, status.progress ?? 0));
+  const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
+        " ",
+        agentName,
+        " assistant"
+      ] }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: running ? `${agentName} is learning more about you` : `${agentName} would like to learn more about you!` }),
+      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
+      running && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
+        progress,
+        "% complete",
+        status.insightsWritten ? ` \xB7 ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""
+      ] }),
+      status.state === "failed" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The review paused. You can resume it whenever you are ready." })
+    ] }),
+    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: running ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { "aria-label": `${progress}% complete`, style: { width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { style: { width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" } }) }) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: onStart, children: status.state === "failed" ? "Resume review" : "Study Me" }) }) })
+  ] });
+}
+
+// components/dashboard/DashboardPage.tsx
+var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var localToday = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
 var localNow = () => (/* @__PURE__ */ new Date()).toLocaleTimeString();
 function DashboardPage({ userName, userImage }) {
@@ -270,8 +301,11 @@ function DashboardPage({ userName, userImage }) {
   const [tasksLoading, setTasksLoading] = (0, import_react2.useState)(true);
   const [dashboardDataReady, setDashboardDataReady] = (0, import_react2.useState)(false);
   const [reviewLoaded, setReviewLoaded] = (0, import_react2.useState)(false);
+  const [insightStatus, setInsightStatus] = (0, import_react2.useState)(null);
+  const [insightLoaded, setInsightLoaded] = (0, import_react2.useState)(false);
   const briefFetchedRef = (0, import_react2.useRef)(false);
   const scanPollRef = (0, import_react2.useRef)(null);
+  const insightPollRef = (0, import_react2.useRef)(null);
   const latestPipelineEvents = latestPipelineAction?.events ?? [];
   const latestPipelineEvent = latestPipelineEvents[latestPipelineEvents.length - 1];
   const latestPipelineStatus = latestPipelineEvent?.title ?? latestPipelineAction?.title;
@@ -321,6 +355,41 @@ function DashboardPage({ userName, userImage }) {
     void update();
   }, [stopScanPolling, refreshScheduledActions]);
   (0, import_react2.useEffect)(() => () => stopScanPolling(), [stopScanPolling]);
+  const stopInsightPolling = (0, import_react2.useCallback)(() => {
+    if (insightPollRef.current) window.clearInterval(insightPollRef.current);
+    insightPollRef.current = null;
+  }, []);
+  const pollInsightGathering = (0, import_react2.useCallback)(() => {
+    stopInsightPolling();
+    const update = async () => {
+      try {
+        const response = await proxyFetch("/agent/insights/gather");
+        if (!response.ok) {
+          stopInsightPolling();
+          return;
+        }
+        const next = await response.json();
+        setInsightStatus(next);
+        if (next.state !== "queued" && next.state !== "running") stopInsightPolling();
+      } catch {
+        stopInsightPolling();
+      }
+    };
+    insightPollRef.current = window.setInterval(() => {
+      void update();
+    }, 1e3);
+    void update();
+  }, [stopInsightPolling]);
+  const requestInsightGathering = (0, import_react2.useCallback)(async () => {
+    try {
+      const response = await proxyFetch("/agent/insights/gather", { method: "POST" });
+      if (!response.ok) return;
+      const next = await response.json();
+      setInsightStatus(next);
+      if (next.state === "queued" || next.state === "running") pollInsightGathering();
+    } catch {
+    }
+  }, [pollInsightGathering]);
   const requestDashboardPipeline = (0, import_react2.useCallback)(async () => {
     try {
       const response = await proxyFetch("/agent/proposals/scan", { method: "POST" });
@@ -332,6 +401,27 @@ function DashboardPage({ userName, userImage }) {
     }
   }, [pollScan]);
   const handleReviewLoaded = (0, import_react2.useCallback)(() => setReviewLoaded(true), []);
+  (0, import_react2.useEffect)(() => {
+    let mounted = true;
+    async function loadInsightStatus() {
+      try {
+        const response = await proxyFetch("/agent/insights/gather");
+        if (mounted && response.ok) {
+          const next = await response.json();
+          setInsightStatus(next);
+          if (next.state === "queued" || next.state === "running") pollInsightGathering();
+        }
+      } catch {
+      } finally {
+        if (mounted) setInsightLoaded(true);
+      }
+    }
+    void loadInsightStatus();
+    return () => {
+      mounted = false;
+      stopInsightPolling();
+    };
+  }, [pollInsightGathering, stopInsightPolling]);
   (0, import_react2.useEffect)(() => {
     const today2 = (/* @__PURE__ */ new Date()).toDateString();
     async function loadTasks() {
@@ -448,23 +538,24 @@ function DashboardPage({ userName, userImage }) {
     init();
   }, [refreshScheduledActions]);
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
-  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading;
-  return /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.shell, children: [
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AppHeader, { userImage, userName, initials, pageTitle: today }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("main", { className: DashboardPage_default.grid, children: [
-      showAssistantPrompt && (latestPipelineAction ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
+  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded;
+  const showStudyMe = showAssistantPrompt && insightStatus !== null && insightStatus.state !== "completed";
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.shell, children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AppHeader, { userImage, userName, initials, pageTitle: today }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("main", { className: DashboardPage_default.grid, children: [
+      showStudyMe ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(StudyMeCard, { agentName, status: insightStatus, onStart: () => void requestInsightGathering() }) : showAssistantPrompt && (latestPipelineAction ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, "aria-live": "polite", children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
             " ",
             agentName,
             " assistant"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: isPipelineRunning ? "Reviewing your workspace" : latestPipelineAction.status === "completed" ? "Your workspace review is ready" : "Something needs your attention" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: isPipelineRunning ? "Your assistant is looking for useful next actions. You can keep working while it finishes." : latestPipelineStatus || "Your assistant prepared an item for you to review." }),
-          latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: latestPipelineDetail }),
-          latestPipelineAction.status === "failed" && !latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The scan did not finish. You can try again whenever you are ready." }),
-          pipelineActions.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: isPipelineRunning ? "Reviewing your workspace" : latestPipelineAction.status === "completed" ? "Your workspace review is ready" : "Something needs your attention" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: isPipelineRunning ? "Your assistant is looking for useful next actions. You can keep working while it finishes." : latestPipelineStatus || "Your assistant prepared an item for you to review." }),
+          latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: latestPipelineDetail }),
+          latestPipelineAction.status === "failed" && !latestPipelineDetail && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The scan did not finish. You can try again whenever you are ready." }),
+          pipelineActions.length > 1 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
             "+",
             pipelineActions.length - 1,
             " more action",
@@ -472,74 +563,74 @@ function DashboardPage({ userName, userImage }) {
             " in progress"
           ] })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: isPipelineRunning ? (
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.assistantPromptActions, children: isPipelineRunning ? (
           // The pulsing dot already says "a scan is running" — a second,
           // merely-disabled "Run new scan" button next to it was
           // redundant and read as broken. Nothing to click while one
           // is already in flight, so only "Show details" and the dot
           // render here, side by side.
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.pipelineRunningRow, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.showDetailsLink, onClick: () => setRunHistoryOpen(true), children: "Show details" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.pipelineRunningRow, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: DashboardPage_default.showDetailsLink, onClick: () => setRunHistoryOpen(true), children: "Show details" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `${DashboardPage_default.pipelineStatusDot} ${DashboardPage_default.pipelinePulse}`, "aria-label": "Scan in progress" })
           ] })
-        ) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
+        ) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => setRunHistoryOpen(true), children: "Review details" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: DashboardPage_default.assistantSecondaryBtn, onClick: () => void requestDashboardPipeline(), children: "Run new scan" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
         ] }) })
-      ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
+      ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("section", { className: `${DashboardPage_default.assistantPrompt} ${DashboardPage_default.cardFull}`, style: { animationDelay: "0ms" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.assistantPromptContent, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.assistantPromptKicker, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
             " ",
             agentName,
             " assistant"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: "Ready to review your workspace." }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: "Scan for useful next actions and prepare suggestions for you to review." })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("h2", { className: DashboardPage_default.assistantPromptTitle, children: "Ready to review your workspace." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: "Scan for useful next actions and prepare suggestions for you to review." })
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void requestDashboardPipeline(), children: "Start workspace scan" }) }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.assistantPromptActions, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.pipelineStartRow, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("button", { type: "button", className: DashboardPage_default.assistantPrimaryBtn, onClick: () => void requestDashboardPipeline(), children: "Start workspace scan" }) }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.assistantPromptTrust, children: "Nothing is changed without your approval." })
         ] })
       ] })),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: `${DashboardPage_default.card} ${DashboardPage_default.cardFull} ${DashboardPage_default.cardBrief}`, style: { animationDelay: "80ms" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today's Brief" }),
-          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReadAloudButton, { text: brief ?? "", style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `${DashboardPage_default.card} ${DashboardPage_default.cardFull} ${DashboardPage_default.cardBrief}`, style: { animationDelay: "80ms" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today's Brief" }),
+          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReadAloudButton, { text: brief ?? "", style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
         ] }),
-        briefLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.skeleton }) : brief ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.briefText, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(
+        briefLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.skeleton }) : brief ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.briefText, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
           Markdown,
           {
             remarkPlugins: [remarkGfm],
             components: {
-              p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { style: { margin: "0 0 8px" }, children }),
-              ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("ul", { style: { margin: "4px 0", paddingLeft: 18 }, children }),
-              li: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("li", { style: { marginBottom: 2 }, children }),
-              blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }, children }),
-              strong: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("strong", { style: { color: "var(--color-text)" }, children })
+              p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { margin: "0 0 8px" }, children }),
+              ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { style: { margin: "4px 0", paddingLeft: 18 }, children }),
+              li: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { style: { marginBottom: 2 }, children }),
+              blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }, children }),
+              strong: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { style: { color: "var(--color-text)" }, children })
             },
             children: brief
           }
-        ) }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.briefText, children: "No briefing available." })
+        ) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.briefText, children: "No briefing available." })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Link, { href: "/today", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomeToday}`, style: { animationDelay: "60ms" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today" }),
-          openTotal > 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("span", { className: DashboardPage_default.badge, children: [
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Link, { href: "/today", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomeToday}`, style: { animationDelay: "60ms" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today" }),
+          openTotal > 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { className: DashboardPage_default.badge, children: [
             openTotal,
             " open"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
         ] }),
-        tasksLoading ? /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.skeleton }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.outcomeMetric, children: [
+        tasksLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.skeleton }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.outcomeMetric, children: [
             tasksTotal,
             " Google task",
             tasksTotal === 1 ? "" : "s"
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Overdue or due today, from your connected Google Tasks account." }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.outcomeDescription, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Overdue or due today, from your connected Google Tasks account." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("p", { className: DashboardPage_default.outcomeDescription, children: [
             eventsTotal,
             " calendar event",
             eventsTotal === 1 ? "" : "s",
@@ -548,58 +639,58 @@ function DashboardPage({ userName, userImage }) {
             " unread email",
             unreadCount === 1 ? "" : "s"
           ] }),
-          tasks.slice(0, 3).map((task, index) => /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.taskRow, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.checkbox }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.taskTitle, children: task.title }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: `${DashboardPage_default.priorityDot} ${task.priority <= 1 ? DashboardPage_default.priorityAsap : task.priority <= 2 ? DashboardPage_default.priorityHigh : task.priority <= 3 ? DashboardPage_default.priorityMed : DashboardPage_default.priorityLow}` })
+          tasks.slice(0, 3).map((task, index) => /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.taskRow, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.checkbox }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.taskTitle, children: task.title }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: `${DashboardPage_default.priorityDot} ${task.priority <= 1 ? DashboardPage_default.priorityAsap : task.priority <= 2 ? DashboardPage_default.priorityHigh : task.priority <= 3 ? DashboardPage_default.priorityMed : DashboardPage_default.priorityLow}` })
           ] }, index)),
-          tasks.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.emptyText, children: "No Google Tasks need your attention." })
+          tasks.length === 0 && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.emptyText, children: "No Google Tasks need your attention." })
         ] })
       ] }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(ReviewDashboardCard, { className: DashboardPage_default.outcomeReview, style: { animationDelay: "120ms" }, onLoaded: handleReviewLoaded }),
-      /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(Link, { href: "/trips", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomePlan}`, style: { animationDelay: "180ms" }, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Travel planning" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReviewDashboardCard, { className: DashboardPage_default.outcomeReview, style: { animationDelay: "120ms" }, onLoaded: handleReviewLoaded }),
+      /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Link, { href: "/trips", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomePlan}`, style: { animationDelay: "180ms" }, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Travel planning" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
         ] }),
-        scheduledPlan && scheduledPlan.type === "trip_plan" ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: scheduledPlan.title }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: scheduledPlan.status === "queued" ? "Queued in Scheduled Actions. The agent will start it shortly." : "The agent is working from your approved proposal." }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: scheduledPlan.status === "queued" ? "Queued" : "In progress" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: "Active" })
+        scheduledPlan && scheduledPlan.type === "trip_plan" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: scheduledPlan.title }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: scheduledPlan.status === "queued" ? "Queued in Scheduled Actions. The agent will start it shortly." : "The agent is working from your approved proposal." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: scheduledPlan.status === "queued" ? "Queued" : "In progress" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: "Active" })
           ] })
-        ] }) : route ? /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: route.destination }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Your saved route and next planning decisions." }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.routeRow, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.routeOrigin, children: route.origin }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.routeArrow, children: "\u2192" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.routeDest, children: route.destination }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { className: DashboardPage_default.routeMeta, children: route.date })
+        ] }) : route ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: route.destination }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "Your saved route and next planning decisions." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.routeRow, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.routeOrigin, children: route.origin }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.routeArrow, children: "\u2192" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.routeDest, children: route.destination }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.routeMeta, children: route.date })
           ] }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Saved plan" }),
-            /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("b", { children: "Continue" })
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Saved plan" }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: "Continue" })
           ] })
-        ] }) : /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)(import_jsx_runtime3.Fragment, { children: [
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: "No active trip" }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "When the agent has trip context, it will prepare a planning proposal here for your approval." }),
-          /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.outcomeFooter, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("span", { children: "Nothing booked" }) })
+        ] }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: "No active trip" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: "When the agent has trip context, it will prepare a planning proposal here for your approval." }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.outcomeFooter, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { children: "Nothing booked" }) })
         ] })
       ] })
     ] }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("div", { className: DashboardPage_default.talkBar, children: /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("button", { type: "button", onClick: () => window.dispatchEvent(new CustomEvent("open-agent-assistant")), children: [
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.talkBar, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("button", { type: "button", onClick: () => window.dispatchEvent(new CustomEvent("open-agent-assistant")), children: [
       "\u25C9 Talk or Type to ",
       agentName
     ] }) }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(AgentRunHistoryModal, { open: runHistoryOpen, action: latestPipelineAction, onClose: () => setRunHistoryOpen(false) }),
-    /* @__PURE__ */ (0, import_jsx_runtime3.jsx)(FloatingAssistant, {})
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AgentRunHistoryModal, { open: runHistoryOpen, action: latestPipelineAction, onClose: () => setRunHistoryOpen(false) }),
+    /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(FloatingAssistant, {})
   ] });
 }
 
 // react-entries/index.tsx
-var import_jsx_runtime4 = __toESM(require_jsx_runtime());
+var import_jsx_runtime5 = __toESM(require_jsx_runtime());
 async function mount() {
   const response = await proxyFetch("/auth/me");
   if (!response.ok) {
@@ -607,6 +698,6 @@ async function mount() {
     return;
   }
   const user = await response.json();
-  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime4.jsx)(DashboardPage, { userName: user.name ?? "", userImage: user.picture ?? "" }));
+  (0, import_client.createRoot)(document.getElementById("react-root")).render(/* @__PURE__ */ (0, import_jsx_runtime5.jsx)(DashboardPage, { userName: user.name ?? "", userImage: user.picture ?? "" }));
 }
 void mount();

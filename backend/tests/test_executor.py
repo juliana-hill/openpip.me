@@ -58,6 +58,42 @@ def test_every_other_action_stays_mocked_regardless_of_token(monkeypatch) -> Non
     assert result.reference == f"mock://actions/{proposal.id}"
 
 
+def test_call_task_uses_calle_only_after_executor_is_given_a_session(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_execute_call(**kwargs):
+        captured.update(kwargs)
+        return {"id": "call-1", "status": "completed"}
+
+    monkeypatch.setattr(executor_module, "execute_call", fake_execute_call)
+    proposal = _proposal(
+        "call_task",
+        recipientName="Maya Hair Studio",
+        phone="+14155550101",
+        goal="Ask whether Friday at 3 PM can move to Saturday at 11 AM.",
+        region="US",
+        locale="en-US",
+    )
+
+    result = asyncio.run(DefaultActionExecutor().execute(proposal, "oauth-token"))
+
+    assert result.reference == "calle://calls/call-1?status=completed"
+    assert captured["phone"] == "+14155550101"
+    assert captured["proposal_id"] == proposal.id
+
+
+def test_call_task_without_a_session_stays_mocked(monkeypatch) -> None:
+    async def fail_if_called(**_kwargs):
+        raise AssertionError("must not place a call without an authenticated session")
+
+    monkeypatch.setattr(executor_module, "execute_call", fail_if_called)
+    proposal = _proposal("call_task", phone="+14155550101", goal="Confirm the appointment")
+
+    result = asyncio.run(DefaultActionExecutor().execute(proposal, None))
+
+    assert result.reference == f"mock://actions/{proposal.id}"
+
+
 def test_mock_action_executor_never_calls_gmail_even_for_save_draft(monkeypatch) -> None:
     async def fail_if_called(*_args, **_kwargs):
         raise AssertionError("MockActionExecutor must stay fully mocked")

@@ -242,9 +242,12 @@ async def reclaim_stale_executing(access_token: str, older_than_seconds: int) ->
     interrupted attempt, so one that keeps dying still hits the auto-retry
     cap eventually instead of being reclaimed forever."""
     cutoff = datetime.now(UTC) - timedelta(seconds=older_than_seconds)
+    call_cutoff = datetime.now(UTC) - timedelta(seconds=max(older_than_seconds, 900))
     stuck = [
         p for p in await list_proposals(access_token, ProposalStatus.EXECUTING)
-        if p.execution_claimed_at and p.execution_claimed_at < cutoff
+        if p.execution_claimed_at and p.execution_claimed_at < (
+            call_cutoff if p.action == "call_task" else cutoff
+        )
     ]
     reclaimed = []
     for proposal in stuck:

@@ -1,15 +1,13 @@
 """The only boundary allowed to perform proposal side effects.
 
-Real Google and CALL-E adapters will implement this interface later. The default
-implementation is deliberately a mock for everything except saving a Gmail
-draft — see DefaultActionExecutor below for why that one action is a real
-write, not a mock, and google_workspace.create_gmail_draft for what it
-actually calls.
+CALL-E is intentionally invoked here, after the proposal has been approved.
+Proposal scans and agent tools never call it directly.
 """
 
 from dataclasses import dataclass
 from typing import Protocol
 
+from .calle import execute_call
 from .google_workspace import create_gmail_draft
 from .models import Proposal
 
@@ -33,14 +31,13 @@ class MockActionExecutor:
 
 
 class DefaultActionExecutor:
-    """Mocked for every action except save_draft (see proposal_scan.py /
-    inbox_triage.py for what creates that kind), which really does create a
-    Gmail draft. That's the one proposal action safe enough to actually
-    execute today: a draft is private and fully reversible, unlike sending —
-    which stays proposal-gated for its own, deliberately separate, later
-    step (see google_workspace.create_gmail_draft's docstring). Falls back
-    to the mock behavior with no access_token, since there's nothing to
-    authenticate the real Gmail call with."""
+    """Execute only explicitly implemented, already-approved actions.
+
+    Gmail drafts are private and reversible. CALL-E calls are real external
+    side effects and therefore run only for an approved ``call_task`` with an
+    authenticated session and configured CALL-E API key. Everything else stays
+    mocked until its adapter is implemented.
+    """
 
     async def execute(self, proposal: Proposal, access_token: str | None = None) -> ExecutionResult:
         if proposal.action == "save_draft" and access_token:
@@ -53,4 +50,16 @@ class DefaultActionExecutor:
                 thread_id=str(payload.get("threadId") or "") or None,
             )
             return ExecutionResult(reference=f"gmail://drafts/{draft.get('id', '')}")
+        if proposal.action == "call_task" and access_token:
+            result = await execute_call(
+                recipient_name=str(proposal.payload.get("recipientName") or ""),
+                phone=str(proposal.payload.get("phone") or ""),
+                goal=str(proposal.payload.get("goal") or ""),
+                proposal_id=proposal.id,
+                region=str(proposal.payload.get("region") or "") or None,
+                locale=str(proposal.payload.get("locale") or "") or None,
+            )
+            call_id = str(result.get("id") or "")
+            status = str(result.get("status") or "unknown")
+            return ExecutionResult(reference=f"calle://calls/{call_id}?status={status}")
         return ExecutionResult(reference=f"mock://actions/{proposal.id}")

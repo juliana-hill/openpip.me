@@ -25,8 +25,8 @@ signal is never proposed twice, even across separate scans, even after the
 user has already decided it).
 
 This only ever creates proposals for review — it never executes anything.
-Approving one here still goes through the same mocked executor.py every
-other proposal does; real execution is a deliberately separate, later step.
+Approving one here still goes through the approval executor; only an approved
+``call_task`` with an authenticated session can reach the real CALL-E adapter.
 """
 
 from __future__ import annotations
@@ -47,11 +47,17 @@ from .google_workspace import (
     fetch_google_contacts,
     fetch_google_tasks,
 )
+from .channel_memory import list_channel_memories
+from .insight_memory import list_insights
 from .inbox_triage import get_saved_triage_details, read_contact_profile
 from .models import Proposal, ProposalStatus, SourceReference
 from . import proposal_drive_store
+from .tools import build_lookup_channel_memory_tool, build_remember_channel_preference_tool
 
-_SUPPORTED_KINDS = {"task_followup", "contact_followup", "inbox_pointer", "task_complete", "contact_track"}
+_SUPPORTED_KINDS = {
+    "task_followup", "contact_followup", "inbox_pointer", "task_complete",
+    "contact_track", "call_task",
+}
 _CONTACT_STALE_DAYS = 21
 # 6 months, matching the precedent already set on the travel-agent project —
 # 90 days was missing genuinely-relevant older threads (e.g. a still-open
@@ -82,6 +88,12 @@ _MAX_PROPOSALS_PER_SCAN = 4
 # give the model one batch at a time so no single prompt is ever too large.
 _HISTORICAL_MAX_MESSAGES = 300
 _EMAIL_BATCH_SIZE = 50
+
+
+def _explicit_phone(value: Any) -> str | None:
+    """Return only a phone number explicitly present in source text."""
+    match = re.search(r"\+\d{8,15}\b", str(value or ""))
+    return match.group(0) if match else None
 
 _jobs: dict[str, dict[str, Any]] = {}
 _active_jobs: dict[str, str] = {}
@@ -183,6 +195,8 @@ async def _contact_followup_signals(access_token: str) -> list[dict[str, Any]]:
             candidates.append({
                 "resourceName": resource_name,
                 "name": person.get("name"),
+                "email": person.get("email"),
+                "phone": person.get("phone"),
                 "company": person.get("company"),
                 "status": profile.get("status", "not_contacted"),
                 "lastInteractionDate": last,
@@ -280,6 +294,8 @@ def _build_static_context(
     contacts: list[dict[str, Any]],
     calendar_events: list[dict[str, Any]],
     inbox_pointer: dict[str, Any] | None,
+    google_contacts: dict[str, Any] | None = None,
+    channel_memories: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     """Everything except email history — small, and identical across every
     batch _run_scan hands the model (see _EMAIL_BATCH_SIZE)."""
@@ -288,12 +304,21 @@ def _build_static_context(
     task_facts = []
     for task in tasks:
         source_id = f"task:{task['id']}"
+        phone = _explicit_phone(task.get("notes"))
         source_references.append({
             "id": source_id, "kind": "task",
             "label": str(task.get("title") or "Untitled task"),
             "detail": f"{task.get('urgency')} · priority {task.get('priority')} · due {task.get('dueDate') or 'no date'}",
+            **({"phone": phone} if phone else {}),
         })
-        task_facts.append({"sourceId": source_id, "title": task.get("title"), "priority": task.get("priority"), "dueDate": task.get("dueDate"), "urgency": task.get("urgency"), "projectName": task.get("projectName")})
+        task_fact = {
+            "sourceId": source_id, "title": task.get("title"),
+            "notes": task.get("notes"), "priority": task.get("priority"),
+            "dueDate": task.get("dueDate"), "urgency": task.get("urgency"),
+            "projectName": task.get("projectName"),
+            "phoneAvailable": bool(phone),
+        }
+        task_facts.append(task_fact)
 
     contact_facts = []
     for contact in contacts:
@@ -302,19 +327,55 @@ def _build_static_context(
             "id": source_id, "kind": "contact",
             "label": str(contact.get("name") or "Unknown contact"),
             "detail": f"{contact.get('company') or 'no company on file'} · status {contact.get('status')} · last interaction {contact.get('lastInteractionDate') or 'never'}",
+            **({"phone": str(contact.get("phone"))} if contact.get("phone") else {}),
         })
-        contact_facts.append({"sourceId": source_id, "name": contact.get("name"), "company": contact.get("company"), "status": contact.get("status"), "lastInteractionDate": contact.get("lastInteractionDate")})
+        contact_facts.append({
+            "sourceId": source_id, "name": contact.get("name"),
+            "email": contact.get("email"), "phone": contact.get("phone"),
+            "company": contact.get("company"), "status": contact.get("status"),
+            "lastInteractionDate": contact.get("lastInteractionDate"),
+        })
 
+    contacts_by_email = {
+        str(person.get("email") or "").strip().lower(): person
+        for person in (google_contacts or {}).values()
+        if person.get("email")
+    }
     calendar_facts = []
     for event in calendar_events:
         source_id = f"calendar:{event['id']}"
+        phone = _explicit_phone(f"{event.get('description') or ''} {event.get('location') or ''}")
+        attendee_name = None
+        if not phone:
+            attendee_phones = {
+                str(contacts_by_email.get(str(attendee.get("email") or "").lower(), {}).get("phone") or "").strip()
+                for attendee in event.get("attendees", [])
+                if attendee.get("email")
+            }
+            attendee_phones.discard("")
+            if len(attendee_phones) == 1:
+                phone = next(iter(attendee_phones))
+                matching_attendees = [
+                    contacts_by_email.get(str(attendee.get("email") or "").lower(), {})
+                    for attendee in event.get("attendees", [])
+                    if attendee.get("email")
+                ]
+                attendee_name = next((person.get("name") for person in matching_attendees if person.get("name")), None)
         source_references.append({
             "id": source_id, "kind": "calendar_event",
             "label": str(event.get("title") or "Untitled event"),
             "detail": f"{event.get('start')}",
             "url": event.get("htmlLink"),
+            **({"phone": phone} if phone else {}),
+            **({"recipientName": attendee_name} if attendee_name else {}),
         })
-        calendar_facts.append({"sourceId": source_id, "title": event.get("title"), "start": event.get("start")})
+        calendar_facts.append({
+            "sourceId": source_id, "title": event.get("title"),
+            "start": event.get("start"), "location": event.get("location"),
+            "description": event.get("description"),
+            "phoneAvailable": bool(phone),
+            "contactName": attendee_name,
+        })
 
     inbox_pointer_fact = None
     if inbox_pointer:
@@ -331,6 +392,7 @@ def _build_static_context(
         "contactsNeedingFollowUp": contact_facts,
         "upcomingCalendarEvents": calendar_facts,
         "inboxAssistantPointer": inbox_pointer_fact,
+        "knownChannelPreferences": channel_memories or [],
     }
     return facts, source_references
 
@@ -379,15 +441,25 @@ def _build_email_batch_context(
     frequent_contact_facts = []
     for message in batch_messages:
         source_id = f"email:{message['id']}"
+        from_email = str(message.get("fromEmail") or "").strip().lower()
+        matched_person = index.contacts_by_email.get(from_email) if from_email else None
+        phone = str((matched_person or {}).get("phone") or "").strip()
         source_references.append({
             "id": source_id, "kind": "email",
             "label": str(message.get("subject") or "(no subject)"),
             "detail": f"{message.get('from')} · {message.get('date')}",
             "url": message.get("gmailUrl"),
+            **({"phone": phone} if phone else {}),
+            **({"recipientName": str(matched_person.get("name"))} if matched_person and matched_person.get("name") else {}),
         })
-        email_facts.append({"sourceId": source_id, "subject": message.get("subject"), "from": message.get("from"), "date": message.get("date"), "snippet": message.get("snippet")})
+        email_facts.append({
+            "sourceId": source_id, "subject": message.get("subject"),
+            "from": message.get("from"), "fromEmail": from_email,
+            "date": message.get("date"), "snippet": message.get("snippet"),
+            "matchedContact": (matched_person or {}).get("name"),
+            "phoneAvailable": bool(phone),
+        })
 
-        from_email = str(message.get("fromEmail") or "").strip().lower()
         if from_email and from_email not in seen_frequent_emails and index.is_frequent_and_untracked(from_email):
             seen_frequent_emails.add(from_email)
             person = index.contacts_by_email[from_email]
@@ -395,6 +467,7 @@ def _build_email_batch_context(
                 "sourceId": source_id,
                 "name": person.get("name"),
                 "email": from_email,
+                "phone": person.get("phone"),
                 "messageCount": index.message_count_by_email[from_email],
             })
 
@@ -420,9 +493,10 @@ def build_proposal_scan_prompt(
         "MUST cite one exact id from sourceReferences as sourceId — anything "
         "without a real, matching sourceId is discarded, not shown to the user.\n\n"
         'Return ONLY JSON exactly like: {"proposals":[{"kind":'
-        '"task_followup|contact_followup|inbox_pointer|task_complete|contact_track"'
+        '"task_followup|contact_followup|inbox_pointer|task_complete|contact_track|call_task"'
         ',"title":"...","rationale":"a specific fact from context","sourceId":'
-        '"an exact id from sourceReferences"}]}\n\n'
+        '"an exact id from sourceReferences", "recipientName":"...",'
+        '"phone":"exact phone from sourceReferences", "goal":"..."}]}\n\n'
         "Rules:\n"
         "- task_followup: only for a specific overdue/ASAP/due-today task with a "
         "real, specific reason it needs attention now — not just because it exists.\n"
@@ -440,6 +514,22 @@ def build_proposal_scan_prompt(
         "- contact_track: only for a person in untrackedFrequentContacts — propose "
         "adding them to tracked contacts, citing their sourceId (one of their "
         "actual emails) and naming them and the message count in the rationale.\n"
+        "- call_task: only when an email, task, or calendar event explicitly "
+        "requires a call/callback, or a calendar event needs rescheduling and "
+        "the evidence indicates the provider is phone-only. "
+        "The cited source must expose an explicit phone field. Use the exact "
+        "phone from sourceReferences, never a guessed or invented number. "
+        "If a usable email or booking link is the established channel, choose "
+        "that channel instead and do not create a call_task unless the user "
+        "explicitly asked for a phone call. "
+        "Consult knownChannelPreferences when the person/business and situation "
+        "match; a specific situation overrides a general preference. If the "
+        "channel is unknown or the memory does not match, do not invent one. "
+        "When an email, task, calendar event, or contact record explicitly "
+        "establishes a channel preference, use remember_channel_preference to "
+        "record it with the exact source id in the reason and source fields; "
+        "update the existing subject/situation memory instead of duplicating it. "
+        "Include a concrete bounded goal and the recipient name.\n"
         "Never propose sending, applying, booking, or contacting anyone directly — "
         "every proposal is a request to look into or prepare something, never an "
         "action already taken. If nothing here genuinely warrants the user's "
@@ -475,7 +565,28 @@ def _parse_and_validate_proposals(raw: str, source_references: list[dict[str, st
         source = sources_by_id.get(str(candidate.get("sourceId") or ""))
         if not title or not rationale or not source:
             continue
-        validated.append({"kind": kind, "title": title[:200], "rationale": rationale[:500], "source": source})
+        item: dict[str, Any] = {
+            "kind": kind, "title": title[:200], "rationale": rationale[:500], "source": source,
+        }
+        if kind == "call_task":
+            source_phone = str(source.get("phone") or "").strip()
+            candidate_phone = str(candidate.get("phone") or "").strip()
+            goal = str(candidate.get("goal") or "").strip()
+            recipient_name = str(candidate.get("recipientName") or "").strip()
+            source_recipient_name = str(source.get("recipientName") or "").strip()
+            if (
+                not source_phone or candidate_phone != source_phone or not goal or not recipient_name
+                or (source_recipient_name and recipient_name != source_recipient_name)
+            ):
+                continue
+            item["call"] = {
+                "recipientName": recipient_name[:160],
+                "phone": source_phone,
+                "goal": goal[:500],
+                "region": str(candidate.get("region") or "").strip()[:8] or None,
+                "locale": str(candidate.get("locale") or "").strip()[:32] or None,
+            }
+        validated.append(item)
     return validated[:_MAX_PROPOSALS_PER_SCAN]
 
 
@@ -489,9 +600,11 @@ async def _run_scan(access_token: str, job: dict[str, Any]) -> None:
             _historical_email_signals(access_token),
             _inbox_pointer_signal(access_token),
             _google_contacts_and_tracked(access_token),
+            list_channel_memories(access_token),
+            list_insights(access_token),
             return_exceptions=True,
         )
-        tasks, contacts, calendar_events, historical_messages, inbox_pointer, contacts_and_tracked = (
+        tasks, contacts, calendar_events, historical_messages, inbox_pointer, contacts_and_tracked, channel_memories, historical_insights = (
             result if not isinstance(result, BaseException) else (None if index in (4, 5) else [])
             for index, result in enumerate(results)
         )
@@ -500,7 +613,10 @@ async def _run_scan(access_token: str, job: dict[str, Any]) -> None:
 
         static_facts, static_source_references = _build_static_context(
             tasks or [], contacts or [], calendar_events or [], inbox_pointer,
+            google_contacts=google_contacts,
+            channel_memories=channel_memories or [],
         )
+        static_facts["historicalInsights"] = historical_insights or []
         correspondent_index = _CorrespondentIndex(historical_messages, google_contacts, tracked_contacts)
         batches = [
             historical_messages[i:i + _EMAIL_BATCH_SIZE]
@@ -524,7 +640,14 @@ async def _run_scan(access_token: str, job: dict[str, Any]) -> None:
             load_context_documents(access_token, include_proactive_review=True),
             _current_agent_name(access_token),
         )
-        agent = build_executive_assistant(context_block, agent_name=agent_name)
+        agent = build_executive_assistant(
+            context_block,
+            agent_name=agent_name,
+            extra_tools=[
+                build_lookup_channel_memory_tool(access_token),
+                build_remember_channel_preference_tool(access_token),
+            ],
+        )
 
         created = 0
         for batch_index, batch_messages in enumerate(batches):
@@ -555,7 +678,10 @@ async def _run_scan(access_token: str, job: dict[str, Any]) -> None:
                     action=candidate["kind"],
                     title=candidate["title"],
                     rationale=candidate["rationale"],
-                    payload={"sourceId": source["id"]},
+                    payload={
+                        "sourceId": source["id"],
+                        **(candidate.get("call") or {}),
+                    },
                     source=SourceReference(
                         kind=source["kind"], id=source["id"], title=source["label"],
                         url=source.get("url"), detail=source.get("detail"),

@@ -46,12 +46,12 @@ Narrow the surface area from the old multi-skill platform (travel planning, care
 | `services/agent.ts` orchestrator on `@anthropic-ai/claude-agent-sdk` | Strands `Agent` with a small set of specialized tool-agents (briefing, inbox, calendar/tasks) | Strands' model-driven loop replaces the custom orchestration code directly. |
 | Custom MCP servers (`mcp/task-tools.ts`, `inbox-network-tools.ts`, etc.) via `@modelcontextprotocol/sdk` | Same MCP servers, consumed through Strands' built-in `MCPClient` | [Strands ships first-class MCP support](https://strandsagents.com/1.0.x/documentation/docs/user-guide/concepts/tools/mcp-tools/), so the tool-server pattern is largely portable — rewrite the tool bodies, keep the MCP shape. |
 | `services/connectors.ts` + proxy OAuth routes (custom Express session store) | AgentCore Identity OAuth2 credential provider | Removes the hand-rolled session/token store; AgentCore issues the agent its own identity and manages the Google OAuth2 token lifecycle. Strengthens Technical Implementation score. Fallback: keep a small OAuth proxy (see `OAUTH_SETUP.md`) if Identity integration is too slow to land in week 1–2. |
-| `data/agent-memory-*.json`, `better-sqlite3` | AgentCore Memory for durable user/contact/preference memory; keep SQLite (or DynamoDB) only for the proposal/review queue if Memory doesn't fit that shape | AgentCore Memory replaces the flat-file "insights" store; still want a queryable proposal table. |
+| `data/agent-memory-*.json`, `better-sqlite3` | Drive-backed channel memory plus the one-time, paginated historical-insight pipeline; AgentCore Memory remains optional | Historical facts are stored in visible Drive with stable keys, source evidence, and resumable per-page progress. |
 | `services/proposal-pipeline.ts` + `services/review-workflow.ts` | Same lifecycle, reimplemented as a Strands tool-calling loop: agent emits a `propose_action` tool call with a source reference; nothing executes until a `/review/:id/approve` endpoint calls the actual side-effecting tool | This is the single most important mechanic for both the hackathon theme and the "genuine understanding of the problem space" creativity criterion — keep it front and center in the demo. |
 | `node-cron` scheduler | EventBridge Scheduler (or AgentCore Runtime's async/long-running session) triggering the Daily Briefing agent | Simple, visibly "runs in the background" for the demo. |
 | Express + HJS frontend | Keep the validated Today / Review / Settings / Contacts UI shape while serving HJS views and per-view Babel outputs over HTTP | No client framework runtime, browser database, or service worker is required. |
 | Observability: `claude-host.log`, ad hoc | AgentCore Observability (OTEL traces) | Nice, free demo material — show the trace of a proposal being generated and approved. |
-| *(new)* | CALL-E MCP tool (`tools/calle-call.ts`) wrapping CALL-E's SDK/MCP for outbound calls | Net-new tool, not a port — gives the agent a "phone call" action alongside send-email/create-event/create-task, gated by the same proposal/review pipeline. Doubles as the CALL-E hackathon submission (see §9). |
+| *(new)* | Approval-gated CALL-E adapter (`backend/src/openpip_backend/calle.py`) plus the portable `skills/email-task-call-proposal/` skill | Reads email, tasks, and calendar signals, chooses email/booking system/phone from the evidence, and invokes CALL-E only after a call proposal is approved. Doubles as the CALL-E hackathon submission (see §9). |
 
 Optional stretch (only if time remains in week 5–6): AgentCore Gateway to turn the Google API calls into governed MCP tools instead of hand-written fetch calls, and AgentCore Code Interpreter if any proposal needs computed output (e.g., cost/time math).
 
@@ -83,7 +83,7 @@ Deploy the frontend + API to the existing `openpip.me` domain (swap DNS/hosting 
 | 1 | Repo scaffold, license, rebranded README skeleton. Google Cloud project + OAuth consent screen (see `OAUTH_SETUP.md`). First Strands agent with one working MCP tool (Calendar read). |
 | 2 | Gmail + Tasks + Drive tools online. AgentCore Identity wired for token lifecycle (or proxy fallback). SQLite/Memory schema for proposals. |
 | 3 | Daily Briefing agent producing a real end-to-end summary from live data. Inbox triage agent drafting replies + creating tasks. |
-| 4 | Proposal → Review → Approve → Execute loop fully wired (the core theme mechanic). Contact memory / pseudo-CRM populated from real inbox activity. |
+| 4 | Proposal → Review → Approve → Execute loop fully wired (the core theme mechanic). Contact memory / pseudo-CRM populated from real inbox activity, plus explicit situation-specific channel memory. |
 | 5 | Frontend: Today, Review queue, Settings/Connectors, Contacts. Deploy backend to AgentCore Runtime with Observability on. Point openpip.me at the new deploy. |
 | 6 | Dedicated demo account with live connected data, README + architecture diagram finalized, 5-minute demo video recorded, builder.aws.com bonus post drafted and published ("Agents for Humans" in the title), full submission checklist run. No frontend demo/mock dataset is permitted. |
 
@@ -108,9 +108,9 @@ OpenPip is also being entered into the separate **CALL-E: Your Code Is Calling**
 **Why it fits without derailing the AWS build:** the proposal/review pipeline (§4) already treats every autonomous action — send email, create event, create task — as a proposal gated behind human approval. A phone call is just one more action type in that same shape: `propose_action("call", {contact, reason, source})` → approved in Review → the approval handler invokes CALL-E instead of the Gmail/Calendar API. No architectural fork needed.
 
 **Scope for the CALL-E track specifically:**
-1. A new MCP tool, `tools/calle-call.ts`, wrapping CALL-E's SDK (or MCP server) to place one kind of call: **appointment confirmation/reschedule** — the agent notices a calendar event with an unconfirmed or ambiguous attendee response, drafts a call script (who, why, what to ask), and proposes it.
-2. On approval, the tool calls CALL-E, which dials out, holds the conversation, and returns a structured result (confirmed / rescheduled to X / no answer) that OpenPip writes back as a calendar update + a Review-queue log entry.
-3. Nothing here needs AgentCore-specific plumbing — CALL-E is called the same way from whichever backend runtime the AWS build lands on (Strands tool, plain function call, doesn't matter for CALL-E's judging criteria).
+1. A reusable `email-task-call-proposal` skill reads bounded email, task, and calendar context. It chooses a phone proposal for work such as rescheduling a hair appointment when the original provider is phone-only, while preserving email or booking-system follow-up when those channels are available.
+2. On approval, `backend/src/openpip_backend/calle.py` calls CALL-E and polls for a structured result (confirmed / needs reschedule / declined / no answer / unclear). Any calendar update becomes a separate source-linked approval action.
+3. Nothing here needs AgentCore-specific plumbing — the CALL-E adapter is an outbound provider behind the approval executor and works from whichever backend runtime the AWS build lands on.
 
 **Submission mechanics (different from the AWS Devpost flow — easy to get wrong, read carefully):**
 

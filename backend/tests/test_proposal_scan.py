@@ -34,6 +34,49 @@ def test_parse_and_validate_proposals_accepts_the_new_kinds() -> None:
     assert result[0]["kind"] == "task_complete"
 
 
+def test_parse_and_validate_proposals_requires_the_exact_explicit_phone_for_call_task() -> None:
+    refs = [{
+        "id": "calendar:event-1", "kind": "calendar_event", "label": "Hair appointment",
+        "detail": "Friday 15:00", "phone": "+14155550101",
+    }]
+    raw = ('{"proposals": [{"kind": "call_task", "title": "Reschedule hair appointment", '
+           '"rationale": "The salon is phone-only", "sourceId": "calendar:event-1", '
+           '"recipientName": "Maya Hair Studio", "phone": "+14155550101", '
+           '"goal": "Ask whether Friday at 3 PM can move to Saturday at 11 AM."}]}')
+
+    result = proposal_scan._parse_and_validate_proposals(raw, refs)
+
+    assert result[0]["call"]["phone"] == "+14155550101"
+    assert result[0]["call"]["goal"].startswith("Ask whether")
+
+
+def test_parse_and_validate_proposals_drops_a_guessed_call_phone() -> None:
+    refs = [{"id": "task:t1", "kind": "task", "label": "Call salon", "detail": "overdue"}]
+    raw = ('{"proposals": [{"kind": "call_task", "title": "Call salon", '
+           '"rationale": "Needs a call", "sourceId": "task:t1", '
+           '"recipientName": "Salon", "phone": "+14155550101", '
+           '"goal": "Confirm the appointment"}]}')
+
+    assert proposal_scan._parse_and_validate_proposals(raw, refs) == []
+
+
+def test_static_context_includes_situation_specific_channel_memories() -> None:
+    facts, _ = proposal_scan._build_static_context(
+        [], [], [], None,
+        channel_memories=[{
+            "subject": "Maya Hair Studio",
+            "subjectKey": "maya hair studio",
+            "preferences": [{
+                "context": "reschedule appointment",
+                "channel": "phone",
+                "reason": "They do not accept email.",
+            }],
+        }],
+    )
+
+    assert facts["knownChannelPreferences"][0]["preferences"][0]["channel"] == "phone"
+
+
 def test_correspondent_index_surfaces_untracked_frequent_correspondents() -> None:
     """Dr. Rana emailed twice but was never added as a tracked contact — this
     is the exact real-world miss that motivated the signal: the scan should
@@ -243,6 +286,9 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     async def fake_pointer(_token: str):
         return {"count": 2, "runId": "run-1"}
 
+    async def fake_channel_memories(_token: str):
+        return []
+
     async def fake_context_documents(_token: str, **_kwargs):
         return "some guidelines"
 
@@ -265,9 +311,14 @@ def test_run_scan_creates_deduplicated_pending_proposals(monkeypatch, tmp_path) 
     monkeypatch.setattr(proposal_scan, "_calendar_signals", fake_calendar)
     monkeypatch.setattr(proposal_scan, "_historical_email_signals", fake_historical)
     monkeypatch.setattr(proposal_scan, "_inbox_pointer_signal", fake_pointer)
+    monkeypatch.setattr(proposal_scan, "list_channel_memories", fake_channel_memories)
     monkeypatch.setattr(proposal_scan, "load_context_documents", fake_context_documents)
     monkeypatch.setattr(proposal_scan, "_current_agent_name", fake_agent_name)
-    monkeypatch.setattr(proposal_scan, "build_executive_assistant", lambda _context_block="", agent_name="OpenPip": FakeAgent())
+    monkeypatch.setattr(
+        proposal_scan,
+        "build_executive_assistant",
+        lambda _context_block="", agent_name="OpenPip", **_kwargs: FakeAgent(),
+    )
 
     # queue_proposal_scan fires the scan as a background task — wait for it.
     async def wait_for_completion(job_id: str):

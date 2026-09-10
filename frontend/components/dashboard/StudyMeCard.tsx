@@ -1,0 +1,60 @@
+import styles from "./DashboardPage.module.css";
+
+export type InsightGatheringStatus = {
+  state: "not_started" | "queued" | "running" | "completed" | "failed";
+  progress?: number;
+  currentStage?: string | null;
+  insightsWritten?: number;
+  error?: string | null;
+};
+
+export function StudyMeCard({
+  agentName,
+  status,
+  onStart,
+}: {
+  agentName: string;
+  status: InsightGatheringStatus;
+  onStart: () => void;
+}) {
+  const running = status.state === "queued" || status.state === "running";
+  const progress = Math.max(0, Math.min(100, status.progress ?? 0));
+  const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
+
+  return (
+    <section className={`${styles.assistantPrompt} ${styles.cardFull}`} style={{ animationDelay: "0ms" }} aria-live="polite">
+      <div className={styles.assistantPromptContent}>
+        <p className={styles.assistantPromptKicker}><span aria-hidden="true">✦</span> {agentName} assistant</p>
+        <h2 className={styles.assistantPromptTitle}>
+          {running ? `${agentName} is learning more about you` : `${agentName} would like to learn more about you!`}
+        </h2>
+        <p className={styles.assistantPromptCopy}>
+          {running
+            ? `Reviewing ${stage.toLowerCase()} to gather useful historical details.`
+            : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.`}
+        </p>
+        {running && (
+          <p className={styles.assistantPromptMeta}>
+            {progress}% complete{status.insightsWritten ? ` · ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""}
+          </p>
+        )}
+        {status.state === "failed" && <p className={styles.assistantPromptMeta}>The review paused. You can resume it whenever you are ready.</p>}
+      </div>
+      <div className={styles.assistantPromptActions}>
+        {running ? (
+          <div className={styles.pipelineStartRow}>
+            <div aria-label={`${progress}% complete`} style={{ width: 180, height: 6, borderRadius: 99, background: "var(--color-border)", overflow: "hidden" }}>
+              <div style={{ width: `${progress}%`, height: "100%", borderRadius: 99, background: "var(--color-accent, currentColor)", transition: "width 300ms ease" }} />
+            </div>
+          </div>
+        ) : (
+          <div className={styles.pipelineStartRow}>
+            <button type="button" className={styles.assistantPrimaryBtn} onClick={onStart}>
+              {status.state === "failed" ? "Resume review" : "Study Me"}
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}

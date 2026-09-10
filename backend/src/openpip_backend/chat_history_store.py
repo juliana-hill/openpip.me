@@ -13,7 +13,7 @@ turns always land in one file even if the conversation runs past midnight):
 
     OpenPip/chat-sessions/<YYYY-MM-DD>.json   {"sessions": [...], "messages": [...]}
 
-Two memory mechanisms sit on top of this store so far:
+Two transcript-based memory mechanisms sit on top of this store:
 
   - Short-term memory: the most recent turns of the *current* session,
     fetched by get_recent_messages() and seeded directly into the Strands
@@ -26,15 +26,12 @@ Two memory mechanisms sit on top of this store so far:
     the way travel-agent's own get_chat_history / search_chat_history tools
     work.
 
-Neither of these is long-term memory. Both read raw transcripts out of this
-same store, so both go away with a session — deleting a session's turns
-(not yet a feature here, but see travel-agent's handleDeleteChatSession)
-would take a fact learned in it down too. Real long-term memory — durable
-facts the assistant keeps knowing about the user on purpose, on record even
-after the conversation that surfaced them is gone — is a distinct,
-deliberately-curated store (see travel-agent's agent-memory.json /
-save_insight / get_insights for the shape that takes there) and hasn't been
-built here yet.
+These transcripts are not general long-term memory: deleting a session's turns
+would take a fact learned only in that session down too. OpenPip now has one
+small deliberately-curated long-term memory alongside this store:
+``channel_memory.py`` persists explicit or observed communication-channel
+preferences in ``OpenPip/memory/channel-preferences``. A broader user-memory
+system is still not implemented.
 """
 
 from __future__ import annotations

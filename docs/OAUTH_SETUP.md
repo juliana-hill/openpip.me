@@ -23,7 +23,7 @@ This is a from-scratch reference for wiring Google OAuth into the new OpenPip re
   | Read/triage mail | `gmail.readonly` + `gmail.modify` (labels/archive) | `https://mail.google.com/` (full account access — sensitive, slower verification, more than the agent needs) |
   | Draft replies only, no autonomous send | `gmail.compose` (drafts only) | `gmail.send` (skip unless you truly want the agent capable of sending without a draft step) |
   | Task management | `tasks` | — |
-  | Read reference docs | `drive.readonly` or `drive.file` (only files the app created/opened) | full `drive` (broad, sensitive) |
+  | Read reference docs, historical Google Docs, and Sheets | `drive.readonly` + `drive.file` + `spreadsheets.readonly` | full `drive` (broad, sensitive) |
 
   Narrower scopes = faster to demo, since several of these are "sensitive" or "restricted" scopes that require Google's app verification before they can be used with real (non-test) users at scale — verification review can take well beyond the 6-week build window.
 

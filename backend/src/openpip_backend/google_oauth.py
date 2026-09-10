@@ -64,7 +64,14 @@ SCOPES = [
     "https://www.googleapis.com/auth/gmail.compose",
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/drive.appdata",
-    # drive.file (not the broader drive or drive.readonly): the Agent &
+    # Historical onboarding reads the user's existing Google Docs. Keep the
+    # limited drive.file scope below as well so OpenPip can still update its
+    # own visible Drive records and guidelines.
+    "https://www.googleapis.com/auth/drive.readonly",
+    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    # drive.file still limits OpenPip's visible-Drive writes to files it
+    # creates, while drive.readonly above grants the separate read access
+    # needed for the user's existing documents. The Agent &
     # Guidelines documents (agent.md, goals-n-guidelines/*.md — see
     # google_drive_docs.py) live in a real, visible "OpenPip" Drive folder so
     # the user can open and edit them directly, unlike drive.appdata's hidden
