@@ -105,16 +105,3 @@ def test_generic_holiday_insight_is_not_user_specific() -> None:
         fact="The user has a hair appointment scheduled on a public holiday.",
         source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
     )
-
-
-def test_generic_work_calendar_insight_is_not_employment_evidence() -> None:
-    assert insight_memory.is_generic_work_calendar_insight(
-        category="work",
-        fact="The user has a work-related calendar event on September 13 and 14, 2021.",
-        source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
-    )
-    assert not insight_memory.is_generic_work_calendar_insight(
-        category="work",
-        fact="The user started working at Acme on September 13, 2021.",
-        source_references=[{"id": "calendar:event-1", "kind": "calendar"}],
-    )

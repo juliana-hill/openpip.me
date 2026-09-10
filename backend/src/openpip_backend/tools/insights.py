@@ -208,15 +208,22 @@ def build_remember_insight_tool(
             "Use healthcare for explicitly named care providers and care coordination, schedule for dated "
             "appointments/events/commitments, work for resumes/employment/job history, relationship for "
             "clients/investors/important people, preference for user preferences, routine for recurring "
-            "patterns, goal for intentions, communication for contact-channel facts, and context for other "
-            "durable facts. Search related historical sources and look up existing memories before every save. For goals, use one stable key for the overarching project or initiative—not one key per task or sub-activity—and update that memory as new supporting actions are found. For employment, use one stable key per employer and role and update that memory "
-            "with an end date when later evidence shows the user left; do not save each work-related record "
-            "as its own memory. Generic holiday restatements are skipped. A focused existing-memory lookup "
+            "patterns, goal for intentions, communication for contact-channel facts, personality for explicit "
+            "personality or communication-style facts, assessment for official tests or evaluations, profile "
+            "for durable background facts, and context for other durable facts. Search related historical "
+            "sources and look up existing memories before every save. For goals, use one stable key for the "
+            "overarching project or initiative—not one key per task or sub-activity—and update that memory as "
+            "new supporting actions are found. For employment, use one stable key per employer and role and "
+            "update that memory with an end date when later evidence shows the user left; do not save each "
+            "work-related record as its own memory. Repeated calendar work blocks are evidence for one "
+            "employment-span memory, not separate memories. Generic holiday restatements are skipped. A focused existing-memory lookup "
             "must complete before this call; if the model omitted that lookup, the save tool performs it "
             "automatically using the subject or memory key. If a related memory is returned, update its "
-            "exact memoryKey instead of creating a second key. A generic calendar item titled Work, Office, "
-            "Shift, or Workday is not proof of employment; work memories require explicit source language "
-            "that the user started, joined, or was hired at a named employer or location."
+            "exact memoryKey instead of creating a second key. Calendar work events may support an "
+            "employment memory even when their title is only Work, Office, Shift, or Workday; use the "
+            "earliest and latest matching location events as the observed employment span and cite those "
+            "events, while using offer, hiring, acceptance, or onboarding evidence to identify the exact "
+            "employer or job title when available."
         ),
     )
     async def remember_historical_insight(
@@ -274,13 +281,6 @@ def build_remember_insight_tool(
             ):
                 consumed_prerequisites = True
                 return json.dumps({"status": "skipped", "reason": "Generic holiday facts are not user-specific memories."})
-            if insight_memory.is_generic_work_calendar_insight(
-                category=category,
-                fact=fact,
-                source_references=[source_references[source_id] for source_id in source_ids],
-            ):
-                consumed_prerequisites = True
-                return json.dumps({"status": "skipped", "reason": "Generic work calendar blocks are not employment evidence."})
             record = await insight_memory.upsert_insight(
                 access_token,
                 memory_key=memory_key,

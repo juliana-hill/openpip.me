@@ -159,3 +159,31 @@ def test_skipped_memory_also_consumes_lookup_gate() -> None:
     assert search_state["used"] is False
     assert lookup_state["used"] is False
     assert lookup_state["lastQuery"] == ""
+
+
+def test_work_calendar_span_is_saved_instead_of_filtered(monkeypatch) -> None:
+    async def fake_upsert(*_args, **kwargs):
+        return {"status": "saved", "memoryKey": kwargs["memory_key"]}
+
+    monkeypatch.setattr(insight_memory, "upsert_insight", fake_upsert)
+    references = {
+        "calendar:first": {"id": "calendar:first", "kind": "calendar", "label": "Work"},
+        "calendar:last": {"id": "calendar:last", "kind": "calendar", "label": "Work"},
+    }
+    remember = build_remember_insight_tool(
+        "token",
+        references,
+        search_state={"used": True},
+        lookup_state={"used": True, "lastQuery": "Acme", "lastResults": []},
+    )
+
+    payload = json.loads(asyncio.run(remember(
+        "work:employment:acme",
+        "work",
+        "Acme employment",
+        "The user started working at Acme on January 2, 2021 and was still working there on March 8, 2021.",
+        "high",
+        ["calendar:first", "calendar:last"],
+    )))
+
+    assert payload == {"status": "saved", "memoryKey": "work:employment:acme"}

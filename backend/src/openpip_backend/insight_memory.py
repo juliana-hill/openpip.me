@@ -22,10 +22,6 @@ _PERSONAL_HOLIDAY_RE = re.compile(
     r"\b(?:user|my|their|appointment|meeting|party|travel|trip|reschedul|cancel|attend|host|action)\b",
     re.IGNORECASE,
 )
-_GENERIC_WORK_CALENDAR_RE = re.compile(
-    r"\b(?:work(?:-related|day|ing)?|office|shift)\s+(?:calendar\s+)?(?:event|block)\b",
-    re.IGNORECASE,
-)
 
 
 def _filename(memory_key: str) -> str:
@@ -129,14 +125,3 @@ def is_generic_holiday_insight(
     if not all(str(reference.get("kind") or "").lower() == "calendar" for reference in source_references):
         return False
     return bool(_GENERIC_HOLIDAY_RE.search(fact)) and not bool(_PERSONAL_HOLIDAY_RE.search(fact))
-
-
-def is_generic_work_calendar_insight(
-    *, category: str, fact: str, source_references: list[dict[str, Any]],
-) -> bool:
-    """Reject employment memories that only restate a generic work calendar block."""
-    if category.strip().lower() != "work" or not source_references:
-        return False
-    if not all(str(reference.get("kind") or "").lower() == "calendar" for reference in source_references):
-        return False
-    return bool(_GENERIC_WORK_CALENDAR_RE.search(fact))

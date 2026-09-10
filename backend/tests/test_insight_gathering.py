@@ -20,6 +20,22 @@ def test_agent_pages_are_oldest_first_and_do_not_mix_days() -> None:
     assert [item["record"]["sourceId"] for item in second] == ["email:new"]
 
 
+def test_memory_prompt_keeps_work_spans_and_personal_profile_facts() -> None:
+    prompt = insight_gathering._prompt(
+        "all summarized history for 2021-01-02",
+        [{
+            "record": {"sourceId": "calendar:work-1", "date": "2021-01-02", "summary": "Work at Acme"},
+            "reference": {"id": "calendar:work-1", "kind": "calendar", "label": "Work"},
+        }],
+    )
+
+    assert "earliest event as the observed start" in prompt
+    assert "latest event as the observed end" in prompt
+    assert "self-described personality" in prompt
+    assert "official assessment" in prompt
+    assert "Do not infer personality traits" in prompt
+
+
 def test_start_is_idempotent_after_completion(monkeypatch) -> None:
     completed = {
         "version": insight_gathering._STATUS_VERSION, "state": "completed", "runId": "run-1", "stages": {},
