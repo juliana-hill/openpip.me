@@ -7,13 +7,14 @@ import hashlib
 import json
 import logging
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from .agent import DEFAULT_AGENT_NAME, build_executive_assistant, load_context_documents
 from .google_drive_docs import list_json_files, read_json_file, write_json_file
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
+    GoogleApiError,
     fetch_gmail_message,
     fetch_gmail_messages,
     find_oldest_gmail_date,
@@ -64,6 +65,8 @@ _active_jobs: dict[str, str] = {}
 _start_locks: dict[str, asyncio.Lock] = {}
 _logger = logging.getLogger(__name__)
 
+TokenResolver = Callable[[], Awaitable[str | None]]
+
 
 class _CheckpointReused(Exception):
     """Internal sentinel to skip a source whose durable checkpoint is done."""
@@ -83,8 +86,8 @@ def _public_status_message(message: Any) -> str | None:
     return value
 
 
-def _owner(access_token: str) -> str:
-    return hashlib.sha256(access_token.encode("utf-8")).hexdigest()[:24]
+def _owner(access_token: str, owner_key: str | None = None) -> str:
+    return hashlib.sha256((owner_key or access_token).encode("utf-8")).hexdigest()[:24]
 
 
 def _stage() -> dict[str, Any]:
@@ -179,15 +182,26 @@ async def _write_status(access_token: str, status: dict[str, Any]) -> None:
     await write_json_file(access_token, _FOLDER, _STATUS_FILE, status)
 
 
-async def get_insight_gathering_status(access_token: str) -> dict[str, Any]:
+async def get_insight_gathering_status(
+    access_token: str,
+    *,
+    owner_key: str | None = None,
+    token_resolver: TokenResolver | None = None,
+) -> dict[str, Any]:
     status = await _read_status(access_token)
     if status.get("state") in {"queued", "running"}:
-        owner = _owner(access_token)
+        owner = _owner(access_token, owner_key)
         if owner not in _active_jobs:
             # The worker is intentionally in memory because the Google token
             # is never stored durably. If the API container restarts, the next
             # browser poll uses the Drive checkpoint to resume it.
-            return await start_insight_gathering(access_token)
+            if owner_key is None and token_resolver is None:
+                return await start_insight_gathering(access_token)
+            return await start_insight_gathering(
+                access_token,
+                owner_key=owner_key,
+                token_resolver=token_resolver,
+            )
     return status
 
 
@@ -1350,8 +1364,14 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
             await _write_status(access_token, status)
 
 
-async def _run(access_token: str, run_id: str) -> None:
-    owner = _owner(access_token)
+async def _run(
+    access_token: str,
+    run_id: str,
+    *,
+    owner_key: str | None = None,
+    token_resolver: TokenResolver | None = None,
+) -> None:
+    owner = _owner(access_token, owner_key)
     _logger.info("historical insight gathering: worker started run_id=%s", run_id)
     try:
         status = await _read_status(access_token)
@@ -1360,10 +1380,34 @@ async def _run(access_token: str, run_id: str) -> None:
         status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
         _add_event(status, "Historical review started")
         await _write_status(access_token, status)
-        app_data, context_block = await asyncio.gather(read_drive_app_data(access_token), load_context_documents(access_token))
-        agent_name = str((app_data.get("userData") or {}).get("agentName") or DEFAULT_AGENT_NAME)
-        await _run_lazy(access_token, status, context_block, agent_name)
-        return
+        refresh_attempts = 0
+        while True:
+            try:
+                app_data, context_block = await asyncio.gather(
+                    read_drive_app_data(access_token), load_context_documents(access_token),
+                )
+                agent_name = str((app_data.get("userData") or {}).get("agentName") or DEFAULT_AGENT_NAME)
+                await _run_lazy(access_token, status, context_block, agent_name)
+                return
+            except GoogleApiError as error:
+                if error.status_code not in {401, 403} or token_resolver is None or refresh_attempts >= 2:
+                    raise
+                try:
+                    refreshed_token = await token_resolver()
+                except Exception as refresh_error:  # pragma: no cover - provider/network dependent
+                    _logger.warning("historical insight gathering: token refresh failed: %s", refresh_error)
+                    refreshed_token = None
+                if not refreshed_token or refreshed_token == access_token:
+                    raise
+                refresh_attempts += 1
+                access_token = refreshed_token
+                status = await _read_status(access_token)
+                status.update({
+                    "state": "running", "runId": run_id, "error": None,
+                    "statusMessage": "Google access refreshed; resuming the historical review.",
+                })
+                _add_event(status, "Google access refreshed", "Resuming from the saved history checkpoint.")
+                await _write_status(access_token, status)
         manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
         collection_complete = all(
             status.get("collection", {}).get(source, {}).get("status") == "completed"
@@ -1452,14 +1496,25 @@ async def _run(access_token: str, run_id: str) -> None:
         status = await _read_status(access_token)
         status.update({"state": "failed", "error": str(error)[:500], "currentStage": status.get("currentStage")})
         _add_event(status, "Historical review paused", "You can resume it from the dashboard.")
-        await _write_status(access_token, status)
+        try:
+            await _write_status(access_token, status)
+        except Exception as status_error:
+            # If the access token itself is invalid and cannot be refreshed,
+            # do not mask the original worker failure with a second unhandled
+            # exception while attempting to persist the failure state.
+            _logger.warning("historical insight gathering: unable to persist failure state: %s", status_error)
     finally:
         _active_jobs.pop(owner, None)
         _jobs.pop(run_id, None)
 
 
-async def start_insight_gathering(access_token: str) -> dict[str, Any]:
-    owner = _owner(access_token)
+async def start_insight_gathering(
+    access_token: str,
+    *,
+    owner_key: str | None = None,
+    token_resolver: TokenResolver | None = None,
+) -> dict[str, Any]:
+    owner = _owner(access_token, owner_key)
     lock = _start_locks.setdefault(owner, asyncio.Lock())
     async with lock:
         status = await _read_status(access_token)
@@ -1473,5 +1528,7 @@ async def start_insight_gathering(access_token: str) -> dict[str, Any]:
         _add_event(status, "Historical review queued")
         await _write_status(access_token, status)
         _active_jobs[owner] = run_id
-        _jobs[run_id] = asyncio.create_task(_run(access_token, run_id))
+        _jobs[run_id] = asyncio.create_task(
+            _run(access_token, run_id, owner_key=owner_key, token_resolver=token_resolver),
+        )
         return status

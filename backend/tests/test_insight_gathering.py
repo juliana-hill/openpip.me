@@ -2,6 +2,7 @@ import asyncio
 from datetime import date
 
 from openpip_backend import insight_gathering
+from openpip_backend.google_workspace import GoogleApiError
 
 
 def test_agent_pages_are_oldest_first_and_do_not_mix_days() -> None:
@@ -54,6 +55,45 @@ def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> No
 
     assert result["state"] == "queued"
     assert result["statusMessage"] == "Resuming the historical review."
+
+
+def test_worker_refreshes_expired_session_token_and_resumes(monkeypatch) -> None:
+    calls: list[str] = []
+    writes: list[str] = []
+
+    async def fake_read_status(_token: str):
+        return insight_gathering._default_status()
+
+    async def fake_write_status(token: str, _status: dict):
+        writes.append(token)
+
+    async def fake_app_data(_token: str):
+        return {"userData": {}}
+
+    async def fake_context(_token: str):
+        return ""
+
+    async def fake_run_lazy(token: str, _status: dict, _context: str, _agent_name: str):
+        calls.append(token)
+        if len(calls) == 1:
+            raise GoogleApiError(401, "expired access token")
+
+    async def fake_resolve():
+        return "fresh-token"
+
+    monkeypatch.setattr(insight_gathering, "_read_status", fake_read_status)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+    monkeypatch.setattr(insight_gathering, "read_drive_app_data", fake_app_data)
+    monkeypatch.setattr(insight_gathering, "load_context_documents", fake_context)
+    monkeypatch.setattr(insight_gathering, "_run_lazy", fake_run_lazy)
+
+    asyncio.run(insight_gathering._run(
+        "expired-token", "run-1", owner_key="session-1", token_resolver=fake_resolve,
+    ))
+
+    assert calls == ["expired-token", "fresh-token"]
+    assert "fresh-token" in writes
+    assert insight_gathering._owner("expired-token", "session-1") not in insight_gathering._active_jobs
 
 
 def test_progress_uses_oldest_newest_date_span_and_current_date() -> None:

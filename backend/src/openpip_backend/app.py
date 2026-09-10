@@ -528,16 +528,48 @@ async def agent_scheduled_actions(token: str | None = Depends(get_google_token_o
     return {"actions": [_review_item(item) for item in approved]}
 
 
+def _insight_token_context(
+    request: Request,
+) -> tuple[str | None, Any | None]:
+    """Return a stable session owner and a refresh callback for background work.
+
+    Direct bearer-token callers cannot refresh because they do not provide the
+    session id that owns the encrypted refresh token. Browser session callers
+    do, so long-running historical review workers can recover after the one-hour
+    Google access token expires without losing their Drive checkpoint.
+    """
+    if request.headers.get("x-google-token") or request.headers.get("authorization", "").lower().startswith("bearer "):
+        return None, None
+    session_token = read_session_jwt(request)
+    claims = verify_session_jwt(session_token) if session_token else None
+    session_id = str(claims.get("sid") or "").strip() if claims else ""
+    if not session_id:
+        return None, None
+
+    async def resolve() -> str | None:
+        return await oauth_sessions.resolve_access_token(session_id)
+
+    return session_id, resolve
+
+
 @app.get("/agent/insights/gather")
-async def agent_insights_gather_status(token: str = Depends(get_google_token)):
+async def agent_insights_gather_status(
+    request: Request,
+    token: str = Depends(get_google_token),
+):
     """Return the persistent one-time historical insight pipeline status."""
-    return await get_insight_gathering_status(token)
+    owner_key, token_resolver = _insight_token_context(request)
+    return await get_insight_gathering_status(token, owner_key=owner_key, token_resolver=token_resolver)
 
 
 @app.post("/agent/insights/gather")
-async def agent_insights_gather_start(token: str = Depends(get_google_token)):
+async def agent_insights_gather_start(
+    request: Request,
+    token: str = Depends(get_google_token),
+):
     """Start or resume the one-time historical insight review."""
-    return await start_insight_gathering(token)
+    owner_key, token_resolver = _insight_token_context(request)
+    return await start_insight_gathering(token, owner_key=owner_key, token_resolver=token_resolver)
 
 
 @app.post("/agent/proposals/execution/tick")
