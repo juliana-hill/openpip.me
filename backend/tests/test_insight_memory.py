@@ -87,6 +87,15 @@ def test_lookup_matches_terms_across_stable_key_punctuation(monkeypatch) -> None
     assert [item["memoryKey"] for item in result] == ["healthcare:provider:smith"]
 
 
+def test_lookup_treats_missing_memory_directory_as_empty(monkeypatch) -> None:
+    async def fake_list(_token: str, _folder: str):
+        return None
+
+    monkeypatch.setattr(insight_memory, "list_json_files", fake_list)
+
+    assert asyncio.run(insight_memory.lookup_insights("token", "learning")) == []
+
+
 def test_generic_holiday_insight_is_not_user_specific() -> None:
     assert insight_memory.is_generic_holiday_insight(
         fact="Columbus Day is a public holiday on October 11, 2021.",

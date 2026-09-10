@@ -34,7 +34,12 @@ def _filename(memory_key: str) -> str:
 
 
 async def list_insights(access_token: str, query: str = "") -> list[dict[str, Any]]:
-    records = await list_json_files(access_token, _FOLDER)
+    # A missing/empty Drive folder is the normal first-run state. Some Drive
+    # responses and test doubles represent that directory as null; normalize
+    # both forms to an empty memory list for callers and agents.
+    records = await list_json_files(access_token, _FOLDER) or {}
+    if not isinstance(records, dict):
+        records = {}
     normalized_query = query.strip().lower()
     values = [record for record in records.values() if isinstance(record, dict)]
     if normalized_query:

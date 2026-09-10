@@ -295,7 +295,12 @@ async def list_json_files(access_token: str, folder_path: str) -> dict[str, dict
                 "pageSize": 1000,
             },
         )
-        files = [f for f in listing.json().get("files", []) if str(f.get("name", "")).endswith(".json")]
+        # Drive may return a JSON `files: null` value for an empty folder.
+        # Treat that exactly like an empty result set.
+        files = [
+            f for f in (listing.json().get("files") or [])
+            if isinstance(f, dict) and str(f.get("name", "")).endswith(".json")
+        ]
 
         async def read_one(file: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
             response = await _request(

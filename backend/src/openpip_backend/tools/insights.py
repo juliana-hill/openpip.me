@@ -45,9 +45,12 @@ def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] |
             raise ValueError(
                 "lookup_historical_insights requires a focused query before saving a historical insight"
             )
-        insights = await insight_memory.lookup_insights(access_token, normalized_query)
+        insights = await insight_memory.lookup_insights(access_token, normalized_query) or []
+        if not isinstance(insights, list):
+            insights = []
         if lookup_state is not None:
             lookup_state["used"] = True
+            lookup_state["available"] = int(lookup_state.get("available") or 0) + 1
             lookup_state["lastQuery"] = normalized_query
             # Keep the result available to the save gate and to diagnostics. An
             # empty result is still a valid lookup: it proves the agent checked
@@ -137,6 +140,7 @@ def build_search_historical_sources_tool(
             return json.dumps({"sources": []})
         if search_state is not None:
             search_state["used"] = True
+            search_state["available"] = int(search_state.get("available") or 0) + 1
             search_state.setdefault("queries", []).append(query.strip())
         matches: list[dict[str, Any]] = []
         if source_index is not None:
@@ -208,7 +212,8 @@ def build_remember_insight_tool(
             "durable facts. Search related historical sources and look up existing memories before every save. For goals, use one stable key for the overarching project or initiative—not one key per task or sub-activity—and update that memory as new supporting actions are found. For employment, use one stable key per employer and role and update that memory "
             "with an end date when later evidence shows the user left; do not save each work-related record "
             "as its own memory. Generic holiday restatements are skipped. A focused existing-memory lookup "
-            "must have completed immediately before this call; if a related memory is returned, update its "
+            "must complete before this call; if the model omitted that lookup, the save tool performs it "
+            "automatically using the subject or memory key. If a related memory is returned, update its "
             "exact memoryKey instead of creating a second key. A generic calendar item titled Work, Office, "
             "Shift, or Workday is not proof of employment; work memories require explicit source language "
             "that the user started, joined, or was hired at a named employer or location."
@@ -223,17 +228,43 @@ def build_remember_insight_tool(
         source_ids: list[str],
         rationale: str = "",
     ) -> str:
+        consumed_prerequisites = False
         try:
             if not source_ids:
                 raise ValueError("source_ids must contain at least one exact source id")
-            if search_state is None or not search_state.get("used"):
+            search_available = int((search_state or {}).get("available") or 0)
+            if search_available < 1 and (search_state or {}).get("used"):
+                # Preserve compatibility with callers that initialized the
+                # pre-credit boolean gate before this tool was upgraded.
+                search_available = 1
+            if search_state is None or search_available < 1:
                 raise ValueError("search_historical_sources must be called before saving a historical insight")
-            if lookup_state is None or (
-                not lookup_state.get("used") or not str(lookup_state.get("lastQuery") or "").strip()
-            ):
-                raise ValueError(
-                    "lookup_historical_insights with a focused query must be called before saving a historical insight"
-                )
+            lookup_available = int((lookup_state or {}).get("available") or 0)
+            if lookup_available < 1 and (lookup_state or {}).get("used") and str(
+                (lookup_state or {}).get("lastQuery") or ""
+            ).strip():
+                # Preserve compatibility with callers that initialized the
+                # pre-credit boolean gate before this tool was upgraded.
+                lookup_available = 1
+            if lookup_state is None or lookup_available < 1 or not str(
+                (lookup_state or {}).get("lastQuery") or ""
+            ).strip():
+                # Keep the safety invariant even when the model skips the
+                # explicit tool call: never write until the current durable
+                # memory directory has been checked. An empty result is valid
+                # for a first-run user and still satisfies the prerequisite.
+                lookup_query = str(subject or memory_key).strip()
+                if not lookup_query:
+                    raise ValueError("a subject or memory_key is required for the existing-memory lookup")
+                existing = await insight_memory.lookup_insights(access_token, lookup_query) or []
+                if not isinstance(existing, list):
+                    existing = []
+                if lookup_state is not None:
+                    lookup_state["used"] = True
+                    lookup_state["available"] = lookup_available + 1
+                    lookup_state["lastQuery"] = lookup_query
+                    lookup_state["lastResults"] = existing
+                    lookup_state.setdefault("queries", []).append(lookup_query)
             missing = [source_id for source_id in source_ids if source_id not in source_references]
             if missing:
                 raise ValueError(f"unknown source ids: {', '.join(missing)}")
@@ -241,12 +272,14 @@ def build_remember_insight_tool(
                 fact=fact,
                 source_references=[source_references[source_id] for source_id in source_ids],
             ):
+                consumed_prerequisites = True
                 return json.dumps({"status": "skipped", "reason": "Generic holiday facts are not user-specific memories."})
             if insight_memory.is_generic_work_calendar_insight(
                 category=category,
                 fact=fact,
                 source_references=[source_references[source_id] for source_id in source_ids],
             ):
+                consumed_prerequisites = True
                 return json.dumps({"status": "skipped", "reason": "Generic work calendar blocks are not employment evidence."})
             record = await insight_memory.upsert_insight(
                 access_token,
@@ -258,18 +291,34 @@ def build_remember_insight_tool(
                 source_references=[source_references[source_id] for source_id in source_ids],
                 rationale=rationale,
             )
+            consumed_prerequisites = True
             if on_saved:
                 on_saved()
             return json.dumps({"status": record["status"], "memoryKey": record["memoryKey"]})
         finally:
-            # Every attempt consumes both gates, including a skipped or failed
-            # save. The next memory must repeat the source search and existing
-            # memory lookup instead of reusing stale context.
-            if search_state is not None:
-                search_state["used"] = False
-            if lookup_state is not None:
-                lookup_state["used"] = False
-                lookup_state["lastQuery"] = ""
-                lookup_state["lastResults"] = []
+            # A successful or intentionally skipped memory consumes both
+            # prerequisites. Validation/provider failures do not: no memory was
+            # written, so the agent can correct the payload and retry without
+            # being told to repeat checks it already completed.
+            if consumed_prerequisites:
+                if search_state is not None:
+                    current_search = int(search_state.get("available") or 0)
+                    if current_search < 1 and search_state.get("used"):
+                        current_search = 1
+                    remaining_search = max(0, current_search - 1)
+                    search_state["available"] = remaining_search
+                    search_state["used"] = remaining_search > 0
+                if lookup_state is not None:
+                    current_lookup = int(lookup_state.get("available") or 0)
+                    if current_lookup < 1 and lookup_state.get("used") and str(
+                        lookup_state.get("lastQuery") or ""
+                    ).strip():
+                        current_lookup = 1
+                    remaining_lookup = max(0, current_lookup - 1)
+                    lookup_state["available"] = remaining_lookup
+                    lookup_state["used"] = remaining_lookup > 0
+                    if remaining_lookup == 0:
+                        lookup_state["lastQuery"] = ""
+                        lookup_state["lastResults"] = []
 
     return remember_historical_insight
