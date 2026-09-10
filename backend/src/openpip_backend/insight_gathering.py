@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -29,7 +30,6 @@ from .tools import (
 )
 
 _FOLDER = "OpenPip/memory/insights_gathering"
-_LEGACY_FOLDER = "OpenPip/memory/insight-gathering"
 _MANIFEST_FOLDER = f"{_FOLDER}/manifest"
 _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
@@ -51,6 +51,7 @@ _STAGES = tuple(_WEIGHTS)
 _jobs: dict[str, asyncio.Task[None]] = {}
 _active_jobs: dict[str, str] = {}
 _start_locks: dict[str, asyncio.Lock] = {}
+_logger = logging.getLogger(__name__)
 
 
 def _owner(access_token: str) -> str:
@@ -98,10 +99,6 @@ def _progress(status: dict[str, Any]) -> int:
 async def _read_status(access_token: str) -> dict[str, Any]:
     try:
         stored = await read_json_file(access_token, _FOLDER, _STATUS_FILE)
-        if stored is None:
-            # Preserve an in-flight pre-date-file run across the storage-layout
-            # migration; its records will be recollected into the new pages.
-            stored = await read_json_file(access_token, _LEGACY_FOLDER, _STATUS_FILE)
     except Exception:
         # Status polling must remain available when Drive is temporarily slow
         # or unavailable; the next poll can recover the persisted checkpoint.
@@ -117,6 +114,10 @@ async def _read_status(access_token: str) -> dict[str, Any]:
 
 async def _write_status(access_token: str, status: dict[str, Any]) -> None:
     status["progress"] = 100 if status.get("state") == "completed" else _progress(status)
+    _logger.info(
+        "historical insight gathering: state=%s stage=%s progress=%s message=%s",
+        status.get("state"), status.get("currentStage"), status.get("progress"), status.get("statusMessage"),
+    )
     await write_json_file(access_token, _FOLDER, _STATUS_FILE, status)
 
 
@@ -221,7 +222,10 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         status["statusMessage"] = "Gathering email, calendar, contact, task, and document records."
         await _write_status(access_token, status)
         messages_by_id: dict[str, dict[str, Any]] = {}
-        for window_start, window_end in _date_windows(history_start, today + timedelta(days=1)):
+        email_windows = _date_windows(history_start, today + timedelta(days=1))
+        for window_number, (window_start, window_end) in enumerate(email_windows, start=1):
+            status["statusMessage"] = f"Gathering email history (window {window_number} of {len(email_windows)})."
+            await _write_status(access_token, status)
             # The one-day overlap prevents Gmail's exclusive after/before
             # search boundaries from dropping messages at a window edge.
             query_start = window_start - timedelta(days=1)
@@ -263,7 +267,10 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         status["statusMessage"] = "Gathering calendar history and upcoming events."
         await _write_status(access_token, status)
         events_by_id: dict[str, dict[str, Any]] = {}
-        for window_start, window_end in _date_windows(history_start, history_end):
+        calendar_windows = _date_windows(history_start, history_end)
+        for window_number, (window_start, window_end) in enumerate(calendar_windows, start=1):
+            status["statusMessage"] = f"Gathering calendar history (window {window_number} of {len(calendar_windows)})."
+            await _write_status(access_token, status)
             calendars = await fetch_google_calendars(
                 access_token,
                 from_date=window_start.isoformat(),
@@ -505,6 +512,7 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
 
 async def _run(access_token: str, run_id: str) -> None:
     owner = _owner(access_token)
+    _logger.info("historical insight gathering: worker started run_id=%s", run_id)
     try:
         status = await _read_status(access_token)
         status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
@@ -562,6 +570,7 @@ async def _run(access_token: str, run_id: str) -> None:
                 )
                 status["statusMessage"] = f"Reviewing records from {page_day} and comparing them with existing memories."
                 await _write_status(access_token, status)
+                _logger.info("historical insight gathering: reviewing date=%s page=%s records=%s", page_day, page_number, len(batch))
                 await _stream_agent_page(agent, _prompt(f"history for {page_day}", batch), status, access_token)
                 stage["processed"] = offset + len(batch)
                 stage["dateIndex"] = date_index
@@ -576,7 +585,9 @@ async def _run(access_token: str, run_id: str) -> None:
         status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
         _add_event(status, "Historical insights are ready")
         await _write_status(access_token, status)
+        _logger.info("historical insight gathering: worker completed run_id=%s insights=%s", run_id, status.get("insightsWritten", 0))
     except Exception as error:
+        _logger.exception("historical insight gathering: worker failed run_id=%s", run_id)
         status = await _read_status(access_token)
         status.update({"state": "failed", "error": str(error)[:500], "currentStage": status.get("currentStage")})
         _add_event(status, "Historical review paused", "You can resume it from the dashboard.")
