@@ -72,7 +72,7 @@ async def execute_call(
             "properties": {
                 "outcome": {
                     "type": "string",
-                    "enum": ["confirmed", "needs_reschedule", "declined", "no_answer", "unclear"],
+                    "enum": ["confirmed", "rescheduled", "needs_reschedule", "declined", "no_answer", "unclear"],
                 },
                 "requested_new_time": {"type": ["string", "null"]},
             },
@@ -102,6 +102,10 @@ async def execute_call(
             result = result_response.json()
             status = str(result.get("status") or "").lower()
             if status in _TERMINAL_STATUSES:
+                # The Developer API's terminal representation is not required
+                # to repeat the path id, so preserve it for audit references
+                # and follow-up proposal idempotency.
+                result.setdefault("id", call_id)
                 return result
             await asyncio.sleep(poll_seconds)
 

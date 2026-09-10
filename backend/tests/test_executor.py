@@ -94,6 +94,59 @@ def test_call_task_without_a_session_stays_mocked(monkeypatch) -> None:
     assert result.reference == f"mock://actions/{proposal.id}"
 
 
+def test_confirmed_call_updates_the_existing_calendar_event(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_execute_call(**_kwargs):
+        return {"id": "call-1", "status": "completed", "structured_result": {"outcome": "confirmed"}}
+
+    async def fake_update(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return {"id": "event-1"}
+
+    monkeypatch.setattr(executor_module, "execute_call", fake_execute_call)
+    monkeypatch.setattr(executor_module, "update_google_calendar_event", fake_update)
+    proposal = _proposal(
+        "call_task",
+        recipientName="Maya Hair Studio", phone="+14155550101",
+        goal="Ask whether Friday at 3 PM can move to Saturday at 11 AM.",
+        calendarUpdate={
+            "action": "update_calendar_event", "calendarId": "primary", "eventId": "event-1",
+            "start": "2026-09-12T11:00:00-07:00", "end": "2026-09-12T12:00:00-07:00",
+        },
+    )
+
+    result = asyncio.run(DefaultActionExecutor().execute(proposal, "oauth-token"))
+
+    assert result.reference == "calle://calls/call-1?status=completed&calendar=updated"
+    assert captured["args"] == ("oauth-token", "primary", "event-1")
+    assert captured["kwargs"]["start"] == "2026-09-12T11:00:00-07:00"
+
+
+def test_unconfirmed_call_leaves_calendar_unchanged(monkeypatch) -> None:
+    async def fake_execute_call(**_kwargs):
+        return {"id": "call-2", "status": "completed", "structured_result": {"outcome": "declined"}}
+
+    async def fail_if_updated(*_args, **_kwargs):
+        raise AssertionError("calendar must not change when the provider declines")
+
+    monkeypatch.setattr(executor_module, "execute_call", fake_execute_call)
+    monkeypatch.setattr(executor_module, "update_google_calendar_event", fail_if_updated)
+    proposal = _proposal(
+        "call_task", recipientName="Maya Hair Studio", phone="+14155550101",
+        goal="Ask whether Friday at 3 PM can move to Saturday at 11 AM.",
+        calendarUpdate={
+            "action": "update_calendar_event", "calendarId": "primary", "eventId": "event-1",
+            "start": "2026-09-12T11:00:00-07:00", "end": "2026-09-12T12:00:00-07:00",
+        },
+    )
+
+    result = asyncio.run(DefaultActionExecutor().execute(proposal, "oauth-token"))
+
+    assert result.reference == "calle://calls/call-2?status=completed&calendar=unchanged"
+
+
 def test_mock_action_executor_never_calls_gmail_even_for_save_draft(monkeypatch) -> None:
     async def fail_if_called(*_args, **_kwargs):
         raise AssertionError("MockActionExecutor must stay fully mocked")

@@ -7,7 +7,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app
-from openpip_backend.google_workspace import _extract_gmail_content, create_gmail_draft
+from openpip_backend.google_workspace import _extract_gmail_content, create_gmail_draft, update_google_calendar_event
 
 
 def test_google_reads_require_an_oauth_token() -> None:
@@ -359,3 +359,29 @@ def test_create_gmail_draft_omits_thread_id_when_not_replying(monkeypatch) -> No
     asyncio.run(create_gmail_draft("oauth-token", to="a@example.com", subject="Hi", body="Hello"))
 
     assert "threadId" not in captured["body"]["message"]
+
+
+def test_confirmed_reschedule_patches_only_the_existing_calendar_event(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    async def fake_send(self, request, **kwargs):
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"id": "event-1"}, request=request)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", fake_send)
+
+    result = asyncio.run(update_google_calendar_event(
+        "oauth-token", "primary", "event-1",
+        start="2026-09-13T09:00:00-07:00", end="2026-09-13T10:00:00-07:00",
+        timezone_name="America/Los_Angeles",
+    ))
+
+    assert result == {"id": "event-1"}
+    assert captured["method"] == "PATCH"
+    assert captured["url"].endswith("/calendars/primary/events/event-1")
+    assert captured["body"] == {
+        "start": {"dateTime": "2026-09-13T09:00:00-07:00", "timeZone": "America/Los_Angeles"},
+        "end": {"dateTime": "2026-09-13T10:00:00-07:00", "timeZone": "America/Los_Angeles"},
+    }

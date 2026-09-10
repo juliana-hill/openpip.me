@@ -214,7 +214,11 @@ async def _calendar_signals(access_token: str) -> list[dict[str, Any]]:
     calendars = await fetch_google_calendars(
         access_token, from_date=datetime.now(UTC).date().isoformat(), days=_CALENDAR_LOOKAHEAD_DAYS,
     )
-    events = [event for calendar in calendars for event in calendar.get("events", [])]
+    events = [
+        {"calendarId": calendar.get("id"), **event}
+        for calendar in calendars
+        for event in calendar.get("events", [])
+    ]
     return events[:20]
 
 
@@ -366,11 +370,14 @@ def _build_static_context(
             "label": str(event.get("title") or "Untitled event"),
             "detail": f"{event.get('start')}",
             "url": event.get("htmlLink"),
+            "calendarId": str(event.get("calendarId") or ""),
+            "eventId": str(event.get("id") or ""),
             **({"phone": phone} if phone else {}),
             **({"recipientName": attendee_name} if attendee_name else {}),
         })
         calendar_facts.append({
-            "sourceId": source_id, "title": event.get("title"),
+            "sourceId": source_id, "calendarId": event.get("calendarId"), "eventId": event.get("id"),
+            "title": event.get("title"),
             "start": event.get("start"), "location": event.get("location"),
             "description": event.get("description"),
             "phoneAvailable": bool(phone),
@@ -496,7 +503,9 @@ def build_proposal_scan_prompt(
         '"task_followup|contact_followup|inbox_pointer|task_complete|contact_track|call_task"'
         ',"title":"...","rationale":"a specific fact from context","sourceId":'
         '"an exact id from sourceReferences", "recipientName":"...",'
-        '"phone":"exact phone from sourceReferences", "goal":"..."}]}\n\n'
+        '"phone":"exact phone from sourceReferences", "goal":"...",'
+        '"calendarUpdate":{"calendarId":"...","eventId":"...",'
+        '"start":"...","end":"..."}}]}\n\n'
         "Rules:\n"
         "- task_followup: only for a specific overdue/ASAP/due-today task with a "
         "real, specific reason it needs attention now — not just because it exists.\n"
@@ -529,7 +538,12 @@ def build_proposal_scan_prompt(
         "establishes a channel preference, use remember_channel_preference to "
         "record it with the exact source id in the reason and source fields; "
         "update the existing subject/situation memory instead of duplicating it. "
-        "Include a concrete bounded goal and the recipient name.\n"
+        "Include a concrete bounded goal and the recipient name. If this is a "
+        "phone-required reschedule of an existing calendar event, and the new "
+        "start and end are explicit in the evidence, include calendarUpdate with "
+        "the exact calendarId and eventId from sourceReferences plus that proposed "
+        "start/end. Do not include calendarUpdate for a call that is not rescheduling "
+        "an event.\n"
         "Never propose sending, applying, booking, or contacting anyone directly — "
         "every proposal is a request to look into or prepare something, never an "
         "action already taken. If nothing here genuinely warrants the user's "
@@ -586,6 +600,25 @@ def _parse_and_validate_proposals(raw: str, source_references: list[dict[str, st
                 "region": str(candidate.get("region") or "").strip()[:8] or None,
                 "locale": str(candidate.get("locale") or "").strip()[:32] or None,
             }
+            calendar_update = candidate.get("calendarUpdate")
+            if calendar_update is not None:
+                if source.get("kind") != "calendar_event" or not isinstance(calendar_update, dict):
+                    continue
+                if (
+                    str(calendar_update.get("calendarId") or "") != str(source.get("calendarId") or "")
+                    or str(calendar_update.get("eventId") or "") != str(source.get("eventId") or "")
+                    or not str(calendar_update.get("start") or "").strip()
+                    or not str(calendar_update.get("end") or "").strip()
+                ):
+                    continue
+                item["call"]["calendarUpdate"] = {
+                    "action": "update_calendar_event",
+                    "calendarId": str(source["calendarId"]),
+                    "eventId": str(source["eventId"]),
+                    "start": str(calendar_update["start"]).strip(),
+                    "end": str(calendar_update["end"]).strip(),
+                    **({"timeZone": str(calendar_update["timeZone"]).strip()} if calendar_update.get("timeZone") else {}),
+                }
         validated.append(item)
     return validated[:_MAX_PROPOSALS_PER_SCAN]
 

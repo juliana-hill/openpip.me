@@ -109,7 +109,7 @@ OpenPip is also being entered into the separate **CALL-E: Your Code Is Calling**
 
 **Scope for the CALL-E track specifically:**
 1. A reusable `email-task-call-proposal` skill reads bounded email, task, and calendar context. It chooses a phone proposal for work such as rescheduling a hair appointment when the original provider is phone-only, while preserving email or booking-system follow-up when those channels are available.
-2. On approval, `backend/src/openpip_backend/calle.py` calls CALL-E and polls for a structured result (confirmed / needs reschedule / declined / no answer / unclear). Any calendar update becomes a separate source-linked approval action.
+2. On approval, `backend/src/openpip_backend/calle.py` calls CALL-E and polls for a structured result (confirmed / needs reschedule / declined / no answer / unclear). For a phone-required reschedule, the approved call carries the exact existing event and proposed time; the Calendar event is updated only after a successful call confirms the change. Failed or unapproved reschedules leave it unchanged.
 3. Nothing here needs AgentCore-specific plumbing — the CALL-E adapter is an outbound provider behind the approval executor and works from whichever backend runtime the AWS build lands on.
 
 **Submission mechanics (different from the AWS Devpost flow — easy to get wrong, read carefully):**

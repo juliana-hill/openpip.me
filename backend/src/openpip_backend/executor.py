@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .calle import execute_call
-from .google_workspace import create_gmail_draft
+from .google_workspace import create_gmail_draft, update_google_calendar_event
 from .models import Proposal
 
 
@@ -35,8 +35,10 @@ class DefaultActionExecutor:
 
     Gmail drafts are private and reversible. CALL-E calls are real external
     side effects and therefore run only for an approved ``call_task`` with an
-    authenticated session and configured CALL-E API key. Everything else stays
-    mocked until its adapter is implemented.
+    authenticated session and configured CALL-E API key. Calendar is context for
+    deciding whether a phone call is needed. For a call proposal that explicitly
+    includes a reschedule, the existing event is updated only after CALL-E
+    confirms the new time; failed or unapproved calls leave it unchanged.
     """
 
     async def execute(self, proposal: Proposal, access_token: str | None = None) -> ExecutionResult:
@@ -61,5 +63,37 @@ class DefaultActionExecutor:
             )
             call_id = str(result.get("id") or "")
             status = str(result.get("status") or "unknown")
-            return ExecutionResult(reference=f"calle://calls/{call_id}?status={status}")
+            reference = f"calle://calls/{call_id}?status={status}"
+            if proposal.payload.get("calendarUpdate"):
+                try:
+                    call_succeeded = status.lower() in {"completed", "succeeded", "success"}
+                    if call_succeeded and _call_outcome(result) in {"confirmed", "rescheduled"}:
+                        await _apply_confirmed_calendar_update(access_token, proposal)
+                        reference += "&calendar=updated"
+                    else:
+                        reference += "&calendar=unchanged"
+                except Exception:  # noqa: BLE001 - the call succeeded; avoid retrying it
+                    reference += "&calendar=update_failed"
+            return ExecutionResult(reference=reference)
         return ExecutionResult(reference=f"mock://actions/{proposal.id}")
+
+
+def _call_outcome(result: dict) -> str:
+    structured = result.get("structured_result")
+    if isinstance(structured, dict) and structured.get("outcome"):
+        return str(structured["outcome"]).strip().lower()
+    return str(result.get("outcome") or "").strip().lower()
+
+
+async def _apply_confirmed_calendar_update(access_token: str, proposal: Proposal) -> None:
+    update = proposal.payload.get("calendarUpdate")
+    if not isinstance(update, dict):
+        return
+    await update_google_calendar_event(
+        access_token,
+        str(update.get("calendarId") or ""),
+        str(update.get("eventId") or ""),
+        start=str(update.get("start") or ""),
+        end=str(update.get("end") or ""),
+        timezone_name=str(update.get("timeZone") or "") or None,
+    )

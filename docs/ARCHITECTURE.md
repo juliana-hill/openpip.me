@@ -23,6 +23,7 @@ flowchart LR
   Gate -. approved only .-> Calle[CALL-E SDK / API]
   Calle -. structured result .-> API
   Chat --> ChMem[Drive channel memory]
+  Chat --> Proposal[Drive review proposal]
   Scan --> ChMem
   ChMem -. matched preferences .-> Invoker
   Dashboard --> Study[One-time historical insight pipeline]
@@ -54,11 +55,16 @@ Every proposed action includes a source reference. The review lifecycle is:
 `pending → approved/rejected → executing → executed/failed`
 
 The executor is approval-gated and produces external side effects only after an
-explicit approval. A CALL-E request follows the same path as a Google write:
-the agent proposes it, the user approves it in Review, and only then does the
-executor call CALL-E through its server SDK/API and record the structured result.
-CALL-E does not need AgentCore-specific plumbing; it is an outbound provider
-used by the executor. Chat transcripts are persisted separately from a small,
+explicit approval. The Exec Assistant uses Calendar as context when deciding
+whether an event specifically requires a phone call; it does not assume every
+event belongs on the phone. A call proposal includes the exact requested
+reschedule when applicable. After approval, the executor calls CALL-E through
+its server API and records the structured result. The existing Calendar event
+is updated only when the call succeeds and the provider confirms the new time;
+failed calls or declined/unconfirmed reschedules leave it unchanged. Email and
+direct Calendar workflows remain separate channel-specific behavior. CALL-E
+does not need AgentCore-specific plumbing; it is an outbound provider used by
+the executor. Chat transcripts are persisted separately from a small,
 user-visible Drive-backed channel-memory store: the assistant can remember
 that a specific business uses phone, email, text, or a booking system for a
 specific situation. Chat and workspace-scan agents can record explicit channel

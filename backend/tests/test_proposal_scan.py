@@ -50,6 +50,24 @@ def test_parse_and_validate_proposals_requires_the_exact_explicit_phone_for_call
     assert result[0]["call"]["goal"].startswith("Ask whether")
 
 
+def test_call_reschedule_carries_the_existing_event_update_only_when_grounded() -> None:
+    refs = [{
+        "id": "calendar:event-1", "kind": "calendar_event", "label": "Hair appointment",
+        "detail": "Friday 15:00", "phone": "+14155550101", "calendarId": "primary", "eventId": "event-1",
+    }]
+    raw = ('{"proposals": [{"kind": "call_task", "title": "Reschedule hair appointment", '
+           '"rationale": "The salon is phone-only", "sourceId": "calendar:event-1", '
+           '"recipientName": "Maya Hair Studio", "phone": "+14155550101", '
+           '"goal": "Ask whether Friday at 3 PM can move to Saturday at 11 AM.", '
+           '"calendarUpdate": {"calendarId": "primary", "eventId": "event-1", '
+           '"start": "2026-09-12T11:00:00-07:00", "end": "2026-09-12T12:00:00-07:00"}}]}')
+
+    result = proposal_scan._parse_and_validate_proposals(raw, refs)
+
+    assert result[0]["call"]["calendarUpdate"]["action"] == "update_calendar_event"
+    assert result[0]["call"]["calendarUpdate"]["eventId"] == "event-1"
+
+
 def test_parse_and_validate_proposals_drops_a_guessed_call_phone() -> None:
     refs = [{"id": "task:t1", "kind": "task", "label": "Call salon", "detail": "overdue"}]
     raw = ('{"proposals": [{"kind": "call_task", "title": "Call salon", '

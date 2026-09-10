@@ -523,6 +523,44 @@ async def fetch_google_calendars(access_token: str, *, from_date: str | None = N
         return await asyncio.gather(*(fetch_calendar(calendar) for calendar in calendars))
 
 
+def _calendar_boundary(value: str, timezone_name: str | None = None) -> dict[str, str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError("calendar event boundaries must not be empty")
+    if len(normalized) == 10:
+        date.fromisoformat(normalized)
+        return {"date": normalized}
+    datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+    boundary = {"dateTime": normalized}
+    if timezone_name:
+        boundary["timeZone"] = timezone_name
+    return boundary
+
+
+async def update_google_calendar_event(
+    access_token: str,
+    calendar_id: str,
+    event_id: str,
+    *,
+    start: str,
+    end: str,
+    timezone_name: str | None = None,
+) -> dict[str, Any]:
+    """Apply a confirmed reschedule to the existing event only."""
+    body = {
+        "start": _calendar_boundary(start, timezone_name),
+        "end": _calendar_boundary(end, timezone_name),
+    }
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        return await _request_json(
+            client,
+            "PATCH",
+            f"https://www.googleapis.com/calendar/v3/calendars/{quote(calendar_id, safe='')}/events/{quote(event_id, safe='')}",
+            access_token,
+            json_body=body,
+        )
+
+
 async def fetch_google_calendar_event(access_token: str, calendar_id: str, event_id: str) -> dict[str, Any]:
     """Fetch one complete Calendar event for the final memory pass."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:

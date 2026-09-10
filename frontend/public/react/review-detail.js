@@ -437,7 +437,7 @@ function ReviewDetailPage({ userName, userImage }) {
       ] }),
       error && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.errorMessage, children: error }),
       !message && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("footer", { className: ReviewDetailPage_default.actionFooter, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.actionsNote, children: proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review. Any calendar update afterward is separate." : "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox." }),
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.actionsNote, children: proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review." : "Approval authorizes OpenPip to perform this bounded work." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox." }),
         /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("div", { className: ReviewDetailPage_default.actions, children: [
           item.kind !== "campaign" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.secondaryAction, disabled: working, onClick: () => openDecisionPrompt("rejected"), children: proposal ? "Decline proposal" : "Reject draft" }),
           item.kind === "application" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("button", { className: ReviewDetailPage_default.primaryAction, disabled: working, onClick: () => openDecisionPrompt("approved"), children: working ? "Saving\u2026" : "Approve application draft" }),
@@ -648,7 +648,7 @@ function ProposalReview({ proposal }) {
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("section", { className: ReviewDetailPage_default.card, children: [
         /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("h2", { children: "After your approval" }),
-        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.contextText, children: isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. It will not silently reschedule the calendar event or take another action from the call." : "The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone." })
+        /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: ReviewDetailPage_default.contextText, children: isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. If this proposal includes an event reschedule, the existing event changes only when the call succeeds and the provider confirms the new time." : "The existing background worker starts this bounded work only after you approve it." })
       ] })
     ] }),
     /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("aside", { className: ReviewDetailPage_default.contextStack, children: [

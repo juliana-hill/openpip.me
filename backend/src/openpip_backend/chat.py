@@ -25,6 +25,8 @@ from .agent import (
     load_context_documents,
 )
 from .tools import (
+    build_create_proposal_tool,
+    build_find_calendar_events_tool,
     build_get_chat_history_tool,
     build_lookup_channel_memory_tool,
     build_remember_channel_preference_tool,
@@ -81,6 +83,8 @@ async def _run_chat(
                 build_search_chat_history_tool(access_token),
                 build_lookup_channel_memory_tool(access_token),
                 build_remember_channel_preference_tool(access_token),
+                build_find_calendar_events_tool(access_token),
+                build_create_proposal_tool(access_token, job["sessionId"]),
             ]
 
         agent = build_executive_assistant(

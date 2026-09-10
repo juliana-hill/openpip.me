@@ -113,7 +113,7 @@ export function ReviewDetailPage({ userName, userImage }: { userName: string; us
             {message && <p className={styles.success}>{message} <Link href="/inbox">Open Inbox</Link></p>}
             {error && <p className={styles.errorMessage}>{error}</p>}
             {!message && <footer className={styles.actionFooter}>
-              <p className={styles.actionsNote}>{proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review. Any calendar update afterward is separate." : "Approval adds this bounded work to Scheduled Actions. It does not send, apply, book, or contact anyone." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox."}</p>
+              <p className={styles.actionsNote}>{proposal ? proposal.action === "call_task" ? "Approval authorizes one bounded CALL-E phone call after this review." : "Approval authorizes OpenPip to perform this bounded work." : item.kind === "application" ? "Approval records your decision only. The agent does not submit this application." : item.kind === "campaign" ? "Approval starts the existing send process." : "Approval saves this draft for your final send in Inbox."}</p>
               <div className={styles.actions}>
                 {item.kind !== "campaign" && <button className={styles.secondaryAction} disabled={working} onClick={() => openDecisionPrompt("rejected")}>{proposal ? "Decline proposal" : "Reject draft"}</button>}
                 {item.kind === "application" && <button className={styles.primaryAction} disabled={working} onClick={() => openDecisionPrompt("approved")}>{working ? "Saving…" : "Approve application draft"}</button>}
@@ -239,7 +239,7 @@ function ProposalReview({ proposal }: { proposal: Proposal }) {
       </section>
       <section className={styles.card}>
         <h2>After your approval</h2>
-        <p className={styles.contextText}>{isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. It will not silently reschedule the calendar event or take another action from the call." : "The existing background worker starts this bounded work only after you approve it. It does not send, apply, book, or contact anyone."}</p>
+        <p className={styles.contextText}>{isCall ? "OpenPip will place one CALL-E call to the masked number above and record the result. If this proposal includes an event reschedule, the existing event changes only when the call succeeds and the provider confirms the new time." : "The existing background worker starts this bounded work only after you approve it."}</p>
       </section>
     </div>
     <aside className={styles.contextStack}>
