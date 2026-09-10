@@ -70,7 +70,11 @@ def build_read_historical_source_tool(
             "Read one complete historical source record by its exact sourceId. "
             "Use this during the final memory pass for a completed date when its brief index "
             "summary is not enough to support a precise durable memory. The source is fetched "
-            "in memory only and is never stored in the manifest."
+            "in memory only and is never stored in the manifest. For any calendar event, "
+            "this grounding read includes the exact location and complete event fields; use "
+            "that location to ground the event's real-world context. For a Work event, it can "
+            "be correlated with a matching offer or onboarding email, but never infer a job "
+            "title from the event name alone."
         ),
     )
     async def read_historical_source(source_id: str) -> str:
@@ -147,8 +151,26 @@ def build_search_historical_sources_tool(
                     if isinstance(page, dict):
                         indexed_entries.extend(item for item in page.get("entries", []) if isinstance(item, dict))
         for item in indexed_entries:
-            record = item.get("record") if isinstance(item.get("record"), dict) else item
-            reference = item.get("reference") if isinstance(item.get("reference"), dict) else item
+            if item.get("sourceId"):
+                # Current lazy date files contain index-only entries directly.
+                # Keep the search result compact and never surface a legacy raw
+                # record payload if one is encountered during recovery.
+                record = {
+                    "sourceId": item.get("sourceId"),
+                    "date": item.get("date"),
+                    "summary": item.get("summary") or "",
+                }
+                reference = {
+                    "id": item.get("sourceId"),
+                    "kind": item.get("kind"),
+                    "label": item.get("label"),
+                    "detail": item.get("detail"),
+                    "url": item.get("url"),
+                    **({"providerId": item["providerId"]} if item.get("providerId") else {}),
+                }
+            else:
+                record = item.get("record") if isinstance(item.get("record"), dict) else item
+                reference = item.get("reference") if isinstance(item.get("reference"), dict) else item
             searchable = json.dumps({"record": record, "reference": reference}, default=str).lower()
             if not all(term in searchable for term in terms):
                 continue
@@ -187,7 +209,9 @@ def build_remember_insight_tool(
             "with an end date when later evidence shows the user left; do not save each work-related record "
             "as its own memory. Generic holiday restatements are skipped. A focused existing-memory lookup "
             "must have completed immediately before this call; if a related memory is returned, update its "
-            "exact memoryKey instead of creating a second key."
+            "exact memoryKey instead of creating a second key. A generic calendar item titled Work, Office, "
+            "Shift, or Workday is not proof of employment; work memories require explicit source language "
+            "that the user started, joined, or was hired at a named employer or location."
         ),
     )
     async def remember_historical_insight(
@@ -218,6 +242,12 @@ def build_remember_insight_tool(
                 source_references=[source_references[source_id] for source_id in source_ids],
             ):
                 return json.dumps({"status": "skipped", "reason": "Generic holiday facts are not user-specific memories."})
+            if insight_memory.is_generic_work_calendar_insight(
+                category=category,
+                fact=fact,
+                source_references=[source_references[source_id] for source_id in source_ids],
+            ):
+                return json.dumps({"status": "skipped", "reason": "Generic work calendar blocks are not employment evidence."})
             record = await insight_memory.upsert_insight(
                 access_token,
                 memory_key=memory_key,

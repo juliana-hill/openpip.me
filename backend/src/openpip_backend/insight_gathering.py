@@ -102,6 +102,7 @@ def _default_status() -> dict[str, Any]:
         "runId": None,
         "progress": 0,
         "currentStage": None,
+        "currentDate": None,
         "statusMessage": None,
         "stages": {name: _stage() for name in _STAGES},
         "collection": {name: _collection_stage() for name in _COLLECTION_SOURCES},
@@ -122,6 +123,22 @@ def _add_event(status: dict[str, Any], title: str, detail: str | None = None) ->
 
 
 def _progress(status: dict[str, Any]) -> int:
+    oldest_values = [value for value in (status.get("oldestSourceDates") or {}).values() if value]
+    newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
+    current_value = status.get("currentDate")
+    if current_value and oldest_values and newest_values:
+        try:
+            oldest = min(date.fromisoformat(str(value)[:10]) for value in oldest_values)
+            newest = max(date.fromisoformat(str(value)[:10]) for value in newest_values)
+            current = date.fromisoformat(str(current_value)[:10])
+            total_days = max(1, (newest - oldest).days + 1)
+            completed_days = min(total_days, max(0, (current - oldest).days + 1))
+            percentage = round(completed_days / total_days * 100)
+            return max(1, percentage) if completed_days else 0
+        except (TypeError, ValueError):
+            # Fall back to record progress while a partially-written boundary
+            # checkpoint is being recovered.
+            pass
     value = 0.0
     for name, weight in _WEIGHTS.items():
         stage = status["stages"].get(name, {})
@@ -394,11 +411,10 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "oldestSourceDates": oldest,
         "newestSourceDates": newest,
         "sourceCursors": source_cursors,
+        "currentDate": min((value for value in source_cursors.values() if value), default=None),
         "dates": [],
         "lastFetchedDate": None,
-        "numberOfEntries": 0,
-        "sources": {},
-        "sourceCounts": {},
+        "dateStates": {},
         "warnings": [],
     }
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
@@ -785,7 +801,9 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "to find related records on other dates and in other source types, then combine the evidence into "
         "the summaries for this date. For every source that may support a durable memory, call "
         "read_historical_source with its exact sourceId before saving; the full record is fetched only "
-        "for this final date-processing pass. Do not read clearly irrelevant records. "
+        "for this final date-processing pass. For every calendar event, use that grounding read when "
+        "the event's location or complete fields matter, regardless of category. Do not read clearly "
+        "irrelevant records. "
         "one memory. Prefer evidence from at least two independent sources when available, such as an email "
         "plus a calendar event, a contact plus a Google Doc, or a spreadsheet row plus an email. Cite every "
         "supporting source id used; do not save a source item merely because it exists. "
@@ -798,8 +816,15 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "Use a stable key such as work:employment:<employer> and initially record the start date; if a "
         "later record shows that the user left, quit, or ended that job, update that same memory to include "
         "the end date. Never create a separate memory for each work shift, workday, payroll notice, or job "
-        "departure when they describe the same employment relationship. Do not invent dates when the evidence "
-        "only gives an approximate period. "
+        "departure when they describe the same employment relationship. A generic calendar event titled "
+        "Work, Office, Shift, or similar is not employment evidence and must never become a work-start memory. "
+        "Only save an employment start when the full source explicitly says the user started, began, joined, "
+        "or was hired to work at a named employer or location, with that start date; write the concise fact "
+        "as `The user started working at <location> on <date>.` Do not invent dates when the evidence only "
+        "gives an approximate period. When a calendar Work event supplies a location but not the job title, "
+        "search the indexed history for an offer letter, hiring, acceptance, or onboarding email that names "
+        "the same employer/location, then use read_historical_source on that email before recording the exact "
+        "title. The calendar location alone is not enough to infer a job title. "
         "Do not save generic public or national holidays, religious observances, or default holiday-calendar "
         "entries; a holiday is only relevant when the user's own notes, attendees, or action make it personal. "
         "Also skip boilerplate reminders, ordinary workday blocks, invitations where the user's role is "
@@ -890,13 +915,15 @@ async def _fetch_lazy_day(
     access_token: str,
     day: date,
     manifest: dict[str, Any],
+    indexed: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch only the records at the current source cursors.
 
-    The returned entries are intentionally ephemeral.  Callers must not write
-    them to Drive; only the cursor metadata is durable.
+    The source payloads are intentionally ephemeral. Callers persist only the
+    resulting index records in the current day's manifest file.
     """
     entries: list[dict[str, Any]] = []
+    indexed = indexed or {}
     cursors = manifest.setdefault("sourceCursors", {})
     end = date.fromisoformat(str(manifest.get("newestSourceDates", {}).get("calendar") or day)) + timedelta(days=1)
 
@@ -963,7 +990,10 @@ async def _fetch_lazy_day(
         for task in await fetch_google_tasks(access_token, include_completed=True):
             source_id = f"task:{task.get('source', 'google')}:{task.get('id')}"
             entries.append({
-                "record": {"sourceId": source_id, "date": task.get("dueDate") or day.isoformat(), "listId": task.get("listId"), **{key: task.get(key) for key in ("title", "notes", "completed", "dueDate", "projectName", "listName")}},
+                # Tasks have no provider-side historical cursor. They are
+                # intentionally indexed on the one cursor date (today), while
+                # retaining their own dueDate as record detail.
+                "record": {"sourceId": source_id, "date": day.isoformat(), "listId": task.get("listId"), **{key: task.get(key) for key in ("title", "notes", "completed", "dueDate", "projectName", "listName")}},
                 "reference": {"id": source_id, "kind": "task", "label": task.get("title") or "Task", "detail": task.get("dueDate") or "", "url": None},
             })
 
@@ -976,7 +1006,6 @@ async def _fetch_lazy_day(
                 "reference": {"id": source_id, "kind": "contact", "label": person.get("name") or "Contact", "detail": person.get("email") or "", "url": None},
             })
 
-    indexed = manifest.get("sources") if isinstance(manifest.get("sources"), dict) else {}
     # Completed summaries are the recovery checkpoint; only pending records
     # are sent through the source-reading tool again.
     return [
@@ -986,7 +1015,7 @@ async def _fetch_lazy_day(
 
 
 async def _advance_lazy_cursors(access_token: str, day: date, manifest: dict[str, Any]) -> None:
-    """Move only source cursors; no source records are persisted."""
+    """Move source cursors while leaving indexed records in the date file."""
     cursors = manifest.setdefault("sourceCursors", {})
     newest = manifest.get("newestSourceDates", {})
     history_end = date.today() + timedelta(days=_LOOKAHEAD_DAYS + 1)
@@ -1014,6 +1043,7 @@ async def _advance_lazy_cursors(access_token: str, day: date, manifest: dict[str
         cursors["contacts"] = None
     manifest["lastFetchedDate"] = day.isoformat()
     manifest["nextDate"] = min((value for value in cursors.values() if value), default=None)
+    manifest["currentDate"] = manifest["nextDate"]
     manifest["newestSourceDates"] = newest
 
 
@@ -1069,6 +1099,89 @@ def _manifest_record(entry: dict[str, Any], *, status: str, summary: str = "") -
     }
 
 
+async def _write_lazy_date_index(
+    access_token: str,
+    manifest: dict[str, Any],
+    day: str,
+    records: dict[str, dict[str, Any]],
+) -> None:
+    """Persist the current day's index without storing any source payload."""
+    day_entries = sorted(
+        (
+            normalized
+            for item in records.values()
+            if isinstance(item, dict)
+            for normalized in [_normalize_index_record(item)]
+            if normalized and str(normalized.get("date") or "") == day
+        ),
+        key=lambda item: str(item.get("sourceId") or ""),
+    )
+    pages = [
+        {"page": page_number, "entries": day_entries[offset:offset + _BATCH_SIZE]}
+        for page_number, offset in enumerate(range(0, len(day_entries), _BATCH_SIZE), start=1)
+    ]
+    date_states = manifest.get("dateStates") if isinstance(manifest.get("dateStates"), dict) else {}
+    await write_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day), {
+        "version": _MANIFEST_VERSION,
+        "date": day,
+        "status": date_states.get(day) or "indexing",
+        "numberOfEntries": len(day_entries),
+        "completedEntries": sum(item.get("status") == "completed" for item in day_entries),
+        "pages": pages,
+    })
+
+
+def _normalize_index_record(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Normalize a date-file entry while dropping any legacy raw payload."""
+    if item.get("sourceId"):
+        return {
+            key: item.get(key)
+            for key in ("sourceId", "kind", "date", "label", "detail", "url", "providerId", "status", "summary")
+        }
+    record = item.get("record") if isinstance(item.get("record"), dict) else {}
+    reference = item.get("reference") if isinstance(item.get("reference"), dict) else {}
+    source_id = str(reference.get("id") or record.get("sourceId") or "")
+    if not source_id:
+        return None
+    return _manifest_record(
+        item,
+        status=str(item.get("status") or "in_progress"),
+        summary=str(item.get("summary") or _brief_record_summary(item)),
+    )
+
+
+async def _read_lazy_date_index(
+    access_token: str,
+    day: str,
+) -> dict[str, dict[str, Any]]:
+    date_file = await read_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day))
+    if not isinstance(date_file, dict):
+        return {}
+    result: dict[str, dict[str, Any]] = {}
+    pages = date_file.get("pages") if isinstance(date_file.get("pages"), list) else []
+    for page in pages:
+        entries = page.get("entries") if isinstance(page, dict) else None
+        if not isinstance(entries, list):
+            continue
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            normalized = _normalize_index_record(item)
+            if normalized:
+                result[str(normalized["sourceId"])] = normalized
+    return result
+
+
+async def _read_lazy_source_index(
+    access_token: str,
+    days: list[str],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    for day in dict.fromkeys(days):
+        result.update(await _read_lazy_date_index(access_token, day))
+    return result
+
+
 async def _run_lazy(access_token: str, status: dict[str, Any], context_block: str, agent_name: str) -> None:
     """Review one oldest-date batch at a time while persisting only the index."""
     manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
@@ -1076,7 +1189,27 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
         manifest = await _collect_manifest(access_token, status)
         for stage in status["stages"].values():
             stage.update({"status": "pending", "processed": 0, "total": 0})
-    records = manifest.setdefault("sources", {})
+    # Older v6 checkpoints briefly kept all index records in metadata.json.
+    # Move those index-only records into their date files before continuing;
+    # metadata.json remains pointers-only after this migration.
+    had_legacy_fields = any(key in manifest for key in ("sources", "numberOfEntries", "sourceCounts"))
+    legacy_records = manifest.pop("sources", {})
+    if isinstance(legacy_records, dict) and legacy_records:
+        legacy_by_day: dict[str, dict[str, dict[str, Any]]] = {}
+        for item in legacy_records.values():
+            if not isinstance(item, dict):
+                continue
+            normalized = _normalize_index_record(item)
+            if normalized:
+                legacy_by_day.setdefault(str(normalized.get("date") or "undated"), {})[
+                    str(normalized["sourceId"])
+                ] = normalized
+        for legacy_day, day_records in legacy_by_day.items():
+            await _write_lazy_date_index(access_token, manifest, legacy_day, day_records)
+    manifest.pop("numberOfEntries", None)
+    manifest.pop("sourceCounts", None)
+    if had_legacy_fields:
+        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     stage = status["stages"]["history"]
     stage["status"] = "running"
 
@@ -1085,7 +1218,8 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
         active_dates = [str(value) for value in cursors.values() if value]
         if not active_dates:
             stage["status"] = "completed"
-            status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
+            status.update({"state": "completed", "currentStage": None, "currentDate": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
+            manifest["currentDate"] = None
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
             _add_event(status, "Historical insights are ready")
             await _write_status(access_token, status)
@@ -1093,17 +1227,21 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
 
         day = date.fromisoformat(min(active_dates))
         status["currentStage"] = f"history · {day.isoformat()}"
+        status["currentDate"] = day.isoformat()
         status["statusMessage"] = f"Fetching records for {day.isoformat()}."
         _logger.info("historical insight gathering: oldest crawl date=%s", day)
         await _write_status(access_token, status)
-        entries = await _fetch_lazy_day(access_token, day, manifest)
+        date_key = day.isoformat()
+        date_records = await _read_lazy_date_index(access_token, date_key)
+        entries = await _fetch_lazy_day(access_token, day, manifest, date_records)
         # Persist only source ids and tiny index metadata before the agent runs;
         # an interrupted batch can therefore be retried without losing place.
         for entry in entries:
             indexed = _manifest_record(entry, status="in_progress")
-            records[indexed["sourceId"]] = indexed
-        manifest["numberOfEntries"] = len(records)
+            date_records[indexed["sourceId"]] = indexed
+        manifest["currentDate"] = date_key
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+        await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
         # Deterministic crawl pass: read one record, derive a tiny index summary,
         # persist only that summary/status, and release the record.
@@ -1113,20 +1251,23 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
             await _write_status(access_token, status)
             hydrated = (await _hydrate_page(access_token, "history", [entry]))[0]
             fallback = _brief_record_summary(hydrated)
-            records[source_id].update({"status": "completed", "summary": fallback})
+            date_records[source_id].update({"status": "completed", "summary": fallback})
             stage["processed"] = int(stage.get("processed") or 0) + 1
-            manifest["numberOfEntries"] = len(records)
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+            await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
         # Only after every record for this date has a completed summary do we
         # give the complete date dataset to the memory-extraction agent.
-        date_key = day.isoformat()
         date_states = manifest.setdefault("dateStates", {})
-        date_entries = _indexed_date_entries(records, date_key)
+        date_entries = _indexed_date_entries(date_records, date_key)
         if date_entries and date_states.get(date_key) != "completed":
             date_states[date_key] = "memory_in_progress"
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
             references = {entry["reference"]["id"]: entry["reference"] for entry in date_entries}
+            indexed_days = [str(value) for value in manifest.get("dates", [])]
+            indexed_days.extend(str(value) for value in (manifest.get("dateStates") or {}).keys())
+            indexed_days.append(date_key)
+            source_index = await _read_lazy_source_index(access_token, indexed_days)
             saved = 0
 
             def counted() -> None:
@@ -1140,10 +1281,10 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
                 agent_name=agent_name,
                 extra_tools=[
                     build_lookup_insights_tool(access_token, lookup_state),
-                    build_read_historical_source_tool(access_token, records),
+                    build_read_historical_source_tool(access_token, source_index),
                     build_search_historical_sources_tool(
                         access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
-                        references, search_state, records,
+                        references, search_state, source_index,
                     ),
                     build_remember_insight_tool(access_token, references, counted, search_state, lookup_state),
                 ],
@@ -1153,13 +1294,15 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
             await _stream_agent_page(memory_agent, _prompt(f"all summarized history for {date_key}", date_entries), status, access_token)
             date_states[date_key] = "completed"
             status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
+            await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
         await _advance_lazy_cursors(access_token, day, manifest)
         manifest.setdefault("dates", []).append(day.isoformat())
         manifest["dates"] = list(dict.fromkeys(manifest["dates"]))
-        manifest["numberOfEntries"] = len(records)
+        manifest["currentDate"] = manifest.get("nextDate")
+        await _write_lazy_date_index(access_token, manifest, date_key, date_records)
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-        _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(records)} source records indexed")
+        _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(date_records)} source records indexed")
         await _write_status(access_token, status)
 
 
@@ -1186,7 +1329,7 @@ async def _run(access_token: str, run_id: str) -> None:
     _logger.info("historical insight gathering: worker started run_id=%s", run_id)
     try:
         status = await _read_status(access_token)
-        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Preparing the historical review."})
+        status.update({"state": "running", "runId": run_id, "startedAt": status.get("startedAt") or datetime.now(UTC).isoformat(), "currentDate": None, "error": None, "statusMessage": "Preparing the historical review."})
         _add_event(status, "Historical review started")
         await _write_status(access_token, status)
         app_data, context_block = await asyncio.gather(read_drive_app_data(access_token), load_context_documents(access_token))

@@ -5,6 +5,7 @@ export type InsightGatheringStatus = {
   state: "not_started" | "queued" | "running" | "completed" | "failed";
   progress?: number;
   currentStage?: string | null;
+  currentDate?: string | null;
   statusMessage?: string | null;
   insightsWritten?: number;
   stages?: { history?: { total?: number } };
@@ -23,7 +24,7 @@ export function StudyMeCard({
   const [starting, setStarting] = useState(false);
   const running = status.state === "queued" || status.state === "running";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
-  const progressLabel = running && !(status.stages?.history?.total) ? "Working…" : `${progress}% complete`;
+  const progressLabel = running && !status.currentDate ? "Working…" : `${progress}% complete`;
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
   const statusMessage = status.statusMessage && (/^Gathering |^Reading Google Drive history|^Reading spreadsheet/.test(status.statusMessage)
     ? "Building your chronological history."

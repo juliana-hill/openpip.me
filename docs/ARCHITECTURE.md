@@ -70,13 +70,17 @@ The Dashboard's **Study Me** flow is an onboarding/legacy-user pipeline, not a
 chat command. It runs at most once after completion. Startup performs only
 metadata boundary probes for Gmail, Calendar, and Drive, recording the oldest
 and newest date for every collection type in the small
-`OpenPip/memory/insights_gathering/manifest/metadata.json` index. It never
-pre-crawls or stores the source archive. The worker advances through dates in
-chronological order; for each source record, the agent uses a
-`read_historical_source` tool to fetch the full record only for that individual
-processing pass. It then stores only the source id, date, reference, a very
-brief key-fact summary, and `status: completed`. After every record for a date
-is indexed, the agent receives that date's summary set, can re-read exact
+`OpenPip/memory/insights_gathering/manifest/metadata.json` pointer file. It
+stores only the oldest/newest source dates, each source's current cursor, the
+current processing date, completed-date pointers, and recovery state; it never
+stores indexed records. The worker advances through dates in chronological
+order; for each source record, the agent uses a `read_historical_source` tool
+to fetch the full record only for that individual processing pass. It stores
+the index-only source id, date, reference, a very brief key-fact summary, and
+`status: completed` in that day's `manifest/<date>.json` file. The date file is
+updated after each record, so it is also the visible recovery checkpoint and
+contains no raw message, document, or row content. After every record for a
+date is indexed, the agent receives that date's summary set, can re-read exact
 sources for precision, extracts durable memories, and advances to the next
 date. Recovery retries only `in_progress` records. Explicitly documented
 care-provider and appointment facts are allowed, while diagnoses and other

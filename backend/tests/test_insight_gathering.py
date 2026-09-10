@@ -1,4 +1,5 @@
 import asyncio
+from datetime import date
 
 from openpip_backend import insight_gathering
 
@@ -53,3 +54,93 @@ def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> No
 
     assert result["state"] == "queued"
     assert result["statusMessage"] == "Resuming the historical review."
+
+
+def test_progress_uses_oldest_newest_date_span_and_current_date() -> None:
+    status = {
+        "oldestSourceDates": {"emails": "2021-01-01", "calendar": "2021-01-01"},
+        "newestSourceDates": {"emails": "2021-01-03", "calendar": "2021-01-03"},
+        "currentDate": "2021-01-01",
+        "stages": {"history": {"status": "running", "processed": 0, "total": 0}},
+    }
+
+    # The global span is January 1-3, 2021, calculated across collection
+    # types, so the first current date is one third complete.
+    assert insight_gathering._progress(status) == 33
+
+    status["currentDate"] = "2021-01-02"
+    assert insight_gathering._progress(status) == 67
+
+
+def test_normalize_index_record_drops_legacy_raw_payload() -> None:
+    normalized = insight_gathering._normalize_index_record({
+        "record": {
+            "sourceId": "email:1",
+            "date": "2020-11-17T12:00:00Z",
+            "body": "private source body",
+        },
+        "reference": {"id": "email:1", "kind": "email", "label": "Subject"},
+    })
+
+    assert normalized is not None
+    assert normalized["sourceId"] == "email:1"
+    assert "body" not in normalized
+    assert normalized["status"] == "in_progress"
+
+
+def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:
+    saved: dict[str, object] = {}
+
+    async def fake_write(_token: str, _folder: str, filename: str, data: dict):
+        saved[filename] = data
+
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+
+    asyncio.run(insight_gathering._write_lazy_date_index(
+        "token",
+        {"dateStates": {"2020-11-17": "indexing"}},
+        "2020-11-17",
+        {
+            "email:1": {
+                "sourceId": "email:1", "kind": "email", "date": "2020-11-17",
+                "status": "completed", "summary": "A brief summary", "body": "must not persist",
+            },
+        },
+    ))
+
+    date_file = saved["2020-11-17.json"]
+    assert date_file["status"] == "indexing"
+    entry = date_file["pages"][0]["entries"][0]
+    assert entry["status"] == "completed"
+    assert entry["summary"] == "A brief summary"
+    assert "body" not in entry
+
+
+def test_collect_manifest_metadata_contains_pointers_not_records(monkeypatch) -> None:
+    async def fake_boundary(*_args, **_kwargs):
+        return date(2021, 1, 1)
+
+    async def fake_write_status(_token: str, _status: dict):
+        return None
+
+    async def fake_write_json(_token: str, _folder: str, filename: str, data: dict):
+        if filename == "metadata.json":
+            captured.update(data)
+
+    captured: dict = {}
+    for name in (
+        "find_oldest_gmail_date", "find_newest_gmail_date",
+        "find_oldest_calendar_date", "find_newest_calendar_date",
+        "find_oldest_drive_document_date", "find_newest_drive_document_date",
+    ):
+        monkeypatch.setattr(insight_gathering, name, fake_boundary)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write_json)
+
+    asyncio.run(insight_gathering._collect_manifest("token", insight_gathering._default_status()))
+
+    assert captured["oldestSourceDates"]["emails"] == "2021-01-01"
+    assert captured["newestSourceDates"]["calendar"] == "2021-01-01"
+    assert captured["currentDate"] == "2021-01-01"
+    assert "sources" not in captured
+    assert "numberOfEntries" not in captured
