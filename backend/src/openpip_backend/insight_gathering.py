@@ -96,11 +96,16 @@ def _progress(status: dict[str, Any]) -> int:
 
 
 async def _read_status(access_token: str) -> dict[str, Any]:
-    stored = await read_json_file(access_token, _FOLDER, _STATUS_FILE)
-    if stored is None:
-        # Preserve an in-flight pre-date-file run across the storage-layout
-        # migration; its records will be recollected into the new pages.
-        stored = await read_json_file(access_token, _LEGACY_FOLDER, _STATUS_FILE)
+    try:
+        stored = await read_json_file(access_token, _FOLDER, _STATUS_FILE)
+        if stored is None:
+            # Preserve an in-flight pre-date-file run across the storage-layout
+            # migration; its records will be recollected into the new pages.
+            stored = await read_json_file(access_token, _LEGACY_FOLDER, _STATUS_FILE)
+    except Exception:
+        # Status polling must remain available when Drive is temporarily slow
+        # or unavailable; the next poll can recover the persisted checkpoint.
+        return _default_status()
     if not isinstance(stored, dict) or stored.get("version") != _STATUS_VERSION:
         return _default_status()
     result = _default_status()

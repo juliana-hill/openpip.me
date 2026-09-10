@@ -120,6 +120,25 @@ async def _get_or_create_folder(client: httpx.AsyncClient, access_token: str, fo
     return parent_id
 
 
+async def _find_folder(client: httpx.AsyncClient, access_token: str, folder_path: str) -> str | None:
+    """Resolve an existing folder without creating anything during a read."""
+    parent_id = "root"
+    for part in (p.strip() for p in folder_path.split("/") if p.strip()):
+        search = await _request(
+            client, "GET", f"{_DRIVE_API}/files", access_token,
+            params={
+                "q": f"name = '{_escape(part)}' and mimeType = '{_FOLDER_MIME}' and '{parent_id}' in parents and trashed = false",
+                "fields": "files(id)",
+                "pageSize": 1,
+            },
+        )
+        files = search.json().get("files", [])
+        if not files:
+            return None
+        parent_id = str(files[0]["id"])
+    return parent_id
+
+
 async def _find_file(client: httpx.AsyncClient, access_token: str, parent_id: str, filename: str) -> dict[str, str] | None:
     response = await _request(
         client, "GET", f"{_DRIVE_API}/files", access_token,
@@ -216,7 +235,9 @@ async def overwrite_document(access_token: str, folder_path: str, filename: str,
 async def read_json_file(access_token: str, folder_path: str, filename: str) -> dict[str, Any] | None:
     """Read one "<name>.json" file from folder_path. None if it doesn't exist."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        parent_id = await _get_or_create_folder(client, access_token, folder_path)
+        parent_id = await _find_folder(client, access_token, folder_path)
+        if parent_id is None:
+            return None
         existing = await _find_file(client, access_token, parent_id, filename)
         if not existing:
             return None
@@ -249,7 +270,9 @@ async def write_json_file(access_token: str, folder_path: str, filename: str, da
 async def delete_json_file(access_token: str, folder_path: str, filename: str) -> None:
     """No-op if the file doesn't exist — deleting an already-absent record isn't an error."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        parent_id = await _get_or_create_folder(client, access_token, folder_path)
+        parent_id = await _find_folder(client, access_token, folder_path)
+        if parent_id is None:
+            return
         existing = await _find_file(client, access_token, parent_id, filename)
         if not existing:
             return
@@ -261,7 +284,9 @@ async def list_json_files(access_token: str, folder_path: str) -> dict[str, dict
     {filename stem (no ".json"): content} — the caller treats the stem as
     the record's id (e.g. a task id)."""
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        parent_id = await _get_or_create_folder(client, access_token, folder_path)
+        parent_id = await _find_folder(client, access_token, folder_path)
+        if parent_id is None:
+            return {}
         listing = await _request(
             client, "GET", f"{_DRIVE_API}/files", access_token,
             params={
