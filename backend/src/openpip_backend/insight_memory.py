@@ -1,9 +1,9 @@
 """Drive-backed durable insights gathered from the user's existing history.
 
-Insight records are keyed by a stable ``memoryKey``.  Updating that key replaces
-the current fact and merges its evidence, so repeated scans or overlapping
-source batches refine one memory instead of creating an ever-growing list of
-duplicates.
+Insight records are keyed by a stable ``memoryKey``. Updating that key replaces
+the current canonical topic narrative and merges its evidence, so repeated
+scans or overlapping source batches refine one chronological memory instead of
+creating an ever-growing list of event fragments or duplicates.
 """
 
 from __future__ import annotations
@@ -70,6 +70,12 @@ async def upsert_insight(
     source_references: list[dict[str, Any]],
     rationale: str = "",
 ) -> dict[str, Any]:
+    """Create or replace one topic's canonical, source-backed narrative.
+
+    ``fact`` is intentionally the complete narrative that future agents will
+    receive as durable context. Callers updating a memory should rewrite the
+    full chronology rather than append a new event fragment.
+    """
     key = memory_key.strip().lower()
     if not _KEY_RE.fullmatch(key):
         raise ValueError("memory_key must be a stable lowercase key (letters, numbers, :, ., /, or -)")
@@ -109,10 +115,15 @@ async def upsert_insight(
 def format_insight_context(insights: list[dict[str, Any]]) -> str:
     if not insights:
         return ""
-    return "Durable historical insights (use as context, not as new facts):\n" + "\n".join(
+    return (
+        "Durable historical insights are canonical chronological narratives. Each memory covers one specific topic; "
+        "its fact is the current source-backed narrative, ordered from earlier events to later events. Use these "
+        "narratives as context, not as new facts, and verify them against current evidence when the distinction matters.\n"
+        + "\n".join(
         f"- [{item.get('category')}] {item.get('subject')}: {item.get('fact')} "
         f"(confidence: {item.get('confidence', 'medium')})"
         for item in insights[:30]
+        )
     )
 
 

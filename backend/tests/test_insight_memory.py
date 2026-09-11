@@ -96,6 +96,19 @@ def test_lookup_treats_missing_memory_directory_as_empty(monkeypatch) -> None:
     assert asyncio.run(insight_memory.lookup_insights("token", "learning")) == []
 
 
+def test_format_insight_context_describes_memories_as_topic_narratives() -> None:
+    context = insight_memory.format_insight_context([{
+        "category": "work",
+        "subject": "Scout role history",
+        "fact": "In 2021, Chad was identified as an owner; later records connected the user's work to Scout.",
+        "confidence": "high",
+    }])
+
+    assert "canonical chronological narratives" in context
+    assert "one specific topic" in context
+    assert "Scout role history" in context
+
+
 def test_generic_holiday_insight_is_not_user_specific() -> None:
     assert insight_memory.is_generic_holiday_insight(
         fact="Columbus Day is a public holiday on October 11, 2021.",

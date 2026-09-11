@@ -37,6 +37,7 @@ def test_memory_prompt_keeps_work_spans_and_personal_profile_facts() -> None:
     assert "purchase cadence" in prompt
     assert "last observed purchase date" in prompt
     assert "syllabus" in prompt
+    assert "chronological narrative" in prompt
 
 
 def test_start_is_idempotent_after_completion(monkeypatch) -> None:
@@ -244,6 +245,7 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
     assert len(prompts) == 1
     assert "list_historical_sources repeatedly" in prompts[0]
     assert "remember_historical_insight as the write tool" in prompts[0]
+    assert "canonical output" in prompts[0]
     assert status["stages"]["aggregate"] == {"status": "completed", "processed": 1, "total": 1}
     assert manifest["aggregateStatus"] == "completed"
 

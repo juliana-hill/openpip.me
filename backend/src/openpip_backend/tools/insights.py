@@ -244,8 +244,13 @@ def build_remember_insight_tool(
     @tool(
         name="remember_historical_insight",
         description=(
-            "Save one durable, source-backed fact about the user. Use a stable lowercase memoryKey "
-            "for the underlying fact so later batches update the same memory. Only save useful facts "
+            "Write one durable, source-backed narrative about the user. Use a stable lowercase memoryKey "
+            "for one specific underlying topic so later aggregate passes update the same memory. The subject "
+            "names that topic, and fact is the memory's canonical narrative: reconstruct the relevant events "
+            "in chronological order from earliest to latest, explain the supported connections and changes, "
+            "and end with the latest reconciled state. Do not write a one-line event fragment, a list of "
+            "unconnected claims, or a narrative that mixes unrelated topics. When updating an existing memory, "
+            "rewrite the complete narrative rather than appending only the newest event. Only save useful facts "
             "that are supported by the supplied sourceReferences; never infer sensitive information, "
             "secrets, or an ephemeral detail. sourceIds must exactly match supplied sourceReferences. "
             "Choose any descriptive category that fits the fact; categories are metadata, not a fixed list. "
@@ -275,8 +280,10 @@ def build_remember_insight_tool(
             "earliest and latest matching location events as the observed employment span and cite those "
             "events, while using offer, hiring, acceptance, or onboarding evidence to identify the exact "
             "employer or job title when available. This is the write tool: call it only after the aggregate "
-            "agent has established the correct narrative from the complete source records. When read_state "
-            "is enforced, every cited source must have been fetched with read_historical_source first."
+            "agent has established the correct narrative from the complete source records. The saved fact "
+            "is what future Strands system prompts will receive as the memory, so it must stand alone as a "
+            "coherent chronological account. When read_state is enforced, every cited source must have been "
+            "fetched with read_historical_source first."
         ),
     )
     async def remember_historical_insight(
