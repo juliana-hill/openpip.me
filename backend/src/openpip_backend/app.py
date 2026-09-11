@@ -60,7 +60,11 @@ from .guideline_templates import AGENT_MD_SAMPLE, GOALS_SAMPLES
 from . import proposal_drive_store
 from .execution_pipeline import tick as execution_tick
 from .proposal_scan import get_proposal_scan_progress, queue_proposal_scan
-from .insight_gathering import get_insight_gathering_status, start_insight_gathering
+from .insight_gathering import (
+    get_insight_gathering_login_status,
+    get_insight_gathering_status,
+    start_insight_gathering,
+)
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -560,6 +564,16 @@ async def agent_insights_gather_status(
     """Return the persistent one-time historical insight pipeline status."""
     owner_key, token_resolver = _insight_token_context(request)
     return await get_insight_gathering_status(token, owner_key=owner_key, token_resolver=token_resolver)
+
+
+@app.get("/agent/insights/gather/login-status")
+async def agent_insights_gather_login_status(
+    request: Request,
+    token: str = Depends(get_google_token),
+):
+    """Read the saved historical review state without starting it on login."""
+    owner_key, _token_resolver = _insight_token_context(request)
+    return await get_insight_gathering_login_status(token, owner_key=owner_key)
 
 
 @app.post("/agent/insights/gather")

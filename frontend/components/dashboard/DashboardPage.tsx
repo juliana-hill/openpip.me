@@ -170,7 +170,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
     let mounted = true;
     async function loadInsightStatus() {
       try {
-        const response = await proxyFetch("/agent/insights/gather");
+        const response = await proxyFetch("/agent/insights/gather/login-status");
         if (mounted && response.ok) {
           const next = await response.json() as InsightGatheringStatus;
           setInsightStatus(next);

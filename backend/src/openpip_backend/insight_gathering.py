@@ -185,10 +185,11 @@ async def get_insight_gathering_status(
     status = await _read_status(access_token)
     if status.get("state") in {"queued", "running"}:
         owner = _owner(access_token, owner_key)
-        if owner not in _active_jobs:
-            # The worker is intentionally in memory because the Google token
-            # is never stored durably. If the API container restarts, the next
-            # browser poll uses the Drive checkpoint to resume it.
+        active_id = _active_jobs.get(owner)
+        if not active_id or active_id not in _jobs:
+            # The polling endpoint is allowed to recover a worker after the
+            # API process has restarted. The login-only endpoint below is the
+            # read-only path used to decide whether to show Study Me or Resume.
             if owner_key is None and token_resolver is None:
                 return await start_insight_gathering(access_token)
             return await start_insight_gathering(
@@ -196,6 +197,26 @@ async def get_insight_gathering_status(
                 owner_key=owner_key,
                 token_resolver=token_resolver,
             )
+    return status
+
+
+async def get_insight_gathering_login_status(
+    access_token: str,
+    *,
+    owner_key: str | None = None,
+) -> dict[str, Any]:
+    """Read the saved review state for the dashboard's post-login card.
+
+    Login should never launch a worker. A saved incomplete run is exposed as
+    paused so the card can offer an explicit Resume button.
+    """
+    status = await _read_status(access_token)
+    if status.get("state") in {"queued", "running"}:
+        owner = _owner(access_token, owner_key)
+        active_id = _active_jobs.get(owner)
+        if not active_id or active_id not in _jobs:
+            status["state"] = "paused"
+            status["statusMessage"] = "The historical review is ready to resume."
     return status
 
 

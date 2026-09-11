@@ -2,7 +2,7 @@ import styles from "./DashboardPage.module.css";
 import { useEffect, useState } from "react";
 
 export type InsightGatheringStatus = {
-  state: "not_started" | "queued" | "running" | "completed" | "failed";
+  state: "not_started" | "paused" | "queued" | "running" | "completed" | "failed";
   progress?: number;
   currentStage?: string | null;
   currentDate?: string | null;
@@ -26,6 +26,7 @@ export function StudyMeCard({
 }) {
   const [starting, setStarting] = useState(false);
   const running = status.state === "queued" || status.state === "running";
+  const resumable = status.state === "paused" || status.state === "failed";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
   const progressLabel = running && !status.currentDate ? "Working…" : `${progress}% complete`;
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
@@ -54,11 +55,13 @@ export function StudyMeCard({
         <p className={styles.assistantPromptCopy}>
           {running
             ? (statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.`)
+            : resumable
+              ? "Your saved historical review is ready to resume when you are ready."
             : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.`}
         </p>
         {running && (
           <p className={styles.assistantPromptMeta}>
-            {progressLabel}{status.insightsWritten ? ` · ${status.insightsWritten} insight${status.insightsWritten === 1 ? "" : "s"} saved` : ""}
+            {progressLabel}{status.insightsWritten ? ` · ${status.insightsWritten} date${status.insightsWritten === 1 ? "" : "s"} indexed` : ""}
           </p>
         )}
         {status.state === "failed" && <p className={styles.assistantPromptMeta}>The review paused. You can resume it whenever you are ready.</p>}
@@ -74,7 +77,7 @@ export function StudyMeCard({
           <div className={styles.pipelineStartRow}>
             <button type="button" className={styles.assistantPrimaryBtn} onClick={() => void handleStart()} disabled={starting}>
               {starting && <span className={styles.studyMeSpinner} aria-hidden="true" />}
-              {starting ? "Starting…" : status.state === "failed" ? "Resume review" : "Study Me"}
+              {starting ? "Starting…" : resumable ? "Resume review" : "Study Me"}
             </button>
           </div>
         )}

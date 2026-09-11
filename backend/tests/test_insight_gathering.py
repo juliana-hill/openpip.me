@@ -77,6 +77,28 @@ def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> No
     assert result["statusMessage"] == "Resuming the historical review."
 
 
+def test_login_status_does_not_start_a_persisted_run(monkeypatch) -> None:
+    stale = {"state": "running", "runId": "run-1"}
+    started = False
+
+    async def fake_read(_token: str):
+        return stale
+
+    async def fake_start(_token: str):
+        nonlocal started
+        started = True
+        return {**stale, "state": "queued"}
+
+    monkeypatch.setattr(insight_gathering, "_read_status", fake_read)
+    monkeypatch.setattr(insight_gathering, "start_insight_gathering", fake_start)
+
+    result = asyncio.run(insight_gathering.get_insight_gathering_login_status("token"))
+
+    assert result["state"] == "paused"
+    assert result["statusMessage"] == "The historical review is ready to resume."
+    assert not started
+
+
 def test_worker_refreshes_expired_session_token_and_resumes(monkeypatch) -> None:
     calls: list[str] = []
     writes: list[str] = []
