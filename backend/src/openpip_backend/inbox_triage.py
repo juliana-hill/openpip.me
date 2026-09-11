@@ -41,6 +41,7 @@ from .google_workspace import (
     modify_gmail_message_labels,
     trash_gmail_messages,
 )
+from .insight_memory import format_insight_context, list_insights
 from .models import Proposal, ProposalStatus, SourceReference
 
 TRIAGE_FOLDER = "OpenPip/inbox"
@@ -359,6 +360,14 @@ def _build_classification_prompt(message: dict[str, Any], peers: list[dict[str, 
         "3. \"reply\": not disposable, not a task, and the message asks a real question or "
         "makes a request that expects a written response from the user.\n"
         "4. \"none\": none of the above — informational, already resolved, or nothing to do.\n\n"
+        "Durable historical insights are included in the assistant context. Use them as context, "
+        "not as new facts to write. A receipt or order confirmation is not automatically disposable "
+        "when it helps establish a remembered merchant preference, sale pattern, grocery routine, "
+        "purchase cadence, or the last observed purchase date. Do not infer a preference from one "
+        "isolated receipt, and do not turn every grocery or shopping email into a task. A sale or "
+        "order message that matches an existing shopping memory may be relevant to the user; weigh its "
+        "actual content and timing against the rest of the inbox before choosing delete. Classification "
+        "does not create or update memories; the historical-memory pass does that separately.\n\n"
         'Return ONLY JSON exactly like: {"disposition":"delete|task|reply|none",'
         '"reason":"one specific sentence"}\n\n'
         f"Message to classify:\n{json.dumps(item)[:8000]}"
@@ -628,6 +637,14 @@ async def _run_job(
                     load_context_documents(access_token),
                     _current_agent_name(access_token),
                 )
+                try:
+                    historical_context = format_insight_context(await list_insights(access_token))
+                except Exception:
+                    # Missing/empty Drive memory is normal on first run, and a
+                    # memory lookup failure must never disable inbox triage.
+                    historical_context = ""
+                if historical_context:
+                    context_block = f"{context_block}\n\n{historical_context}" if context_block else historical_context
                 agent = build_executive_assistant(context_block, agent_name=agent_name)
             except Exception:
                 # No agent judgment available this run (e.g. Bedrock is down) —

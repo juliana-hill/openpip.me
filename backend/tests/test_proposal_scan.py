@@ -26,6 +26,25 @@ def test_parse_and_validate_proposals_keeps_only_real_sourced_proposals() -> Non
     assert result[0]["source"]["id"] == "task:abc"
 
 
+def test_proposal_prompt_uses_durable_routine_memories_as_context() -> None:
+    prompt = proposal_scan.build_proposal_scan_prompt(
+        {
+            "historicalInsights": [{
+                "category": "routine",
+                "subject": "Grocery shopping",
+                "fact": "The user usually orders groceries weekly; last observed order was 2026-08-20.",
+            }],
+            "recentEmailSignals": [{"sourceId": "email:receipt-1", "subject": "Grocery order receipt"}],
+        },
+        [{"id": "email:receipt-1", "kind": "email", "label": "Grocery order receipt"}],
+        [],
+    )
+
+    assert "historicalInsights is durable context" in prompt
+    assert "grocery or purchase cadence" in prompt
+    assert "Do not propose from a memory alone" in prompt
+
+
 def test_parse_and_validate_proposals_accepts_the_new_kinds() -> None:
     raw = '{"proposals": [{"kind": "task_complete", "title": "x", "rationale": "y", "sourceId": "task:abc"}]}'
 

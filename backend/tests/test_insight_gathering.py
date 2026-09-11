@@ -34,6 +34,9 @@ def test_memory_prompt_keeps_work_spans_and_personal_profile_facts() -> None:
     assert "self-described personality" in prompt
     assert "official assessment" in prompt
     assert "Do not infer personality traits" in prompt
+    assert "purchase cadence" in prompt
+    assert "last observed purchase date" in prompt
+    assert "syllabus" in prompt
 
 
 def test_start_is_idempotent_after_completion(monkeypatch) -> None:

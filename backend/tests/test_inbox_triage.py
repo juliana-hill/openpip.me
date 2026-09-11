@@ -60,6 +60,8 @@ def test_build_classification_prompt_includes_body_category_and_peer_context() -
     # The prompt must ask for judgment against the rest of the inbox, not a
     # fixed keyword rule — this is the whole point of the rewrite.
     assert "never a rule by itself" in prompt.casefold()
+    assert "durable historical insights" in prompt.casefold()
+    assert "purchase cadence" in prompt.casefold()
 
 
 def test_classify_message_makes_exactly_one_call_for_one_message() -> None:
@@ -132,6 +134,7 @@ def test_run_job_routes_each_disposition_through_the_full_pipeline(monkeypatch) 
             return _FakeAgentResult(json.dumps(payload))
 
     fake_agent = _FakeTriageAgent()
+    captured_agent_context: dict[str, str] = {}
 
     async def fake_contacts(_token: str):
         return {}
@@ -167,6 +170,14 @@ def test_run_job_routes_each_disposition_through_the_full_pipeline(monkeypatch) 
     async def fake_context_documents(*_args, **_kwargs):
         return ""
 
+    async def fake_list_insights(_token: str):
+        return [{
+            "category": "routine",
+            "subject": "Grocery shopping",
+            "fact": "The user usually orders groceries weekly; last observed order was 2026-08-20.",
+            "confidence": "high",
+        }]
+
     async def fake_add_proposal(_token: str, proposal):
         added_proposals.append(proposal)
         return proposal
@@ -181,7 +192,13 @@ def test_run_job_routes_each_disposition_through_the_full_pipeline(monkeypatch) 
     monkeypatch.setattr(inbox_triage, "_historical_sender_tone", fake_tone)
     monkeypatch.setattr(inbox_triage, "fetch_gmail_message", fake_fetch_message)
     monkeypatch.setattr(inbox_triage, "load_context_documents", fake_context_documents)
-    monkeypatch.setattr(inbox_triage, "build_executive_assistant", lambda *_a, **_k: fake_agent)
+    monkeypatch.setattr(inbox_triage, "list_insights", fake_list_insights)
+
+    def fake_build_agent(context_block="", **_kwargs):
+        captured_agent_context["context"] = context_block
+        return fake_agent
+
+    monkeypatch.setattr(inbox_triage, "build_executive_assistant", fake_build_agent)
     monkeypatch.setattr(inbox_triage.proposal_drive_store, "add", fake_add_proposal)
 
     job = {
@@ -196,6 +213,7 @@ def test_run_job_routes_each_disposition_through_the_full_pipeline(monkeypatch) 
     asyncio.run(inbox_triage._run_job("oauth-token", "owner-1", job, messages))
 
     assert job["status"] == "completed"
+    assert "last observed order was 2026-08-20" in captured_agent_context["context"]
     suggestions = written["suggestions"]
 
     promo = suggestions["gmail_promo"]

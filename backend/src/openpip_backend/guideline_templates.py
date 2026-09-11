@@ -104,14 +104,24 @@ card), read directly on every scan. Personalize any section below.
 - If an email about a sale matches something I've already pinned as a
   task or calendar event, propose a task to check out that sale, dated
   for when the sale is happening.
+- Use durable shopping and routine memories as context for timing proposals.
+  For example, if a current receipt or order message shows that a grocery,
+  household, or personal-item routine is due based on its remembered cadence,
+  use that memory to explain why a supported task or review proposal is timely.
+  A memory such as "last grocery order was 2026-08-20; usually weekly" is
+  context, not permission to create a task on every scan. The same principle
+  applies to recurring appointments or purchases such as running shoes every
+  six months.
 
 Beyond that, weigh overdue tasks, stale contacts, and unread mail on
 their own merits.
 
 ## Never propose
 - Only treat a promotional or automated email as evidence when it matches
-  something already pinned as a task or calendar event (see "What matters
-  most" above) — otherwise, never treat one as evidence of anything.
+  something already pinned as a task or calendar event, or when it is a
+  current receipt/order that corroborates an existing durable shopping or
+  routine memory. A single isolated promotion or receipt is not enough to
+  establish a new preference or cadence.
 - Never propose the same action again once it's already been rejected —
   respect that decision.
 """

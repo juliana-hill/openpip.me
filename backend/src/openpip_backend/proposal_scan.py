@@ -507,8 +507,17 @@ def build_proposal_scan_prompt(
         '"calendarUpdate":{"calendarId":"...","eventId":"...",'
         '"start":"...","end":"..."}}]}\n\n'
         "Rules:\n"
+        "- historicalInsights is durable context from the user's completed history. Use it to interpret "
+        "current email, calendar, and task evidence, including remembered shopping merchants, sale timing, "
+        "grocery or purchase cadence, recurring care visits, learning interests, and syllabus deadlines. "
+        "A current receipt, order, appointment, or other dated source may corroborate a memory and help "
+        "explain why an existing task or other supported proposal is timely when the routine is due. "
+        "Do not propose from a memory alone, do not cite a "
+        "memory as sourceId, and do not create a new preference or cadence from one isolated message.\n"
         "- task_followup: only for a specific overdue/ASAP/due-today task with a "
-        "real, specific reason it needs attention now — not just because it exists.\n"
+        "real, specific reason it needs attention now — not just because it exists. A shopping, care, "
+        "or learning routine memory may explain why a current task or dated source is timely, but a "
+        "memory by itself does not create a task proposal.\n"
         "- contact_followup: only for a specific contact in contactsNeedingFollowUp "
         "with a real reason a follow-up would help now, not every stale contact at once.\n"
         "- inbox_pointer: only when inboxAssistantPointer is present in facts — at "
