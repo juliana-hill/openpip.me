@@ -2282,6 +2282,83 @@
   color: var(--color-accent);
   transform: rotate(4deg);
 }
+.RoutesPage_travelGateCard {
+  padding: 0;
+  overflow: hidden;
+  border-top: 4px solid var(--color-accent);
+}
+.RoutesPage_travelGateContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 24px;
+}
+.RoutesPage_travelGateCopy {
+  min-width: 0;
+}
+.RoutesPage_travelGateCopy .RoutesPage_eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.RoutesPage_travelGateCopy .RoutesPage_eyebrow span {
+  font-size: .9rem;
+  line-height: 1;
+}
+.RoutesPage_travelGateTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+  letter-spacing: -.03em;
+  line-height: 1.1;
+}
+.RoutesPage_travelGateDescription,
+.RoutesPage_travelGateMeta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+.RoutesPage_travelGateDescription {
+  max-width: 700px;
+  margin: 10px 0 0;
+}
+.RoutesPage_travelGateMeta {
+  margin: 10px 0 0;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+.RoutesPage_travelGateActions {
+  display: flex;
+  min-width: 210px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.RoutesPage_travelGateWaiting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.RoutesPage_travelGateActionLabel {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  text-align: right;
+}
+.RoutesPage_travelGateProgress {
+  width: 180px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+.RoutesPage_travelGateProgressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 300ms ease;
+}
 .RoutesPage_entryGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.16fr) minmax(310px, .84fr);
@@ -2316,12 +2393,6 @@
   display: block;
   margin-top: 5px;
   line-height: 1.45;
-}
-.RoutesPage_numberMark {
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
-  font-weight: 800;
-  letter-spacing: .08em;
 }
 .RoutesPage_sideStack,
 .RoutesPage_workspaceRail {
@@ -2949,6 +3020,20 @@
   .RoutesPage_researchNotice {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .RoutesPage_travelGateContent {
+    grid-template-columns: 1fr;
+  }
+  .RoutesPage_travelGateActions,
+  .RoutesPage_travelGateWaiting {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+  .RoutesPage_travelGateActionLabel {
+    text-align: left;
+  }
+  .RoutesPage_travelGateActions button {
+    width: 100%;
   }
   .RoutesPage_formFooter > button,
   .RoutesPage_researchNotice > button {

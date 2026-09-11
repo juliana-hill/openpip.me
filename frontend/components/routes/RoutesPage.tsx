@@ -30,6 +30,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
+import { useAgentIdentity } from "@/lib/agentIdentity";
+import type { InsightGatheringStatus } from "@/components/dashboard/StudyMeCard";
+import { TravelPlanningGateCard } from "./TravelPlanningGateCard";
 import styles from "./RoutesPage.module.css";
 
 type Activity = "city" | "hiking" | "road trip" | "camping" | "cycling" | "water";
@@ -169,11 +172,11 @@ function PlanForm({ onSubmit }: { onSubmit: (draft: PlanDraft) => void }) {
   );
 }
 
-function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen }: { collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void }) {
+function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen, syncAllowed }: { collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; syncAllowed: boolean }) {
   const count = collection.trips.length;
   return (
     <Card className={styles.libraryCard}>
-      <CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Saved trip library</p><CardTitle>Past, current & upcoming</CardTitle><CardDescription className={styles.sectionDescription}>Built from your separate trip records. Nothing is booked here.</CardDescription></div><Button variant="ghost" size="sm" onClick={onSync} disabled={syncing || loading} aria-label="Refresh trip library from Study Me"><RefreshCw size={15} className={syncing ? styles.spin : ""} /> {syncing ? "Building" : "Refresh"}</Button></CardHeader>
+      <CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Saved trip library</p><CardTitle>Past, current & upcoming</CardTitle><CardDescription className={styles.sectionDescription}>Built from your separate trip records. Nothing is booked here.</CardDescription></div><Button variant="ghost" size="sm" onClick={onSync} disabled={syncing || loading || !syncAllowed} aria-label="Refresh trip library from Study Me"><RefreshCw size={15} className={syncing ? styles.spin : ""} /> {syncing ? "Building" : "Refresh"}</Button></CardHeader>
       {syncMessage && <p className={styles.syncMessage} role="status">{syncMessage}</p>}
       <CardContent className={styles.libraryContent}>
         {loading ? <div className={styles.libraryLoading}><span className={styles.loadingBar} /><span className={styles.loadingBarShort} /></div> : count > 0 ? <div className={styles.tripGroups}><TripGroup phase="past" trips={collection.groups.past} onOpen={onOpen} /><TripGroup phase="current" trips={collection.groups.current} onOpen={onOpen} /><TripGroup phase="upcoming" trips={collection.groups.upcoming} onOpen={onOpen} /></div> : <div className={styles.emptyTrips}><div className={styles.emptyIcon}><CalendarDays size={22} /></div><div><h3>No saved trips yet</h3><p>{collection.pipeline?.state === "not_run" ? "After Study Me completes, refresh this library to organize trip context from the shared index." : "Build a plan from scratch or refresh the completed Study Me index."}</p></div></div>}
@@ -182,12 +185,14 @@ function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen
   );
 }
 
-function Overview({ collection, loading, syncing, syncMessage, onSync, onOpen, onCreatePlan }: { collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; onCreatePlan: (draft: PlanDraft) => void }) {
+function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync, onOpen, onCreatePlan }: { agentName: string; studyMeStatus: InsightGatheringStatus | null; studyMeStatusLoading: boolean; collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; onCreatePlan: (draft: PlanDraft) => void }) {
+  const studyMeReady = studyMeStatus?.state === "completed";
   return <div className={styles.pageStack}>
     <section className={styles.intro}><div><p className={styles.eyebrow}>Trip readiness</p><h1>Know what to prepare before you go.</h1><p className={styles.introCopy}>Turn a destination or your indexed history into a practical plan with current conditions, route context, and preparation prompts.</p></div><div className={styles.introIcon} aria-hidden="true"><Compass size={30} /></div></section>
+    <TravelPlanningGateCard agentName={agentName} status={studyMeStatus} statusLoading={studyMeStatusLoading} hasLibrary={collection.trips.length > 0} building={syncing} onBuild={onSync} />
     <div className={styles.entryGrid}>
-      <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div><span className={styles.numberMark}>01</span></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
-      <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} /><Card className={styles.signalCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What we’ll look at</p><CardTitle>Preparation, not reservations</CardTitle></div><ShieldAlert size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.signalList}>{starterSignals.map(({ icon: Icon, label, detail }) => <div className={styles.signalRow} key={label}><span className={styles.signalIcon}><Icon size={16} /></span><div><strong>{label}</strong><span>{detail}</span></div></div>)}</CardContent></Card></div>
+      <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
+      <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /><Card className={styles.signalCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What we’ll look at</p><CardTitle>Preparation, not reservations</CardTitle></div><ShieldAlert size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.signalList}>{starterSignals.map(({ icon: Icon, label, detail }) => <div className={styles.signalRow} key={label}><span className={styles.signalIcon}><Icon size={16} /></span><div><strong>{label}</strong><span>{detail}</span></div></div>)}</CardContent></Card></div>
     </div>
   </div>;
 }
@@ -217,6 +222,7 @@ function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean;
 type Props = Readonly<{ userName: string; userImage: string }>;
 
 export function RoutesPage({ userName, userImage }: Props) {
+  const { name: agentName } = useAgentIdentity();
   const [view, setView] = useState<View>("overview");
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [saved, setSaved] = useState(false);
@@ -224,7 +230,40 @@ export function RoutesPage({ userName, userImage }: Props) {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [studyMeStatus, setStudyMeStatus] = useState<InsightGatheringStatus | null>(null);
+  const [studyMeStatusLoading, setStudyMeStatusLoading] = useState(true);
   const initials = useMemo(() => initialsFor(userName), [userName]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const loadStudyMeStatus = async () => {
+      try {
+        const response = await proxyFetch("/agent/insights/gather/login-status");
+        if (!response.ok) {
+          if (!cancelled) setStudyMeStatus(null);
+          return;
+        }
+        const next = await response.json() as InsightGatheringStatus;
+        if (cancelled) return;
+        setStudyMeStatus(next);
+        if (next.state === "queued" || next.state === "running") {
+          timer = window.setTimeout(() => { void loadStudyMeStatus(); }, 1000);
+        }
+      } catch {
+        if (!cancelled) setStudyMeStatus(null);
+      } finally {
+        if (!cancelled) setStudyMeStatusLoading(false);
+      }
+    };
+
+    void loadStudyMeStatus();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
 
   async function loadTrips() {
     setLoading(true);
@@ -277,5 +316,6 @@ export function RoutesPage({ userName, userImage }: Props) {
     setView("plan");
   }
 
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={() => void syncTrips()} onOpen={openTrip} onCreatePlan={(next) => void submitDraft(next)} /> : draft ? <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={() => void syncTrips()} onOpen={openTrip} onCreatePlan={(next) => void submitDraft(next)} />}</PageShell><FloatingAssistant /></>;
+  const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
 }

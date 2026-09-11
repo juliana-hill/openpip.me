@@ -1836,10 +1836,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     try {
       const res = await proxyFetch("/agent/inbox/network/queue-triage", { method: "POST" });
       if (res.status === 409) {
-        const detail = await res.json().catch(() => null);
-        if (detail?.detail?.studyMeState) {
-          setStudyMeStatus((current) => current ? { ...current, state: detail.detail.studyMeState } : current);
-        }
+        window.location.assign("/");
         return;
       }
       if (!res.ok) return;
@@ -1900,8 +1897,9 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
   const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
   const studyMeReady = studyMeStatus?.state === "completed";
   const triageBlocked = !studyMeReady;
-  const triageTitle = studyMeRunning ? `Waiting for ${agentName} to finish studying you\u2026` : studyMeStatusLoading ? "Checking Study Me before Inbox Assistant starts" : "Finish Study Me before Inbox Assistant starts";
-  const triageBlockedCopy = studyMeRunning ? "Inbox Assistant will be ready as soon as your indexed history is complete." : studyMeStatusLoading ? "Checking whether your indexed history is ready." : "Complete Study Me first so Inbox Assistant can use your indexed context.";
+  const triageTitle = studyMeRunning ? `Waiting for ${agentName} to finish studying you\u2026` : studyMeStatusLoading ? "Checking Study Me before Inbox Assistant starts" : "Study Me is required before Inbox Assistant starts";
+  const triageBlockedCopy = studyMeRunning ? "Inbox Assistant will be ready as soon as your indexed history is complete." : studyMeStatusLoading ? "Checking whether your indexed history is ready." : "Start or resume Study Me from the Dashboard before Inbox Assistant can review your inbox.";
+  const studyMeNeedsDashboard = !studyMeReady && !studyMeRunning && !studyMeStatusLoading;
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(InboxHeader, { unreadCount: unreadEmailCount, onCompose }),
     showTriageCard && (triage ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("section", { className: InboxTab_default.triage, "aria-live": "polite", children: [
@@ -1958,7 +1956,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageActions, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, disabled: triageBlocked, children: studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me\u2026" : studyMeReady ? reviewButtonLabel : "Complete Study Me first" }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: studyMeNeedsDashboard ? () => window.location.assign("/") : runTriage, disabled: studyMeRunning || studyMeStatusLoading, children: studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me\u2026" : studyMeReady ? reviewButtonLabel : "Start or resume Study Me" }),
         !triageBlocked && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." }),
         triageHistory.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageHistoryLink, onClick: () => {
           void openTriageDetails();

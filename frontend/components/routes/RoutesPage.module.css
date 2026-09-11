@@ -52,6 +52,97 @@
   transform: rotate(4deg);
 }
 
+.travelGateCard {
+  padding: 0;
+  overflow: hidden;
+  border-top: 4px solid var(--color-accent);
+}
+
+.travelGateContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 24px;
+  padding: 24px;
+}
+
+.travelGateCopy {
+  min-width: 0;
+}
+
+.travelGateCopy .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.travelGateCopy .eyebrow span {
+  font-size: .9rem;
+  line-height: 1;
+}
+
+.travelGateTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
+  letter-spacing: -.03em;
+  line-height: 1.1;
+}
+
+.travelGateDescription,
+.travelGateMeta {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  line-height: 1.5;
+}
+
+.travelGateDescription {
+  max-width: 700px;
+  margin: 10px 0 0;
+}
+
+.travelGateMeta {
+  margin: 10px 0 0;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+}
+
+.travelGateActions {
+  display: flex;
+  min-width: 210px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.travelGateWaiting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.travelGateActionLabel {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 800;
+  text-align: right;
+}
+
+.travelGateProgress {
+  width: 180px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-border);
+}
+
+.travelGateProgressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+  transition: width 300ms ease;
+}
+
 .entryGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.16fr) minmax(310px, .84fr);
@@ -91,13 +182,6 @@
   display: block;
   margin-top: 5px;
   line-height: 1.45;
-}
-
-.numberMark {
-  color: var(--color-accent);
-  font-size: var(--font-size-xs);
-  font-weight: 800;
-  letter-spacing: .08em;
 }
 
 .sideStack,
@@ -817,6 +901,24 @@
   .researchNotice {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .travelGateContent {
+    grid-template-columns: 1fr;
+  }
+
+  .travelGateActions,
+  .travelGateWaiting {
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+
+  .travelGateActionLabel {
+    text-align: left;
+  }
+
+  .travelGateActions :global(button) {
+    width: 100%;
   }
 
   .formFooter > :global(button),

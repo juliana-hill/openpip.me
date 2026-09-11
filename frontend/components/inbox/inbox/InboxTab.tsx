@@ -405,12 +405,10 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     try {
       const res = await proxyFetch("/agent/inbox/network/queue-triage", { method: "POST" });
       if (res.status === 409) {
-        // Keep the UI aligned if Study Me finishes or changes state in
-        // another tab between the status read and this click.
-        const detail = await res.json().catch(() => null) as { detail?: { studyMeState?: InsightGatheringStatus["state"] } } | null;
-        if (detail?.detail?.studyMeState) {
-          setStudyMeStatus((current) => current ? { ...current, state: detail.detail!.studyMeState! } : current);
-        }
+        // Keep Study Me start/resume ownership on the Dashboard card if the
+        // prerequisite changes in another tab between the status read and
+        // this click.
+        window.location.assign("/");
         return;
       }
       if (!res.ok) return;
@@ -481,12 +479,13 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     ? `Waiting for ${agentName} to finish studying you…`
     : studyMeStatusLoading
       ? "Checking Study Me before Inbox Assistant starts"
-      : "Finish Study Me before Inbox Assistant starts";
+      : "Study Me is required before Inbox Assistant starts";
   const triageBlockedCopy = studyMeRunning
     ? "Inbox Assistant will be ready as soon as your indexed history is complete."
     : studyMeStatusLoading
       ? "Checking whether your indexed history is ready."
-      : "Complete Study Me first so Inbox Assistant can use your indexed context.";
+      : "Start or resume Study Me from the Dashboard before Inbox Assistant can review your inbox.";
+  const studyMeNeedsDashboard = !studyMeReady && !studyMeRunning && !studyMeStatusLoading;
 
   return (
     <>
@@ -546,8 +545,8 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
             </p>}
           </div>
           <div className={styles.triageActions}>
-            <button className={styles.triageRunBtn} onClick={runTriage} disabled={triageBlocked}>
-              {studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me…" : studyMeReady ? reviewButtonLabel : "Complete Study Me first"}
+            <button className={styles.triageRunBtn} onClick={studyMeNeedsDashboard ? () => window.location.assign("/") : runTriage} disabled={studyMeRunning || studyMeStatusLoading}>
+              {studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me…" : studyMeReady ? reviewButtonLabel : "Start or resume Study Me"}
             </button>
             {!triageBlocked && <p className={styles.triageTrust}>Nothing is sent or changed without your review.</p>}
             {triageHistory.length > 0 && (
