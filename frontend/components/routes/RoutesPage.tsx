@@ -32,7 +32,7 @@ import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import type { InsightGatheringStatus } from "@/components/dashboard/StudyMeCard";
-import { TravelPlanningGateCard } from "./TravelPlanningGateCard";
+import inboxStyles from "@/components/inbox/inbox/InboxTab.module.css";
 import styles from "./RoutesPage.module.css";
 
 type Activity = "city" | "hiking" | "road trip" | "camping" | "cycling" | "water";
@@ -187,9 +187,41 @@ function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen
 
 function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync, onOpen, onCreatePlan }: { agentName: string; studyMeStatus: InsightGatheringStatus | null; studyMeStatusLoading: boolean; collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; onCreatePlan: (draft: PlanDraft) => void }) {
   const studyMeReady = studyMeStatus?.state === "completed";
+  const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
+  const studyMeProgress = Math.max(0, Math.min(100, studyMeStatus?.progress ?? 0));
+  const gateTitle = studyMeRunning
+    ? `Waiting for ${agentName} to finish studying you…`
+    : studyMeStatusLoading
+      ? "Checking Study Me before travel planning starts"
+      : studyMeReady
+        ? collection.trips.length > 0 ? "Your trip library is ready" : "Build your trip library"
+        : "Study Me needs to finish first";
+  const gateCopy = studyMeRunning
+    ? "Once the historical index is complete, I’ll organize your past, current, and future trips from that shared context."
+    : studyMeStatusLoading
+      ? "Checking whether your indexed history is ready."
+      : studyMeReady
+        ? collection.trips.length > 0
+          ? "Your saved trips are ready to review and prepare."
+          : "Use the completed Study Me index as the starting point for a separate, read-only trip library."
+        : "The trip library is gated until Study Me has finished building your indexed history.";
   return <div className={styles.pageStack}>
-    <section className={styles.intro}><div><p className={styles.eyebrow}>Trip readiness</p><h1>Know what to prepare before you go.</h1><p className={styles.introCopy}>Turn a destination or your indexed history into a practical plan with current conditions, route context, and preparation prompts.</p></div><div className={styles.introIcon} aria-hidden="true"><Compass size={30} /></div></section>
-    <TravelPlanningGateCard agentName={agentName} status={studyMeStatus} statusLoading={studyMeStatusLoading} hasLibrary={collection.trips.length > 0} building={syncing} onBuild={onSync} />
+    <h1 className={styles.pageTitle}>Travel Planning</h1>
+    <section className={inboxStyles.triage} aria-live="polite">
+      <div className={inboxStyles.triageContent}>
+        <p className={inboxStyles.triageKicker}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
+        <h3 className={inboxStyles.triageTitle}>{gateTitle}</h3>
+        <p className={inboxStyles.triageCopy}>{gateCopy}</p>
+        {studyMeRunning && <p className={inboxStyles.triageCapabilities}>{studyMeStatus?.progress == null ? "Studying your history…" : `${studyMeProgress}% complete`} · Trip planning is waiting</p>}
+      </div>
+      <div className={inboxStyles.triageActions}>
+        {studyMeRunning || studyMeStatusLoading ? <span className={inboxStyles.triageTrust}>{studyMeRunning ? "Waiting for Study Me" : "Checking Study Me…"}</span> : studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <span className={inboxStyles.triageTrust}>Waiting for Study Me</span>}
+      </div>
+      {studyMeRunning && <div className={inboxStyles.triageProgress}>
+        <div className={inboxStyles.triageLabel}><span>Study Me in progress</span><span>{studyMeProgress}% complete</span></div>
+        <div className={inboxStyles.triageTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={studyMeProgress} aria-label="Study Me progress"><div className={inboxStyles.triageFill} style={{ width: `${studyMeProgress}%` }} /></div>
+      </div>}
+    </section>
     <div className={styles.entryGrid}>
       <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
       <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /><Card className={styles.signalCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What we’ll look at</p><CardTitle>Preparation, not reservations</CardTitle></div><ShieldAlert size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.signalList}>{starterSignals.map(({ icon: Icon, label, detail }) => <div className={styles.signalRow} key={label}><span className={styles.signalIcon}><Icon size={16} /></span><div><strong>{label}</strong><span>{detail}</span></div></div>)}</CardContent></Card></div>

@@ -5,6 +5,14 @@
   padding-bottom: 32px;
 }
 
+.pageTitle {
+  margin: 0;
+  color: var(--color-text);
+  font-size: clamp(2rem, 4vw, 3rem);
+  letter-spacing: -.045em;
+  line-height: 1.06;
+}
+
 .intro {
   display: flex;
   align-items: flex-start;
@@ -146,7 +154,7 @@
 .entryGrid {
   display: grid;
   grid-template-columns: minmax(0, 1.16fr) minmax(310px, .84fr);
-  align-items: start;
+  align-items: stretch;
   gap: 24px;
 }
 
