@@ -5,7 +5,9 @@ import pytest
 
 from openpip_backend import insight_memory
 from openpip_backend.tools.insights import (
+    build_list_historical_sources_tool,
     build_lookup_insights_tool,
+    build_read_historical_source_tool,
     build_remember_insight_tool,
 )
 
@@ -29,6 +31,29 @@ def test_lookup_requires_a_focused_query_and_records_the_result(monkeypatch) -> 
     assert payload["insights"][0]["memoryKey"] == "healthcare:provider:smith"
     assert state["lastQuery"] == "Dr. Smith"
     assert state["lastResults"] == payload["insights"]
+
+
+def test_list_historical_sources_paginates_the_metadata_only_manifest() -> None:
+    source_index = {
+        "calendar:1": {
+            "sourceId": "calendar:1", "kind": "calendar", "date": "2021-01-01",
+            "label": "Work", "summary": "Work", "detail": "2021-01-01T09:00:00Z",
+        },
+        "document:1": {
+            "sourceId": "document:1", "kind": "google_doc", "date": "2021-01-02",
+            "label": "Brief Timeline", "summary": "Brief Timeline",
+        },
+    }
+    list_sources = build_list_historical_sources_tool(source_index)
+
+    first = json.loads(asyncio.run(list_sources(page=1, page_size=1)))
+    second = json.loads(asyncio.run(list_sources(page=2, page_size=1)))
+
+    assert first["total"] == 2
+    assert first["nextPage"] == 2
+    assert first["sources"][0]["summary"] == "Work"
+    assert second["nextPage"] is None
+    assert second["sources"][0]["sourceId"] == "document:1"
 
 
 def test_lookup_normalizes_null_memory_directory(monkeypatch) -> None:
@@ -76,6 +101,37 @@ def test_remember_auto_checks_existing_memories_when_model_omits_lookup(monkeypa
     assert lookup_state["used"] is False
     assert lookup_state["lastQuery"] == ""
     assert lookup_state["lastResults"] == []
+
+
+def test_remember_requires_read_source_before_write_when_enabled(monkeypatch) -> None:
+    async def fake_upsert(*_args, **kwargs):
+        return {"status": "saved", "memoryKey": kwargs["memory_key"]}
+
+    monkeypatch.setattr(insight_memory, "upsert_insight", fake_upsert)
+    references = {"calendar:1": {"id": "calendar:1", "kind": "calendar", "label": "Scout"}}
+    search_state = {"used": True}
+    lookup_state = {"used": True, "lastQuery": "Scout", "lastResults": []}
+    read_state: dict = {}
+    read = build_read_historical_source_tool("token", references, read_state)
+    remember = build_remember_insight_tool(
+        "token", references, search_state=search_state, lookup_state=lookup_state,
+        read_state=read_state,
+    )
+
+    async def run():
+        with pytest.raises(ValueError, match="read_historical_source"):
+            await remember(
+                "work:scout", "work", "Scout", "The user worked with Scout.",
+                "high", ["calendar:1"],
+            )
+        await read("calendar:1")
+        return await remember(
+            "work:scout", "work", "Scout", "The user worked with Scout.",
+            "high", ["calendar:1"],
+        )
+
+    payload = json.loads(asyncio.run(run()))
+    assert payload == {"status": "saved", "memoryKey": "work:scout"}
 
 
 def test_remember_keeps_prerequisites_after_a_failed_payload(monkeypatch) -> None:

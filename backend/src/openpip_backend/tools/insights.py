@@ -65,6 +65,7 @@ def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] |
 def build_read_historical_source_tool(
     access_token: str,
     source_entries: dict[str, dict[str, Any]],
+    read_state: dict[str, Any] | None = None,
 ) -> Any:
     """Let the agent fetch exactly one source's full content on demand."""
     @tool(
@@ -111,9 +112,51 @@ def build_read_historical_source_tool(
             # Calendar, task, and contact records are already represented by
             # the provider's compact metadata response for the current date.
             payload = item.get("record") or item
+        if read_state is not None:
+            read_state.setdefault("sourceIds", set()).add(source_id)
         return json.dumps(payload, default=str)
 
     return read_historical_source
+
+
+def build_list_historical_sources_tool(
+    source_index: dict[str, dict[str, Any]],
+    *,
+    default_page_size: int = 50,
+) -> Any:
+    """List the complete metadata-only manifest without reading source bodies."""
+    @tool(
+        name="list_historical_sources",
+        description=(
+            "List the indexed historical materials from the Study Me manifest. "
+            "Call this repeatedly starting at page 1 until nextPage is null so the "
+            "aggregate pass can see every indexed source. Results contain only source "
+            "ids, dates, kinds, and titles; use read_historical_source for exact content."
+        ),
+    )
+    async def list_historical_sources(page: int = 1, page_size: int = default_page_size) -> str:
+        normalized_page = max(1, int(page))
+        normalized_size = max(1, min(int(page_size), 100))
+        items = list(source_index.values())
+        start = (normalized_page - 1) * normalized_size
+        page_items = items[start:start + normalized_size]
+        sources = []
+        for item in page_items:
+            sources.append({
+                key: item.get(key)
+                for key in ("sourceId", "kind", "date", "label", "detail", "url", "summary", "providerId")
+                if item.get(key) is not None
+            })
+        next_page = normalized_page + 1 if start + len(page_items) < len(items) else None
+        return json.dumps({
+            "page": normalized_page,
+            "pageSize": normalized_size,
+            "total": len(items),
+            "nextPage": next_page,
+            "sources": sources,
+        })
+
+    return list_historical_sources
 
 
 def build_search_historical_sources_tool(
@@ -196,6 +239,7 @@ def build_remember_insight_tool(
     on_saved: Callable[[], None] | None = None,
     search_state: dict[str, Any] | None = None,
     lookup_state: dict[str, Any] | None = None,
+    read_state: dict[str, Any] | None = None,
 ) -> Any:
     @tool(
         name="remember_historical_insight",
@@ -230,7 +274,9 @@ def build_remember_insight_tool(
             "employment memory even when their title is only Work, Office, Shift, or Workday; use the "
             "earliest and latest matching location events as the observed employment span and cite those "
             "events, while using offer, hiring, acceptance, or onboarding evidence to identify the exact "
-            "employer or job title when available."
+            "employer or job title when available. This is the write tool: call it only after the aggregate "
+            "agent has established the correct narrative from the complete source records. When read_state "
+            "is enforced, every cited source must have been fetched with read_historical_source first."
         ),
     )
     async def remember_historical_insight(
@@ -282,6 +328,14 @@ def build_remember_insight_tool(
             missing = [source_id for source_id in source_ids if source_id not in source_references]
             if missing:
                 raise ValueError(f"unknown source ids: {', '.join(missing)}")
+            if read_state is not None:
+                read_source_ids = read_state.get("sourceIds") or set()
+                unread = [source_id for source_id in source_ids if source_id not in read_source_ids]
+                if unread:
+                    raise ValueError(
+                        "read_historical_source must be called before saving these source ids: "
+                        + ", ".join(unread)
+                    )
             if insight_memory.is_generic_holiday_insight(
                 fact=fact,
                 source_references=[source_references[source_id] for source_id in source_ids],

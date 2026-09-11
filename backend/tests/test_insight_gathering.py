@@ -124,11 +124,12 @@ def test_progress_uses_oldest_newest_date_span_and_current_date() -> None:
     }
 
     # The global span is January 1-3, 2021, calculated across collection
-    # types, so the first current date is one third complete.
-    assert insight_gathering._progress(status) == 33
+    # types. History accounts for 80% of the pipeline, so the first current
+    # date is one third of that stage.
+    assert insight_gathering._progress(status) == 27
 
     status["currentDate"] = "2021-01-02"
-    assert insight_gathering._progress(status) == 67
+    assert insight_gathering._progress(status) == 53
 
 
 def test_normalize_index_record_drops_legacy_raw_payload() -> None:
@@ -159,6 +160,92 @@ def test_document_index_uses_modified_date_for_daily_manifest() -> None:
 
     assert normalized is not None
     assert normalized["date"] == "2021-01-02"
+
+
+def test_daily_index_summary_is_only_the_record_title() -> None:
+    email = {
+        "record": {
+            "sourceId": "email:1",
+            "subject": "Scout offer",
+            "body": "A complete private message body that indexing must not read.",
+        },
+        "reference": {"id": "email:1", "kind": "email", "label": "Scout offer"},
+    }
+    document = {
+        "record": {
+            "sourceId": "document:1",
+            "name": "Brief Timeline",
+            "content": "A complete private document that indexing must not read.",
+        },
+        "reference": {"id": "document:1", "kind": "google_doc", "label": "Brief Timeline"},
+    }
+
+    assert insight_gathering._brief_record_summary(email) == "Scout offer"
+    assert insight_gathering._brief_record_summary(document) == "Brief Timeline"
+
+
+def test_read_manifest_entries_normalizes_flat_index_records(monkeypatch) -> None:
+    async def fake_list(_token: str, _folder: str):
+        return {
+            "metadata": {"version": insight_gathering._MANIFEST_VERSION},
+            "2021-01-02": {
+                "version": insight_gathering._MANIFEST_VERSION,
+                "pages": [{"page": 1, "entries": [{
+                    "sourceId": "document:1", "kind": "google_doc", "date": "2021-01-02",
+                    "label": "Brief Timeline", "summary": "Brief Timeline", "status": "completed",
+                }]}],
+            },
+        }
+
+    monkeypatch.setattr(insight_gathering, "list_json_files", fake_list)
+
+    entries = asyncio.run(insight_gathering._read_manifest_entries("token"))
+
+    assert entries == [{
+        "sourceId": "document:1", "kind": "google_doc", "date": "2021-01-02",
+        "label": "Brief Timeline", "detail": None, "url": None, "providerId": None,
+        "status": "completed", "summary": "Brief Timeline",
+    }]
+
+
+def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
+    entries = [{
+        "sourceId": "calendar:work", "kind": "calendar", "date": "2021-09-13",
+        "label": "Work", "detail": "2021-09-13T09:00:00Z", "url": None,
+        "providerId": "calendar-1", "status": "completed", "summary": "Work",
+    }]
+    prompts: list[str] = []
+
+    async def fake_manifest_entries(_token: str):
+        return entries
+
+    async def fake_write(_token: str, _folder: str, _filename: str, _data: dict):
+        return None
+
+    async def fake_write_status(_token: str, _status: dict):
+        return None
+
+    def fake_build(*_args, **_kwargs):
+        return object()
+
+    async def fake_stream(_agent, prompt: str, _status: dict, _token: str):
+        prompts.append(prompt)
+
+    monkeypatch.setattr(insight_gathering, "_read_manifest_entries", fake_manifest_entries)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+    monkeypatch.setattr(insight_gathering, "build_executive_assistant", fake_build)
+    monkeypatch.setattr(insight_gathering, "_stream_agent_page", fake_stream)
+
+    status = insight_gathering._default_status()
+    manifest = {"version": insight_gathering._MANIFEST_VERSION, "aggregateStatus": "pending"}
+    asyncio.run(insight_gathering._run_aggregate("token", status, manifest, "", "Pip"))
+
+    assert len(prompts) == 1
+    assert "list_historical_sources repeatedly" in prompts[0]
+    assert "remember_historical_insight as the write tool" in prompts[0]
+    assert status["stages"]["aggregate"] == {"status": "completed", "processed": 1, "total": 1}
+    assert manifest["aggregateStatus"] == "completed"
 
 
 def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:

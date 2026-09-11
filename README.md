@@ -12,12 +12,16 @@ Me**. From the dashboard, you can ask OpenPip to review your existing Gmail,
 Calendar, Tasks, Contacts, and Drive history so it can understand the context
 that makes its help useful to you.
 
-Study Me processes one date at a time. It creates a compact, recoverable index
-and then extracts durable memories such as preferences, routines, work history,
-and other documented personal context. It does not save raw messages or
-documents in the manifest. You can resume the review if it pauses, and the
-resulting memories are used by chat, inbox triage, proposals, and the daily
-briefing.
+Study Me processes one date at a time during a fast deterministic indexing
+phase. For each date it finds the current records and stores only source
+metadata plus the record title in a compact, recoverable manifest; it makes no
+LLM calls and does not save raw messages or documents. After the full date
+range is indexed, a separate Strands agentic phase crawls that manifest and
+uses read tools to fetch complete source contents as it builds a coherent,
+cross-date evidence model. That phase extracts durable memories such as
+preferences, routines, work history, and other documented personal context.
+You can resume the review if it pauses, and the resulting memories are used by
+chat, inbox triage, proposals, and the daily briefing.
 
 ## How context works
 

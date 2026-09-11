@@ -15,16 +15,12 @@ from .google_drive_docs import delete_json_file, list_json_files, read_json_file
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
     GoogleApiError,
-    fetch_gmail_message,
     fetch_gmail_messages,
     find_oldest_gmail_date,
     find_newest_gmail_date,
     fetch_google_calendars,
     fetch_google_contacts,
-    fetch_google_drive_document,
     fetch_google_drive_documents,
-    fetch_google_spreadsheet_rows,
-    fetch_google_spreadsheet_row,
     list_google_spreadsheet_rows,
     fetch_google_tasks,
     find_oldest_calendar_date,
@@ -33,6 +29,7 @@ from .google_workspace import (
     find_newest_drive_document_date,
 )
 from .tools import (
+    build_list_historical_sources_tool,
     build_lookup_insights_tool,
     build_read_historical_source_tool,
     build_remember_insight_tool,
@@ -43,9 +40,8 @@ _FOLDER = "OpenPip/memory/insights_gathering"
 _MANIFEST_FOLDER = f"{_FOLDER}/manifest"
 _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
-_MANIFEST_VERSION = 6
-_STATUS_VERSION = 2
-_COLLECTION_CHECKPOINT_VERSION = 1
+_MANIFEST_VERSION = 7
+_STATUS_VERSION = 3
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
 _LOOKBACK_DAYS = 365 * 5
@@ -56,7 +52,7 @@ _FETCH_WINDOW_DAYS = 90
 # This is the agent page size, deliberately much smaller than the manifest.
 # The agent sees one chronological page, never the complete history.
 _BATCH_SIZE = 10
-_WEIGHTS = {"history": 100}
+_WEIGHTS = {"history": 80, "aggregate": 20}
 _STAGES = tuple(_WEIGHTS)
 _COLLECTION_SOURCES = ("emails", "calendar", "contacts", "tasks", "documents")
 
@@ -66,10 +62,6 @@ _start_locks: dict[str, asyncio.Lock] = {}
 _logger = logging.getLogger(__name__)
 
 TokenResolver = Callable[[], Awaitable[str | None]]
-
-
-class _CheckpointReused(Exception):
-    """Internal sentinel to skip a source whose durable checkpoint is done."""
 
 
 _PUBLIC_COLLECTION_MESSAGE = "Building your chronological history."
@@ -126,30 +118,35 @@ def _add_event(status: dict[str, Any], title: str, detail: str | None = None) ->
 
 
 def _progress(status: dict[str, Any]) -> int:
+    def stage_fraction(name: str) -> float:
+        stage = (status.get("stages") or {}).get(name) or {}
+        if stage.get("status") == "completed":
+            return 1.0
+        total = int(stage.get("total") or 0)
+        processed = int(stage.get("processed") or 0)
+        return min(1.0, processed / total) if total else 0.0
+
+    history_fraction = stage_fraction("history")
     oldest_values = [value for value in (status.get("oldestSourceDates") or {}).values() if value]
     newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
     current_value = status.get("currentDate")
-    if current_value and oldest_values and newest_values:
+    if current_value and oldest_values and newest_values and history_fraction < 1.0:
         try:
             oldest = min(date.fromisoformat(str(value)[:10]) for value in oldest_values)
             newest = max(date.fromisoformat(str(value)[:10]) for value in newest_values)
             current = date.fromisoformat(str(current_value)[:10])
             total_days = max(1, (newest - oldest).days + 1)
             completed_days = min(total_days, max(0, (current - oldest).days + 1))
-            percentage = round(completed_days / total_days * 100)
-            return max(1, percentage) if completed_days else 0
+            history_fraction = completed_days / total_days
         except (TypeError, ValueError):
             # Fall back to record progress while a partially-written boundary
             # checkpoint is being recovered.
             pass
-    value = 0.0
-    for name, weight in _WEIGHTS.items():
-        stage = status["stages"].get(name, {})
-        total = int(stage.get("total") or 0)
-        processed = int(stage.get("processed") or 0)
-        fraction = 1.0 if stage.get("status") == "completed" else (processed / total if total else 0)
-        value += weight * min(1.0, fraction)
-    return round(value)
+    aggregate_fraction = stage_fraction("aggregate")
+    return round(
+        _WEIGHTS["history"] * min(1.0, history_fraction)
+        + _WEIGHTS["aggregate"] * aggregate_fraction
+    )
 
 
 async def _read_status(access_token: str) -> dict[str, Any]:
@@ -222,7 +219,7 @@ def _email_source(message: dict[str, Any]) -> tuple[dict[str, Any], dict[str, An
 
 
 def _chronology_key(entry: dict[str, Any]) -> str:
-    record = entry.get("record") if isinstance(entry.get("record"), dict) else {}
+    record = entry.get("record") if isinstance(entry.get("record"), dict) else entry
     return str(
         record.get("date")
         or record.get("start")
@@ -256,47 +253,9 @@ def _date_filename(day: str) -> str:
     return f"{day}.json"
 
 
-def _collection_filename(source: str) -> str:
-    return f"collection-{source}.json"
-
-
-async def _read_collection_checkpoint(access_token: str, source: str) -> list[dict[str, Any]]:
-    data = await read_json_file(access_token, _MANIFEST_FOLDER, _collection_filename(source))
-    if not isinstance(data, dict) or data.get("version") != _COLLECTION_CHECKPOINT_VERSION:
-        return []
-    entries = data.get("entries")
-    return _dedupe_entries(entries) if isinstance(entries, list) else []
-
-
-async def _write_collection_checkpoint(
-    access_token: str, source: str, entries: list[dict[str, Any]],
-) -> None:
-    await write_json_file(access_token, _MANIFEST_FOLDER, _collection_filename(source), {
-        "version": _COLLECTION_CHECKPOINT_VERSION,
-        "source": source,
-        "entries": _dedupe_entries(entries),
-    })
-
-
 def _manifest_day(entry: dict[str, Any]) -> str:
     day = _chronology_key(entry)[:10]
     return "undated" if day == "9999-12-31" else day
-
-
-def _date_windows(start: date, end: date) -> list[tuple[date, date]]:
-    windows: list[tuple[date, date]] = []
-    cursor = start
-    while cursor < end:
-        window_end = min(end, cursor + timedelta(days=_FETCH_WINDOW_DAYS))
-        windows.append((cursor, window_end))
-        cursor = window_end
-    return windows
-
-
-def _build_timeline(sources: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
-    """Merge every source into one oldest-first historical timeline."""
-    entries = [entry for values in sources.values() for entry in values if isinstance(entry, dict)]
-    return _chronological(entries)
 
 
 def _is_default_holiday_calendar(calendar: dict[str, Any]) -> bool:
@@ -314,7 +273,7 @@ def _is_default_holiday_calendar(calendar: dict[str, Any]) -> bool:
 def _entry_key(entry: dict[str, Any]) -> str:
     reference = entry.get("reference") if isinstance(entry.get("reference"), dict) else {}
     record = entry.get("record") if isinstance(entry.get("record"), dict) else {}
-    return str(reference.get("id") or record.get("sourceId") or "")
+    return str(reference.get("id") or record.get("sourceId") or entry.get("sourceId") or "")
 
 
 def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -330,43 +289,19 @@ def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 async def _read_manifest_entries(access_token: str) -> list[dict[str, Any]]:
     files = await list_json_files(access_token, _MANIFEST_FOLDER)
-    entries: list[dict[str, Any]] = []
+    entries_by_id: dict[str, dict[str, Any]] = {}
     for data in files.values():
         if not isinstance(data, dict) or data.get("version") != _MANIFEST_VERSION:
             continue
         for page in data.get("pages", []):
             if isinstance(page, dict) and isinstance(page.get("entries"), list):
-                entries.extend(item for item in page["entries"] if isinstance(item, dict))
-    return _dedupe_entries(entries)
-
-
-def _source_name(entry: dict[str, Any]) -> str | None:
-    reference = entry.get("reference") if isinstance(entry.get("reference"), dict) else {}
-    return {
-        "email": "emails",
-        "calendar": "calendar",
-        "contact": "contacts",
-        "task": "tasks",
-        "google_doc": "documents",
-        "google_sheet_row": "documents",
-    }.get(str(reference.get("kind") or ""))
-
-
-async def _write_manifest_pages(access_token: str, entries: list[dict[str, Any]]) -> None:
-    entries_by_date: dict[str, list[dict[str, Any]]] = {}
-    for entry in _dedupe_entries(entries):
-        entries_by_date.setdefault(_manifest_day(entry), []).append(entry)
-    for day, day_entries in entries_by_date.items():
-        pages = [
-            {"page": page_number, "entries": day_entries[offset:offset + _BATCH_SIZE]}
-            for page_number, offset in enumerate(range(0, len(day_entries), _BATCH_SIZE), start=1)
-        ]
-        await write_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day), {
-            "version": _MANIFEST_VERSION,
-            "date": day,
-            "numberOfEntries": len(day_entries),
-            "pages": pages,
-        })
+                for item in page["entries"]:
+                    if not isinstance(item, dict):
+                        continue
+                    normalized = _normalize_index_record(item)
+                    if normalized:
+                        entries_by_id[str(normalized["sourceId"])] = normalized
+    return sorted(entries_by_id.values(), key=_chronology_key)
 
 
 async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[str, Any]:
@@ -374,8 +309,9 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     This function deliberately never reads source records.  It asks each
     provider for boundary metadata (oldest/newest dates) and stores those
-    cursors in the small Drive metadata file.  The worker fetches one cursor's
-    records later, reviews them in memory, and advances the cursor.
+    cursors in the small Drive metadata file. The worker fetches records for
+    one date later, stores only their titles, and advances the cursor. Memory
+    extraction happens only after the complete date range is indexed.
     """
     today = date.today()
     history_start = today - timedelta(days=_LOOKBACK_DAYS)
@@ -438,6 +374,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "dates": [],
         "lastFetchedDate": None,
         "dateStates": {},
+        "aggregateStatus": "pending",
         "warnings": [],
     }
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
@@ -445,369 +382,6 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
     status["statusMessage"] = "History boundaries are ready; fetching the oldest records next."
     await _write_status(access_token, status)
     return manifest
-
-    # Kept below as historical reference while the lazy implementation is
-    # rolled out.  It is unreachable by design: no source-wide collection or
-    # collection checkpoint is allowed in the Study Me startup path.
-    manifest: dict[str, Any] = {"version": _MANIFEST_VERSION, "sources": {}, "warnings": []}
-    # Collection is independently checkpointed. A worker crash must resume at
-    # the last completed source/window instead of starting Gmail at window 1.
-    checkpoints = {
-        source: await _read_collection_checkpoint(access_token, source)
-        for source in _COLLECTION_SOURCES
-    }
-    manifest["sources"].update(checkpoints)
-    status.setdefault("collection", {})
-    today = date.today()
-    history_start = today - timedelta(days=_LOOKBACK_DAYS)
-    history_end = today + timedelta(days=_LOOKAHEAD_DAYS + 1)
-
-    email_state = status["collection"].setdefault("emails", _collection_stage())
-    if email_state.get("status") == "completed":
-        _logger.info("historical insight gathering: reusing email checkpoint (%s entries)", len(checkpoints["emails"]))
-    else:
-      try:
-        status["currentStage"] = "collecting history"
-        status["statusMessage"] = "Gathering email, calendar, contact, task, and document records."
-        await _write_status(access_token, status)
-        messages_by_id: dict[str, dict[str, Any]] = {
-            str(entry.get("record", {}).get("sourceId", "")).removeprefix("email:"): {
-                **entry.get("record", {}),
-                "id": str(entry.get("record", {}).get("sourceId", "")).removeprefix("email:"),
-            }
-            for entry in checkpoints["emails"]
-            if isinstance(entry.get("record"), dict)
-        }
-        oldest_email = await find_oldest_gmail_date(
-            access_token, start=history_start, end=today + timedelta(days=1),
-        )
-        email_start = oldest_email or today
-        email_windows = _date_windows(email_start, today + timedelta(days=1))
-        start_window = max(1, int(email_state.get("window") or 0) + 1)
-        email_state.update({"status": "running", "total": len(email_windows)})
-        await _write_status(access_token, status)
-        if start_window > len(email_windows):
-            manifest["sources"]["emails"] = checkpoints["emails"]
-            email_state["status"] = "completed"
-            await _write_status(access_token, status)
-            raise _CheckpointReused
-        for window_number, (window_start, window_end) in enumerate(email_windows[start_window - 1:], start=start_window):
-            status["statusMessage"] = _PUBLIC_COLLECTION_MESSAGE
-            await _write_status(access_token, status)
-            # The one-day overlap prevents Gmail's exclusive after/before
-            # search boundaries from dropping messages at a window edge.
-            query_start = window_start - timedelta(days=1)
-            query_end = window_end + timedelta(days=1)
-            messages, total = await fetch_gmail_messages(
-                access_token,
-                gmail_query=f"after:{query_start:%Y/%m/%d} before:{query_end:%Y/%m/%d}",
-                page=1,
-                page_size=1000,
-            )
-            # fetch_gmail_messages follows Gmail's API pages, then applies a
-            # local page. Walk those local pages too so every email in this
-            # date window is included without fetching a thousand metadata
-            # bodies concurrently.
-            for page in range(2, (total + 999) // 1000 + 1):
-                extra, _ = await fetch_gmail_messages(
-                    access_token,
-                    gmail_query=f"after:{query_start:%Y/%m/%d} before:{query_end:%Y/%m/%d}",
-                    page=page,
-                    page_size=1000,
-                )
-                messages.extend(extra)
-            for message in messages:
-                if message.get("id"):
-                    messages_by_id[str(message["id"])] = message
-            email_entries = []
-            for message in messages_by_id.values():
-                record, reference = _email_source(message)
-                email_entries.append({"record": record, "reference": reference})
-            checkpoints["emails"] = _dedupe_entries(email_entries)
-            await _write_collection_checkpoint(access_token, "emails", checkpoints["emails"])
-            email_state["window"] = window_number
-            await _write_status(access_token, status)
-            _add_event(status, "Collected email history window", f"through {window_end.isoformat()}")
-            await _write_status(access_token, status)
-        manifest["sources"]["emails"] = checkpoints["emails"]
-        email_state["status"] = "completed"
-        await _write_status(access_token, status)
-      except _CheckpointReused:
-        pass
-      except Exception as error:
-        manifest["warnings"].append(f"Email history unavailable: {error}")
-        manifest["sources"]["emails"] = checkpoints["emails"]
-        email_state["status"] = "failed"
-        email_state["error"] = str(error)[:300]
-        await _write_status(access_token, status)
-
-    calendar_state = status["collection"].setdefault("calendar", _collection_stage())
-    try:
-        status["currentStage"] = "collecting history"
-        status["statusMessage"] = "Gathering calendar history and upcoming events."
-        await _write_status(access_token, status)
-        if calendar_state.get("status") == "completed":
-            manifest["sources"]["calendar"] = checkpoints["calendar"]
-            _logger.info("historical insight gathering: reusing calendar checkpoint (%s entries)", len(checkpoints["calendar"]))
-            raise _CheckpointReused
-        events_by_id: dict[str, dict[str, Any]] = {
-            str(entry.get("record", {}).get("sourceId", "")).removeprefix("calendar:"): {
-                **entry.get("record", {}),
-                "id": str(entry.get("record", {}).get("sourceId", "")).removeprefix("calendar:"),
-                "htmlLink": (entry.get("reference") or {}).get("url"),
-            }
-            for entry in checkpoints["calendar"]
-            if isinstance(entry.get("record"), dict)
-        }
-        oldest_calendar = await find_oldest_calendar_date(
-            access_token, start=history_start, end=history_end,
-        )
-        calendar_start = oldest_calendar or today
-        calendar_windows = _date_windows(calendar_start, history_end)
-        start_window = max(1, int(calendar_state.get("window") or 0) + 1)
-        calendar_state.update({"status": "running", "total": len(calendar_windows)})
-        await _write_status(access_token, status)
-        if start_window > len(calendar_windows):
-            manifest["sources"]["calendar"] = checkpoints["calendar"]
-            calendar_state["status"] = "completed"
-            await _write_status(access_token, status)
-            raise _CheckpointReused
-        for window_number, (window_start, window_end) in enumerate(calendar_windows[start_window - 1:], start=start_window):
-            status["statusMessage"] = _PUBLIC_COLLECTION_MESSAGE
-            await _write_status(access_token, status)
-            calendars = await fetch_google_calendars(
-                access_token,
-                from_date=window_start.isoformat(),
-                days=(window_end - window_start).days,
-            )
-            for event in (event for calendar in calendars for event in calendar.get("events", [])):
-                if event.get("id"):
-                    events_by_id[str(event["id"])] = event
-            entries = []
-            for event in events_by_id.values():
-                source_id = f"calendar:{event.get('id')}"
-                entries.append({"record": {"sourceId": source_id, **{key: event.get(key) for key in ("title", "description", "location", "attendees", "start", "end", "status")}}, "reference": {"id": source_id, "kind": "calendar", "label": event.get("title") or "Untitled event", "detail": event.get("start") or "", "url": event.get("htmlLink")}})
-            checkpoints["calendar"] = _chronological(entries)
-            await _write_collection_checkpoint(access_token, "calendar", checkpoints["calendar"])
-            calendar_state["window"] = window_number
-            await _write_status(access_token, status)
-            _add_event(status, "Collected calendar history window", f"through {window_end.isoformat()}")
-            await _write_status(access_token, status)
-        events = list(events_by_id.values())
-        entries = []
-        holiday_event_ids = {
-            str(event.get("id"))
-            for calendar in calendars
-            if _is_default_holiday_calendar(calendar)
-            for event in calendar.get("events", [])
-            if event.get("id")
-        }
-        for event in events:
-            if str(event.get("id")) in holiday_event_ids:
-                continue
-            source_id = f"calendar:{event.get('id')}"
-            entries.append({
-                "record": {"sourceId": source_id, **{key: event.get(key) for key in ("title", "description", "location", "attendees", "start", "end", "status")}},
-                "reference": {"id": source_id, "kind": "calendar", "label": event.get("title") or "Untitled event", "detail": event.get("start") or "", "url": event.get("htmlLink")},
-            })
-        manifest["sources"]["calendar"] = _chronological(entries)
-        calendar_state["status"] = "completed"
-        await _write_status(access_token, status)
-    except _CheckpointReused:
-        pass
-    except Exception as error:
-        manifest["warnings"].append(f"Calendar history unavailable: {error}")
-        manifest["sources"]["calendar"] = checkpoints["calendar"]
-        calendar_state["status"] = "failed"
-        calendar_state["error"] = str(error)[:300]
-        await _write_status(access_token, status)
-
-    contacts_state = status["collection"].setdefault("contacts", _collection_stage())
-    try:
-        status["currentStage"] = "collecting history"
-        status["statusMessage"] = _PUBLIC_COLLECTION_MESSAGE
-        await _write_status(access_token, status)
-        if contacts_state.get("status") == "completed":
-            manifest["sources"]["contacts"] = checkpoints["contacts"]
-            raise _CheckpointReused
-        contacts = await fetch_google_contacts(access_token)
-        entries = []
-        for resource_name, person in contacts.items():
-            source_id = f"contact:{resource_name}"
-            entries.append({
-                "record": {"sourceId": source_id, **{key: person.get(key) for key in ("name", "email", "phone", "company", "role")}},
-                "reference": {"id": source_id, "kind": "contact", "label": person.get("name") or "Contact", "detail": person.get("email") or "", "url": None},
-            })
-        manifest["sources"]["contacts"] = entries
-        checkpoints["contacts"] = entries
-        await _write_collection_checkpoint(access_token, "contacts", entries)
-        contacts_state["status"] = "completed"
-        await _write_status(access_token, status)
-    except _CheckpointReused:
-        pass
-    except Exception as error:
-        manifest["warnings"].append(f"Contacts unavailable: {error}")
-        manifest["sources"]["contacts"] = checkpoints["contacts"]
-        contacts_state["status"] = "failed"
-        contacts_state["error"] = str(error)[:300]
-        await _write_status(access_token, status)
-
-    tasks_state = status["collection"].setdefault("tasks", _collection_stage())
-    try:
-        status["currentStage"] = "collecting history"
-        status["statusMessage"] = _PUBLIC_COLLECTION_MESSAGE
-        await _write_status(access_token, status)
-        if tasks_state.get("status") == "completed":
-            manifest["sources"]["tasks"] = checkpoints["tasks"]
-            raise _CheckpointReused
-        tasks = await fetch_google_tasks(access_token, include_completed=True)
-        entries = []
-        for task in tasks:
-            source_id = f"task:{task.get('source', 'google')}:{task.get('id')}"
-            entries.append({
-                "record": {"sourceId": source_id, **{key: task.get(key) for key in ("title", "notes", "completed", "dueDate", "projectName", "listName")}},
-                "reference": {"id": source_id, "kind": "task", "label": task.get("title") or "Task", "detail": task.get("dueDate") or "", "url": None},
-            })
-        manifest["sources"]["tasks"] = _chronological(entries)
-        checkpoints["tasks"] = manifest["sources"]["tasks"]
-        await _write_collection_checkpoint(access_token, "tasks", checkpoints["tasks"])
-        tasks_state["status"] = "completed"
-        await _write_status(access_token, status)
-    except _CheckpointReused:
-        pass
-    except Exception as error:
-        manifest["warnings"].append(f"Tasks unavailable: {error}")
-        manifest["sources"]["tasks"] = checkpoints["tasks"]
-        tasks_state["status"] = "failed"
-        tasks_state["error"] = str(error)[:300]
-        await _write_status(access_token, status)
-
-    documents_state = status["collection"].setdefault("documents", _collection_stage())
-    try:
-        status["currentStage"] = "collecting history"
-        status["statusMessage"] = _PUBLIC_COLLECTION_MESSAGE
-        await _write_status(access_token, status)
-        if documents_state.get("status") == "completed":
-            manifest["sources"]["documents"] = checkpoints["documents"]
-            raise _CheckpointReused
-        documents = await fetch_google_drive_documents(access_token)
-        oldest_document = await find_oldest_drive_document_date(access_token)
-        if oldest_document:
-            status.setdefault("oldestSourceDates", {})["documents"] = oldest_document.isoformat()
-            await _write_status(access_token, status)
-        entries = list(checkpoints["documents"])
-        document_total = len(documents)
-        async def report_document_progress(message: str) -> None:
-            status["statusMessage"] = message
-            await _write_status(access_token, status)
-
-        for document_number, document in enumerate(documents, start=1):
-            document_id = str(document.get("id") or "")
-            await report_document_progress(_PUBLIC_COLLECTION_MESSAGE)
-            if document.get("mimeType") == "application/vnd.google-apps.spreadsheet":
-                for row in await fetch_google_spreadsheet_rows(
-                    access_token,
-                    document_id,
-                    status_callback=report_document_progress,
-                ):
-                    source_id = f"sheet:{document_id}:{row['sheet']}:{row['rowNumber']}"
-                    entries.append({
-                        "record": {
-                            "sourceId": source_id, "document": document.get("name"),
-                            "sheet": row["sheet"], "rowNumber": row["rowNumber"], "values": row["values"],
-                            "modifiedTime": document.get("modifiedTime"),
-                        },
-                        "reference": {
-                            "id": source_id, "kind": "google_sheet_row",
-                            "label": f"{document.get('name') or 'Spreadsheet'} · {row['sheet']} row {row['rowNumber']}",
-                            "detail": document.get("modifiedTime") or "", "url": document.get("webViewLink"),
-                        },
-                    })
-                checkpoints["documents"] = _dedupe_entries(entries)
-                await _write_collection_checkpoint(access_token, "documents", checkpoints["documents"])
-            elif document_id:
-                source_id = f"document:{document_id}"
-                entries.append({
-                    "record": {
-                        "sourceId": source_id, "name": document.get("name"),
-                        "modifiedTime": document.get("modifiedTime"), "mimeType": document.get("mimeType"),
-                    },
-                    "reference": {
-                        "id": source_id, "kind": "google_doc", "label": document.get("name") or "Untitled document",
-                        "detail": document.get("modifiedTime") or "", "url": document.get("webViewLink"),
-                    },
-                })
-                checkpoints["documents"] = _dedupe_entries(entries)
-                await _write_collection_checkpoint(access_token, "documents", checkpoints["documents"])
-        manifest["sources"]["documents"] = _chronological(entries)
-        documents_state["status"] = "completed"
-        await _write_status(access_token, status)
-    except _CheckpointReused:
-        pass
-    except Exception as error:
-        manifest["warnings"].append(f"Google Docs unavailable: {error}")
-        manifest["sources"]["documents"] = checkpoints["documents"]
-        documents_state["status"] = "failed"
-        documents_state["error"] = str(error)[:300]
-        await _write_status(access_token, status)
-
-    timeline = _build_timeline(manifest["sources"])
-    entries_by_date: dict[str, list[dict[str, Any]]] = {}
-    for entry in timeline:
-        day = _manifest_day(entry)
-        entries_by_date.setdefault(day, []).append(entry)
-    dates = sorted(entries_by_date)
-    oldest_source_dates = {
-        source: min((_manifest_day(entry) for entry in entries), default=None)
-        for source, entries in manifest["sources"].items()
-    }
-    status["oldestSourceDates"] = oldest_source_dates
-    oldest_date = min((day for day in oldest_source_dates.values() if day), default=None)
-    _logger.info("historical insight gathering: oldest source dates=%s; review starts=%s", oldest_source_dates, oldest_date)
-    for day, day_entries in entries_by_date.items():
-        pages = [
-            {"page": page_number, "entries": day_entries[offset:offset + _BATCH_SIZE]}
-            for page_number, offset in enumerate(range(0, len(day_entries), _BATCH_SIZE), start=1)
-        ]
-        await write_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day), {
-            "version": _MANIFEST_VERSION,
-            "date": day,
-            "numberOfEntries": len(day_entries),
-            "pages": pages,
-        })
-    # Keep metadata as a small checkpoint/index. Each date's records live in
-    # its own manifest/<date>.json file, and the agent only receives one page.
-    dated = [day for day in dates if day != "undated"]
-    manifest = {
-        "version": _MANIFEST_VERSION,
-        "oldestEntryDate": dated[0] if dated else None,
-        "newestEntryDate": dated[-1] if dated else None,
-        "numberOfEntries": len(timeline),
-        "dates": dates,
-        "currentPointerDate": None,
-        "currentPointerPage": None,
-        "sourceCounts": {name: len(values) for name, values in manifest["sources"].items()},
-        "warnings": manifest["warnings"],
-    }
-    for name in _STAGES:
-        status["stages"][name]["total"] = len(timeline)
-    status["currentStage"] = None
-    status["statusMessage"] = "Historical records are ready for chronological review."
-    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-    return manifest
-
-
-async def _read_date_page(access_token: str, day: str, page_number: int) -> list[dict[str, Any]]:
-    date_file = await read_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day))
-    if not isinstance(date_file, dict) or date_file.get("version") != _MANIFEST_VERSION:
-        return []
-    pages = date_file.get("pages")
-    if not isinstance(pages, list) or page_number < 1 or page_number > len(pages):
-        return []
-    page = pages[page_number - 1]
-    entries = page.get("entries") if isinstance(page, dict) else None
-    return entries if isinstance(entries, list) else []
-
 
 def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") -> str:
     sources = {entry["reference"]["id"]: entry["reference"] for entry in entries}
@@ -822,9 +396,9 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "Prefer one refined memory supported by multiple records over many restatements of individual items. "
         "For each potentially useful person, employer, business, book, purchase, or topic, search_historical_sources first "
         "to find related records on other dates and in other source types, then combine the evidence into "
-        "the summaries for this date. For every source that may support a durable memory, call "
+        "one coherent cross-date fact. For every source that may support a durable memory, call "
         "read_historical_source with its exact sourceId before saving; the full record is fetched only "
-        "for this final date-processing pass. For every calendar event, use that grounding read when "
+        "for this final aggregate pass. For every calendar event, use that grounding read when "
         "the event's location or complete fields matter, regardless of category. Do not read clearly "
         "irrelevant records. Synthesize related evidence into one refined memory. Prefer evidence from at least "
         "two independent sources when available, such as an email "
@@ -921,58 +495,6 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "save nothing. Return a brief completion note after using the tools.\n\n"
         f"{existing_hint}\nSource references:\n{json.dumps(sources)}\nRecords:\n{json.dumps(records)}"
     )
-
-
-async def _hydrate_page(access_token: str, stage: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Load large source bodies only for the current small agent page."""
-    async def hydrate(entry: dict[str, Any]) -> dict[str, Any]:
-        record = dict(entry.get("record") or {})
-        source_id = str(record.get("sourceId") or "")
-        try:
-            if source_id.startswith("email:"):
-                message_id = source_id.removeprefix("email:").removeprefix("gmail_")
-                message = await fetch_gmail_message(access_token, message_id)
-                record["body"] = str(message.get("body") or "")[:1500]
-            elif source_id.startswith("document:"):
-                # The full document is allowed during this one-record pass so
-                # the summary and any durable memory are grounded precisely.
-                # It is never persisted in the manifest.
-                record["content"] = await fetch_google_drive_document(access_token, source_id.removeprefix("document:"))
-            elif source_id.startswith("sheet:"):
-                row_parts = source_id.removeprefix("sheet:").rsplit(":", 1)
-                file_parts = row_parts[0].split(":", 1) if len(row_parts) == 2 else []
-                if len(file_parts) == 2:
-                    row = await fetch_google_spreadsheet_row(
-                        access_token, file_parts[0], file_parts[1], int(row_parts[1]),
-                    )
-                    record.update(row)
-        except Exception:
-            # Metadata remains useful if an individual body/export is no longer
-            # accessible; one source should not stop the chronological pass.
-            pass
-        return {**entry, "record": record}
-
-    return await asyncio.gather(*(hydrate(entry) for entry in entries))
-
-
-def _indexed_date_entries(records: dict[str, dict[str, Any]], day: str) -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for item in records.values():
-        if item.get("date") != day or item.get("status") != "completed":
-            continue
-        source_id = str(item.get("sourceId") or "")
-        reference = {
-            "id": source_id,
-            "kind": item.get("kind"),
-            "label": item.get("label"),
-            "detail": item.get("detail"),
-            "url": item.get("url"),
-        }
-        entries.append({
-            "record": {"sourceId": source_id, "date": day, "summary": item.get("summary") or ""},
-            "reference": reference,
-        })
-    return entries
 
 
 async def _fetch_lazy_day(
@@ -1101,34 +623,22 @@ def _advance_daily_date(day: date, manifest: dict[str, Any]) -> None:
 
 
 def _brief_record_summary(entry: dict[str, Any]) -> str:
-    """Build a tiny searchable index value; never persist raw source content."""
+    """Return only the source's title for the metadata-only daily index."""
     record = entry.get("record") if isinstance(entry.get("record"), dict) else {}
     reference = entry.get("reference") if isinstance(entry.get("reference"), dict) else {}
     kind = str(reference.get("kind") or "record")
     if kind == "email":
-        value = f"{record.get('date', '')[:10]} email from {record.get('from') or 'unknown'}: {record.get('subject') or '(no subject)'}"
-        detail = " ".join(str(record.get("body") or record.get("snippet") or "").split())
-        if detail:
-            value += f" — {detail[:150]}"
+        value = str(record.get("subject") or reference.get("label") or "(no subject)")
     elif kind == "calendar":
-        value = f"{str(record.get('start') or '')[:10]} calendar: {record.get('title') or 'untitled'}"
-        if record.get("location"):
-            value += f" at {record['location']}"
+        value = str(record.get("title") or reference.get("label") or "Untitled event")
     elif kind == "google_doc":
-        value = f"{str(record.get('modifiedTime') or '')[:10]} document: {record.get('name') or 'untitled'}"
-        detail = " ".join(str(record.get("content") or "").split())
-        if detail:
-            value += f" — {detail[:150]}"
+        value = str(record.get("name") or reference.get("label") or "Untitled document")
     elif kind == "google_sheet_row":
-        values = record.get("values") if isinstance(record.get("values"), dict) else {}
-        compact = "; ".join(f"{key}: {str(value).strip()}" for key, value in list(values.items())[:3])
-        value = f"{str(record.get('modifiedTime') or '')[:10]} spreadsheet {record.get('document') or 'untitled'}, {record.get('sheet') or 'sheet'} row {record.get('rowNumber')}: {compact}"
+        value = str(reference.get("label") or record.get("document") or "Spreadsheet row")
     elif kind == "task":
-        value = f"{str(record.get('dueDate') or record.get('date') or '')[:10]} task: {record.get('title') or 'untitled'}"
+        value = str(record.get("title") or reference.get("label") or "Untitled task")
     elif kind == "contact":
-        value = f"contact: {record.get('name') or 'unknown'}"
-        if record.get("company"):
-            value += f" at {record['company']}"
+        value = str(record.get("name") or reference.get("label") or "Unknown contact")
     else:
         value = str(reference.get("label") or record.get("sourceId") or kind)
     return " ".join(value.split())[:240]
@@ -1231,18 +741,8 @@ async def _read_lazy_date_index(
     return result
 
 
-async def _read_lazy_source_index(
-    access_token: str,
-    days: list[str],
-) -> dict[str, dict[str, Any]]:
-    result: dict[str, dict[str, Any]] = {}
-    for day in dict.fromkeys(days):
-        result.update(await _read_lazy_date_index(access_token, day))
-    return result
-
-
 async def _run_lazy(access_token: str, status: dict[str, Any], context_block: str, agent_name: str) -> None:
-    """Review one oldest-date batch at a time while persisting only the index."""
+    """Build the daily title index, then run the global agentic memory pass."""
     manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
     if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION:
         manifest = await _collect_manifest(access_token, status)
@@ -1285,109 +785,185 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     if had_legacy_fields:
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     stage = status["stages"]["history"]
-    stage["status"] = "running"
+    if stage.get("status") != "completed":
+        stage["status"] = "running"
 
-    while True:
-        try:
-            day = date.fromisoformat(str(manifest.get("currentDate"))[:10])
-            newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
-        except (TypeError, ValueError):
-            stage["status"] = "completed"
-            status.update({"state": "completed", "currentStage": None, "currentDate": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
-            manifest["currentDate"] = None
-            await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-            _add_event(status, "Historical insights are ready")
-            await _write_status(access_token, status)
-            return
-        if day > newest:
-            stage["status"] = "completed"
-            status.update({"state": "completed", "currentStage": None, "currentDate": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
-            manifest["currentDate"] = None
-            await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-            _add_event(status, "Historical insights are ready")
-            await _write_status(access_token, status)
-            return
+        while True:
+            try:
+                day = date.fromisoformat(str(manifest.get("currentDate"))[:10])
+                newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+            except (TypeError, ValueError):
+                stage["status"] = "completed"
+                manifest["currentDate"] = None
+                await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+                break
+            if day > newest:
+                stage["status"] = "completed"
+                manifest["currentDate"] = None
+                await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+                break
 
-        status["currentStage"] = f"history · {day.isoformat()}"
-        status["currentDate"] = day.isoformat()
-        status["statusMessage"] = f"Fetching records for {day.isoformat()}."
-        _logger.info("historical insight gathering: crawling date=%s", day)
-        await _write_status(access_token, status)
-        date_key = day.isoformat()
-        date_records = await _read_lazy_date_index(access_token, date_key)
-        entries = await _fetch_lazy_day(access_token, day, manifest, date_records)
-        # Persist only source ids and tiny index metadata before the agent runs;
-        # an interrupted batch can therefore be retried without losing place.
-        for entry in entries:
-            indexed = _manifest_record(entry, status="in_progress")
-            date_records[indexed["sourceId"]] = indexed
-        manifest["currentDate"] = date_key
-        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-        await _write_lazy_date_index(access_token, manifest, date_key, date_records)
-
-        # Deterministic crawl pass: read one record, derive a tiny index summary,
-        # persist only that summary/status, and release the record.
-        for record_number, entry in enumerate(entries, start=1):
-            source_id = _entry_key(entry)
-            status["statusMessage"] = f"Indexing record {record_number} of {len(entries)} from {day.isoformat()}."
+            status["currentStage"] = f"history · {day.isoformat()}"
+            status["currentDate"] = day.isoformat()
+            status["statusMessage"] = f"Fetching records for {day.isoformat()}."
+            _logger.info("historical insight gathering: crawling date=%s", day)
             await _write_status(access_token, status)
-            hydrated = (await _hydrate_page(access_token, "history", [entry]))[0]
-            fallback = _brief_record_summary(hydrated)
-            date_records[source_id].update({"status": "completed", "summary": fallback})
-            stage["processed"] = int(stage.get("processed") or 0) + 1
+            date_key = day.isoformat()
+            date_records = await _read_lazy_date_index(access_token, date_key)
+            entries = await _fetch_lazy_day(access_token, day, manifest, date_records)
+            # Persist only source ids and tiny index metadata before indexing;
+            # an interrupted day can therefore be retried without losing place.
+            for entry in entries:
+                indexed = _manifest_record(entry, status="in_progress")
+                date_records[indexed["sourceId"]] = indexed
+            manifest["currentDate"] = date_key
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
             await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
-        # Only after every record for this date has a completed summary do we
-        # give the complete date dataset to the memory-extraction agent.
-        date_states = manifest.setdefault("dateStates", {})
-        date_entries = _indexed_date_entries(date_records, date_key)
-        if date_states.get(date_key) != "completed":
-            date_states[date_key] = "memory_in_progress"
-            await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-            saved = 0
-
-            if date_entries:
-                references = {entry["reference"]["id"]: entry["reference"] for entry in date_entries}
-                indexed_days = [str(value) for value in manifest.get("dates", [])]
-                indexed_days.extend(str(value) for value in (manifest.get("dateStates") or {}).keys())
-                indexed_days.append(date_key)
-                source_index = await _read_lazy_source_index(access_token, indexed_days)
-
-                def counted() -> None:
-                    nonlocal saved
-                    saved += 1
-
-                search_state: dict[str, Any] = {}
-                lookup_state: dict[str, Any] = {}
-                memory_agent = build_executive_assistant(
-                    context_block,
-                    agent_name=agent_name,
-                    extra_tools=[
-                        build_lookup_insights_tool(access_token, lookup_state),
-                        build_read_historical_source_tool(access_token, source_index),
-                        build_search_historical_sources_tool(
-                            access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
-                            references, search_state, source_index,
-                        ),
-                        build_remember_insight_tool(access_token, references, counted, search_state, lookup_state),
-                    ],
-                )
-                status["statusMessage"] = f"Reading the complete {date_key} index for durable memories."
+            # Deterministic crawl pass: use the metadata already returned by
+            # the provider and persist only a title/status index. No source
+            # body or document content is read during indexing.
+            for record_number, entry in enumerate(entries, start=1):
+                source_id = _entry_key(entry)
+                status["statusMessage"] = f"Indexing record {record_number} of {len(entries)} from {day.isoformat()}."
                 await _write_status(access_token, status)
-                await _stream_agent_page(memory_agent, _prompt(f"all summarized history for {date_key}", date_entries), status, access_token)
+                date_records[source_id].update({"status": "completed", "summary": _brief_record_summary(entry)})
+                stage["processed"] = int(stage.get("processed") or 0) + 1
+                await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+                await _write_lazy_date_index(access_token, manifest, date_key, date_records)
+
+            # Memory extraction is intentionally deferred until every date has
+            # been indexed. This keeps the daily crawl fast and gives the final
+            # pass a coherent cross-date catalog.
+            date_states = manifest.setdefault("dateStates", {})
             date_states[date_key] = "completed"
-            status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
             await _write_lazy_date_index(access_token, manifest, date_key, date_records)
 
-        _advance_daily_date(day, manifest)
-        manifest.setdefault("dates", []).append(day.isoformat())
-        manifest["dates"] = list(dict.fromkeys(manifest["dates"]))
-        status["currentDate"] = manifest.get("currentDate")
-        await _write_lazy_date_index(access_token, manifest, date_key, date_records)
-        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-        _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(date_records)} source records indexed")
-        await _write_status(access_token, status)
+            _advance_daily_date(day, manifest)
+            manifest.setdefault("dates", []).append(day.isoformat())
+            manifest["dates"] = list(dict.fromkeys(manifest["dates"]))
+            status["currentDate"] = manifest.get("currentDate")
+            await _write_lazy_date_index(access_token, manifest, date_key, date_records)
+            await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+            _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(date_records)} source records indexed")
+            await _write_status(access_token, status)
+
+    await _run_aggregate(access_token, status, manifest, context_block, agent_name)
+    status.update({
+        "state": "completed",
+        "currentStage": None,
+        "currentDate": None,
+        "completedAt": datetime.now(UTC).isoformat(),
+        "error": None,
+        "statusMessage": "Historical insights are ready.",
+    })
+    _add_event(status, "Historical insights are ready")
+    await _write_status(access_token, status)
+    _logger.info("historical insight gathering: completed history and aggregate memory pass")
+
+
+def _aggregate_prompt(total: int) -> str:
+    """Tell the sole LLM phase to build a global evidence model first."""
+    return (
+        _prompt("the complete indexed history", [])
+        + "\n\n"
+        + f"This is the sole agentic phase after deterministic indexing; the manifest contains {total} indexed materials. "
+        + "The daily crawl did not make any LLM calls and intentionally stored only dates, source metadata, and titles. "
+        + "First call list_historical_sources repeatedly from page 1 until nextPage is null. Treat that catalog as the "
+        + "complete scope of this pass. Then crawl every catalog item and read_historical_source for each source before "
+        + "saving. This is intentionally the only full-content phase; titles alone are not enough for ownership, "
+        + "employment, roles, or relationships. "
+        + "Do not save memories while you are still discovering the catalog. Build a cross-date evidence ledger in your "
+        + "working context, then synthesize and save only after the full catalog has been inspected.\n\n"
+        + "Use lookup_historical_insights and search_historical_sources while investigating. Once you have established "
+        + "a correct, coherent narrative, use remember_historical_insight as the write tool to create or update exactly "
+        + "one durable memory with the supporting source ids. Do not write provisional memories.\n\n"
+        + "Resolve identity and role before writing. A source saying the user has a startup or works with a project does "
+        + "not prove the user owns it. If another source identifies a manager, founder, owner, employer, or offer recipient, "
+        + "reconcile those roles using the complete source records. Likewise, connect an offer or job decision to the actual "
+        + "company and initiative instead of creating a separate employer memory from a brand name alone. Treat existing "
+        + "memories as hypotheses: look them up by the relevant entity, correct contradictory facts under their existing "
+        + "stable memoryKey when supported, and consolidate duplicate memories rather than adding another variant. "
+        + "In particular, never preserve both sides of an ownership or employment contradiction just because they came from "
+        + "different dates. Keep source evidence on the final consolidated memory and avoid unsupported assumptions."
+    )
+
+
+def _index_reference(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: item.get(key)
+        for key in ("sourceId", "kind", "label", "detail", "url", "providerId")
+        if item.get(key) is not None
+    }
+
+
+async def _run_aggregate(
+    access_token: str,
+    status: dict[str, Any],
+    manifest: dict[str, Any],
+    context_block: str,
+    agent_name: str,
+) -> None:
+    """Run the only agentic phase over the complete metadata-only manifest."""
+    stage = status["stages"]["aggregate"]
+    if stage.get("status") == "completed" and manifest.get("aggregateStatus") == "completed":
+        return
+
+    entries = await _read_manifest_entries(access_token)
+    source_index = {
+        str(item["sourceId"]): item
+        for item in entries
+        if item.get("sourceId")
+    }
+    stage.update({"status": "running", "processed": 0, "total": len(source_index)})
+    status.update({
+        "currentStage": "aggregate",
+        "currentDate": None,
+        "statusMessage": "Building coherent memories from the indexed history.",
+    })
+    manifest["aggregateStatus"] = "in_progress"
+    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    await _write_status(access_token, status)
+
+    saved = 0
+    if source_index:
+        references = {source_id: _index_reference(item) for source_id, item in source_index.items()}
+
+        def counted() -> None:
+            nonlocal saved
+            saved += 1
+
+        search_state: dict[str, Any] = {}
+        lookup_state: dict[str, Any] = {}
+        read_state: dict[str, Any] = {}
+        aggregate_agent = build_executive_assistant(
+            context_block,
+            agent_name=agent_name,
+            extra_tools=[
+                build_list_historical_sources_tool(source_index),
+                build_lookup_insights_tool(access_token, lookup_state),
+                build_read_historical_source_tool(access_token, source_index, read_state),
+                build_search_historical_sources_tool(
+                    access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
+                    references, search_state, source_index,
+                ),
+                build_remember_insight_tool(
+                    access_token, references, counted, search_state, lookup_state, read_state,
+                ),
+            ],
+        )
+        # Strands manages the multi-turn/tool workflow here; this is not a
+        # single completion. The agent chooses which indexed sources to read,
+        # searches for corroboration, and saves memories as its evidence model
+        # becomes coherent.
+        await _stream_agent_page(aggregate_agent, _aggregate_prompt(len(source_index)), status, access_token)
+
+    stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
+    manifest["aggregateStatus"] = "completed"
+    status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
+    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    _add_event(status, "Built coherent historical memories", f"Reviewed {len(source_index)} indexed source records")
+    await _write_status(access_token, status)
 
 
 async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], access_token: str) -> None:
@@ -1452,89 +1028,6 @@ async def _run(
                 })
                 _add_event(status, "Google access refreshed", "Resuming from the saved history checkpoint.")
                 await _write_status(access_token, status)
-        manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
-        collection_complete = all(
-            status.get("collection", {}).get(source, {}).get("status") == "completed"
-            for source in _COLLECTION_SOURCES
-        )
-        if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION or not collection_complete:
-            manifest = await _collect_manifest(access_token, status)
-            collection_complete = all(
-                status.get("collection", {}).get(source, {}).get("status") == "completed"
-                for source in _COLLECTION_SOURCES
-            )
-            if not collection_complete:
-                status.update({"state": "failed", "error": "One or more source collections did not complete."})
-                _add_event(status, "Collection paused", "Resume to retry only the unfinished source.")
-                await _write_status(access_token, status)
-                return
-            for stage in status["stages"].values():
-                stage.update({"status": "pending", "processed": 0, "page": 0, "dateIndex": 0, "total": manifest.get("numberOfEntries", 0)})
-
-        app_data, context_block = await asyncio.gather(read_drive_app_data(access_token), load_context_documents(access_token))
-        agent_name = str((app_data.get("userData") or {}).get("agentName") or DEFAULT_AGENT_NAME)
-        for stage_name in _STAGES:
-            stage = status["stages"][stage_name]
-            if stage.get("status") == "completed":
-                continue
-            dates = manifest.get("dates") if isinstance(manifest.get("dates"), list) else []
-            total_records = int(manifest.get("numberOfEntries") or 0)
-            stage.update({"status": "running", "total": total_records})
-            status["currentStage"] = "history"
-            await _write_status(access_token, status)
-            offset = int(stage.get("processed") or 0)
-            date_index = int(stage.get("dateIndex") or 0)
-            page_number = int(stage.get("page") or 0) + 1
-            while date_index < len(dates):
-                page = await _read_date_page(access_token, str(dates[date_index]), page_number)
-                if not page:
-                    date_index += 1
-                    page_number = 1
-                    continue
-                page_day = str(dates[date_index])
-                batch = await _hydrate_page(access_token, stage_name, page)
-                status["currentStage"] = f"history · {page_day}"
-                manifest["currentPointerDate"] = page_day
-                manifest["currentPointerPage"] = page_number
-                await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-                await _write_status(access_token, status)
-                references = {entry["reference"]["id"]: entry["reference"] for entry in batch}
-                saved = 0
-                def counted() -> None:
-                    nonlocal saved
-                    saved += 1
-                search_state: dict[str, Any] = {}
-                lookup_state: dict[str, Any] = {}
-                agent = build_executive_assistant(
-                    context_block,
-                    agent_name=agent_name,
-                    extra_tools=[
-                        build_lookup_insights_tool(access_token, lookup_state),
-                        build_search_historical_sources_tool(
-                            access_token, _MANIFEST_FOLDER, [str(day) for day in dates],
-                            _MANIFEST_VERSION, references, search_state,
-                        ),
-                        build_remember_insight_tool(access_token, references, counted, search_state, lookup_state),
-                    ],
-                )
-                status["statusMessage"] = f"Reviewing records from {page_day} and comparing them with existing memories."
-                await _write_status(access_token, status)
-                _logger.info("historical insight gathering: reviewing date=%s page=%s records=%s", page_day, page_number, len(batch))
-                await _stream_agent_page(agent, _prompt(f"history for {page_day}", batch), status, access_token)
-                stage["processed"] = offset + len(batch)
-                stage["dateIndex"] = date_index
-                stage["page"] = page_number
-                status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
-                _add_event(status, f"Reviewed history for {page_day}", f"{stage['processed']} of {stage['total']} records")
-                await _write_status(access_token, status)
-                offset += len(batch)
-                page_number += 1
-            stage["status"] = "completed"
-            await _write_status(access_token, status)
-        status.update({"state": "completed", "currentStage": None, "completedAt": datetime.now(UTC).isoformat(), "error": None, "statusMessage": "Historical insights are ready."})
-        _add_event(status, "Historical insights are ready")
-        await _write_status(access_token, status)
-        _logger.info("historical insight gathering: worker completed run_id=%s insights=%s", run_id, status.get("insightsWritten", 0))
     except Exception as error:
         _logger.exception("historical insight gathering: worker failed run_id=%s", run_id)
         status = await _read_status(access_token)

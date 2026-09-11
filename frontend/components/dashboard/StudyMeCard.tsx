@@ -8,7 +8,10 @@ export type InsightGatheringStatus = {
   currentDate?: string | null;
   statusMessage?: string | null;
   insightsWritten?: number;
-  stages?: { history?: { total?: number } };
+  stages?: {
+    history?: { total?: number };
+    aggregate?: { total?: number; processed?: number };
+  };
   error?: string | null;
 };
 
