@@ -163,7 +163,6 @@ def build_search_historical_sources_tool(
     access_token: str,
     manifest_folder: str,
     dates: list[str],
-    manifest_version: int,
     source_references: dict[str, dict[str, Any]],
     search_state: dict[str, Any] | None = None,
     source_index: dict[str, dict[str, Any]] | None = None,
@@ -192,7 +191,7 @@ def build_search_historical_sources_tool(
             indexed_entries = []
             for day in dates:
                 date_file = await read_json_file(access_token, manifest_folder, f"{day}.json")
-                if not isinstance(date_file, dict) or date_file.get("version") != manifest_version:
+                if not isinstance(date_file, dict):
                     continue
                 for page in date_file.get("pages", []):
                     if isinstance(page, dict):

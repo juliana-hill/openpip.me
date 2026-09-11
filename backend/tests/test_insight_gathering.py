@@ -42,7 +42,7 @@ def test_memory_prompt_keeps_work_spans_and_personal_profile_facts() -> None:
 
 def test_start_is_idempotent_after_completion(monkeypatch) -> None:
     completed = {
-        "version": insight_gathering._STATUS_VERSION, "state": "completed", "runId": "run-1", "stages": {},
+        "state": "completed", "runId": "run-1", "stages": {},
         "progress": 100, "insightsWritten": 4, "events": [],
     }
 
@@ -59,7 +59,7 @@ def test_start_is_idempotent_after_completion(monkeypatch) -> None:
 
 
 def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> None:
-    stale = {"version": insight_gathering._STATUS_VERSION, "state": "running", "runId": "run-1"}
+    stale = {"state": "running", "runId": "run-1"}
     resumed = {**stale, "state": "queued", "statusMessage": "Resuming the historical review."}
 
     async def fake_read(_token: str):
@@ -188,9 +188,8 @@ def test_daily_index_summary_is_only_the_record_title() -> None:
 def test_read_manifest_entries_normalizes_flat_index_records(monkeypatch) -> None:
     async def fake_list(_token: str, _folder: str):
         return {
-            "metadata": {"version": insight_gathering._MANIFEST_VERSION},
+            "metadata": {},
             "2021-01-02": {
-                "version": insight_gathering._MANIFEST_VERSION,
                 "pages": [{"page": 1, "entries": [{
                     "sourceId": "document:1", "kind": "google_doc", "date": "2021-01-02",
                     "label": "Brief Timeline", "summary": "Brief Timeline", "status": "completed",
@@ -239,7 +238,7 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
     monkeypatch.setattr(insight_gathering, "_stream_agent_page", fake_stream)
 
     status = insight_gathering._default_status()
-    manifest = {"version": insight_gathering._MANIFEST_VERSION, "aggregateStatus": "pending"}
+    manifest = {"aggregateStatus": "pending"}
     asyncio.run(insight_gathering._run_aggregate("token", status, manifest, "", "Pip"))
 
     assert len(prompts) == 1

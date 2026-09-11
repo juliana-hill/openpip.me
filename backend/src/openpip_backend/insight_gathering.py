@@ -40,8 +40,6 @@ _FOLDER = "OpenPip/memory/insights_gathering"
 _MANIFEST_FOLDER = f"{_FOLDER}/manifest"
 _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
-_MANIFEST_VERSION = 7
-_STATUS_VERSION = 3
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
 _LOOKBACK_DAYS = 365 * 5
@@ -92,7 +90,6 @@ def _collection_stage() -> dict[str, Any]:
 
 def _default_status() -> dict[str, Any]:
     return {
-        "version": _STATUS_VERSION,
         "state": "not_started",
         "runId": None,
         "progress": 0,
@@ -156,7 +153,7 @@ async def _read_status(access_token: str) -> dict[str, Any]:
         # Status polling must remain available when Drive is temporarily slow
         # or unavailable; the next poll can recover the persisted checkpoint.
         return _default_status()
-    if not isinstance(stored, dict) or stored.get("version") != _STATUS_VERSION:
+    if not isinstance(stored, dict):
         return _default_status()
     result = _default_status()
     result.update(stored)
@@ -291,7 +288,7 @@ async def _read_manifest_entries(access_token: str) -> list[dict[str, Any]]:
     files = await list_json_files(access_token, _MANIFEST_FOLDER)
     entries_by_id: dict[str, dict[str, Any]] = {}
     for data in files.values():
-        if not isinstance(data, dict) or data.get("version") != _MANIFEST_VERSION:
+        if not isinstance(data, dict):
             continue
         for page in data.get("pages", []):
             if isinstance(page, dict) and isinstance(page.get("entries"), list):
@@ -362,7 +359,6 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         for source in _COLLECTION_SOURCES
     }
     manifest = {
-        "version": _MANIFEST_VERSION,
         "oldestSourceDates": oldest,
         "newestSourceDates": newest,
         # The crawl is one chronological daily pass, not one cursor per
@@ -691,7 +687,6 @@ async def _write_lazy_date_index(
     ]
     date_states = manifest.get("dateStates") if isinstance(manifest.get("dateStates"), dict) else {}
     await write_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day), {
-        "version": _MANIFEST_VERSION,
         "date": day,
         "status": date_states.get(day) or "indexing",
         "numberOfEntries": len(day_entries),
@@ -744,8 +739,9 @@ async def _read_lazy_date_index(
 async def _run_lazy(access_token: str, status: dict[str, Any], context_block: str, agent_name: str) -> None:
     """Build the daily title index, then run the global agentic memory pass."""
     manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
-    if not isinstance(manifest, dict) or manifest.get("version") != _MANIFEST_VERSION:
+    if not isinstance(manifest, dict):
         manifest = await _collect_manifest(access_token, status)
+    else:
         for stage in status["stages"].values():
             stage.update({"status": "pending", "processed": 0, "total": 0})
     # Older v6 checkpoints used one cursor per source.  Preserve their
@@ -953,7 +949,7 @@ async def _run_aggregate(
                 build_lookup_insights_tool(access_token, lookup_state),
                 build_read_historical_source_tool(access_token, source_index, read_state),
                 build_search_historical_sources_tool(
-                    access_token, _MANIFEST_FOLDER, [], _MANIFEST_VERSION,
+                    access_token, _MANIFEST_FOLDER, [],
                     references, search_state, source_index,
                 ),
                 build_remember_insight_tool(
