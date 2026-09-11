@@ -41,6 +41,7 @@ from .google_workspace import (
     modify_gmail_message_labels,
     trash_gmail_messages,
 )
+from .insight_gathering import get_insight_gathering_login_status
 from .insight_memory import format_insight_context, list_insights
 from .models import Proposal, ProposalStatus, SourceReference
 
@@ -58,6 +59,14 @@ TRIAGE_LABEL_NAMES = {
 
 _jobs: dict[str, dict[str, Any]] = {}
 _active_jobs: dict[str, str] = {}
+
+
+class InboxTriageStudyMeGateError(RuntimeError):
+    """Raised when Inbox Assistant is started before Study Me is complete."""
+
+    def __init__(self, study_me_status: dict[str, Any]):
+        self.study_me_status = study_me_status
+        super().__init__("Inbox Assistant is waiting for Study Me to finish.")
 
 # Gmail's own ML categorizer (the Promotions/Updates inbox tabs) reads the
 # full message, not just a subject/snippet — real marketing copy is written
@@ -922,6 +931,9 @@ async def queue_unread_inbox_triage(access_token: str, user_name: str | None = N
     active_id = _active_jobs.get(owner)
     if active_id and active_id in _jobs:
         return _snapshot(_jobs[active_id])
+    study_me_status = await get_insight_gathering_login_status(access_token)
+    if study_me_status.get("state") != "completed":
+        raise InboxTriageStudyMeGateError(study_me_status)
     messages = await _all_unread_messages(access_token)
     job = {
         "id": str(uuid4()),

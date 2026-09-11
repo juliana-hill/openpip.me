@@ -14,6 +14,7 @@ import { ReadAloudButton } from "@/components/ui/ReadAloudButton";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { AgentRunHistoryModal, type AgentRun } from "./AgentRunHistoryModal";
 import { StudyMeCard, type InsightGatheringStatus } from "./StudyMeCard";
+import { TripLibraryCard } from "./TripLibraryCard";
 
 type BriefTask = { title: string; priority: string; projectName: string | null; source?: string; dueDate?: string | null };
 type BriefEvent = { title: string; start: string };
@@ -363,6 +364,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
   const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded;
   const showStudyMe = showAssistantPrompt && insightStatus !== null && insightStatus.state !== "completed";
+  const showTripLibrary = showAssistantPrompt && insightStatus !== null;
 
   return (
     <div className={styles.shell}>
@@ -432,6 +434,8 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
             </div>
           </section>
         ))}
+
+        {showTripLibrary && <TripLibraryCard agentName={agentName} status={insightStatus!} />}
 
         {/* Daily Brief */}
         <div className={`${styles.card} ${styles.cardFull} ${styles.cardBrief}`} style={{ animationDelay: "80ms" }}>

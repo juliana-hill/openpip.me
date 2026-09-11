@@ -45,6 +45,7 @@ from .google_drive_docs import (
 )
 from .google_drive_store import read_drive_app_data, write_drive_app_data
 from .inbox_triage import (
+    InboxTriageStudyMeGateError,
     ensure_contact_interactions,
     ensure_contact_profile,
     get_inbox_triage_progress,
@@ -65,6 +66,7 @@ from .insight_gathering import (
     get_insight_gathering_status,
     start_insight_gathering,
 )
+from .trip_pipeline import list_trips, save_trip, sync_trip_library
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -261,6 +263,15 @@ async def queue_inbox_triage(
     """
     try:
         return await queue_and_attach(token, user_name)
+    except InboxTriageStudyMeGateError as error:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "study_me_incomplete",
+                "message": str(error),
+                "studyMeState": error.study_me_status.get("state"),
+            },
+        ) from error
     except GoogleApiError as error:
         raise _google_error(error) from error
 
@@ -817,6 +828,38 @@ async def google_calendars(
     except GoogleApiError as error:
         raise _google_error(error) from error
     return {"calendars": calendars}
+
+
+@app.get("/agent/trips")
+async def agent_trips(token: str = Depends(get_google_token)):
+    """List durable past, current, and upcoming trip records."""
+    try:
+        return await list_trips(token)
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.post("/agent/trips")
+async def agent_trip_create(payload: dict[str, Any], token: str = Depends(get_google_token)):
+    """Save one user-owned scratch or reviewed trip without booking fields."""
+    try:
+        return {"trip": await save_trip(token, payload)}
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.post("/agent/trips/sync")
+async def agent_trips_sync(token: str = Depends(get_google_token)):
+    """Run the downstream trip pass only after Study Me has completed."""
+    try:
+        result = await sync_trip_library(token)
+        if not result.get("ready"):
+            raise HTTPException(status_code=409, detail=result.get("message") or "Study Me has not completed")
+        return result
+    except GoogleApiError as error:
+        raise _google_error(error) from error
 
 
 @app.get("/agent/notebook/pages")

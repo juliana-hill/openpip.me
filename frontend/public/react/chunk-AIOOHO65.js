@@ -2,7 +2,7 @@ import {
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-GKLEY6TF.js";
+} from "./chunk-2MTXSAZN.js";
 import {
   ArrowRight,
   ArrowUp,
@@ -39,7 +39,7 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-DONEC6XU.js";
+} from "./chunk-D4E7FHL5.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";

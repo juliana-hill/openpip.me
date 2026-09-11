@@ -9,6 +9,8 @@ import { GroupedEmailList } from "./GroupedEmailList";
 import { ReplyModal } from "./ReplyModal";
 import { ViewEmailModal } from "./ViewEmailModal";
 import { TriageDetailsModal, type TriageRun, type TriageSuggestion } from "./TriageDetailsModal";
+import { useAgentIdentity } from "@/lib/agentIdentity";
+import type { InsightGatheringStatus } from "@/components/dashboard/StudyMeCard";
 
 export type Tag = {
   id: string;
@@ -75,6 +77,7 @@ type Props = {
 };
 
 export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChange, onTagsLoaded, onEmailsLoaded, initialMessageId }: Props) {
+  const { name: agentName } = useAgentIdentity();
   const [emails, setEmails] = useState<Email[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -94,11 +97,44 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   const [triageHistory, setTriageHistory] = useState<TriageRun[]>([]);
   const [triageDetailsOpen, setTriageDetailsOpen] = useState(false);
   const [showTriageCard, setShowTriageCard] = useState(false);
+  const [studyMeStatus, setStudyMeStatus] = useState<InsightGatheringStatus | null>(null);
+  const [studyMeStatusLoading, setStudyMeStatusLoading] = useState(true);
   const triagePoll = useRef<ReturnType<typeof setInterval> | null>(null);
   const hasFinishedInitialLoad = useRef(false);
   const openedSourceMessage = useRef(false);
   const tagsRef = useRef(tags);
   tagsRef.current = tags;
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const loadStudyMeStatus = async () => {
+      try {
+        const response = await proxyFetch("/agent/insights/gather/login-status");
+        if (!response.ok) {
+          if (!cancelled) setStudyMeStatus(null);
+          return;
+        }
+        const next = await response.json() as InsightGatheringStatus;
+        if (cancelled) return;
+        setStudyMeStatus(next);
+        if (next.state === "queued" || next.state === "running") {
+          timer = window.setTimeout(() => { void loadStudyMeStatus(); }, 1000);
+        }
+      } catch {
+        if (!cancelled) setStudyMeStatus(null);
+      } finally {
+        if (!cancelled) setStudyMeStatusLoading(false);
+      }
+    };
+
+    void loadStudyMeStatus();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
 
   const loadTags = useCallback(async (): Promise<Tag[]> => {
     try {
@@ -365,8 +401,18 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   };
 
   const runTriage = async () => {
+    if (studyMeStatus?.state !== "completed") return;
     try {
       const res = await proxyFetch("/agent/inbox/network/queue-triage", { method: "POST" });
+      if (res.status === 409) {
+        // Keep the UI aligned if Study Me finishes or changes state in
+        // another tab between the status read and this click.
+        const detail = await res.json().catch(() => null) as { detail?: { studyMeState?: InsightGatheringStatus["state"] } } | null;
+        if (detail?.detail?.studyMeState) {
+          setStudyMeStatus((current) => current ? { ...current, state: detail.detail!.studyMeState! } : current);
+        }
+        return;
+      }
       if (!res.ok) return;
       const progress = await res.json() as TriageProgress;
       setTriage(progress);
@@ -428,6 +474,19 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
   const reviewButtonLabel = unreadEmailCount
     ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"}`
     : "Review inbox";
+  const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
+  const studyMeReady = studyMeStatus?.state === "completed";
+  const triageBlocked = !studyMeReady;
+  const triageTitle = studyMeRunning
+    ? `Waiting for ${agentName} to finish studying you…`
+    : studyMeStatusLoading
+      ? "Checking Study Me before Inbox Assistant starts"
+      : "Finish Study Me before Inbox Assistant starts";
+  const triageBlockedCopy = studyMeRunning
+    ? "Inbox Assistant will be ready as soon as your indexed history is complete."
+    : studyMeStatusLoading
+      ? "Checking whether your indexed history is ready."
+      : "Complete Study Me first so Inbox Assistant can use your indexed context.";
 
   return (
     <>
@@ -447,11 +506,16 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
                   : "We could not finish reviewing every email. You can try again when you are ready."}
             </p>
           </div>
-          {triage.status !== "running" && (
-            <div className={styles.triageActions}>
+          <div className={styles.triageActions}>
+            {triage.status !== "running" && (
               <button type="button" className={styles.triageReviewBtn} onClick={() => { void openTriageDetails(); }}>Review details</button>
-            </div>
-          )}
+            )}
+            {triageHistory.length > 0 && (
+              <button type="button" className={styles.triageHistoryLink} onClick={() => { void openTriageDetails(); }}>
+                Review History
+              </button>
+            )}
+          </div>
           <div className={styles.triageProgress}>
             <div className={styles.triageLabel}>
               <span>{triage.status === "running" ? "Review in progress" : "Review summary"}</span>
@@ -469,19 +533,23 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
         <section className={styles.triage}>
           <div className={styles.triageContent}>
             <p className={styles.triageKicker}><span aria-hidden="true">✦</span> Inbox assistant</p>
-            <h3 className={styles.triageTitle}>Clear the small stuff. Keep the important things.</h3>
+            <h3 className={styles.triageTitle}>{triageBlocked ? triageTitle : "Clear the small stuff. Keep the important things."}</h3>
             <p className={styles.triageCopy}>
-              {unreadEmailCount
-                ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.`
-                : "Review recent mail and surface anything that still needs your attention."}
+              {triageBlocked
+                ? triageBlockedCopy
+                : unreadEmailCount
+                  ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.`
+                  : "Review recent mail and surface anything that still needs your attention."}
             </p>
-            <p className={styles.triageCapabilities}>
+            {!triageBlocked && <p className={styles.triageCapabilities}>
               <strong>Can do:</strong> apply Gmail tags · draft replies · suggest Google Tasks
-            </p>
+            </p>}
           </div>
           <div className={styles.triageActions}>
-            <button className={styles.triageRunBtn} onClick={runTriage}>{reviewButtonLabel}</button>
-            <p className={styles.triageTrust}>Nothing is sent or changed without your review.</p>
+            <button className={styles.triageRunBtn} onClick={runTriage} disabled={triageBlocked}>
+              {studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me…" : studyMeReady ? reviewButtonLabel : "Complete Study Me first"}
+            </button>
+            {!triageBlocked && <p className={styles.triageTrust}>Nothing is sent or changed without your review.</p>}
             {triageHistory.length > 0 && (
               <button type="button" className={styles.triageHistoryLink} onClick={() => { void openTriageDetails(); }}>
                 Review History

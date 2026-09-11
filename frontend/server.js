@@ -133,7 +133,7 @@ const views = {
 };
 
 // Keep existing bookmarks and notifications working while making /trips the
-// canonical URL for the redesigned trip-planning placeholder.
+// canonical URL for the trip-planning workspace.
 app.get("/routes", (req, res) => {
   const query = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
   res.redirect(`/trips${query}`);

@@ -4,12 +4,12 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-NN5B2RQM.js";
+} from "./chunk-AIOOHO65.js";
 import {
   AppHeader,
   Link,
   useAgentIdentity
-} from "./chunk-GKLEY6TF.js";
+} from "./chunk-2MTXSAZN.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -20,7 +20,7 @@ import {
   require_react,
   require_react_dom,
   useSearchParams
-} from "./chunk-DONEC6XU.js";
+} from "./chunk-D4E7FHL5.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -1560,6 +1560,7 @@ function TriageDetailsModal({ open, suggestions, currentRun, history = [], onSav
 // components/inbox/inbox/InboxTab.tsx
 var import_jsx_runtime12 = __toESM(require_jsx_runtime());
 function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChange, onTagsLoaded, onEmailsLoaded, initialMessageId }) {
+  const { name: agentName } = useAgentIdentity();
   const [emails, setEmails] = (0, import_react8.useState)([]);
   const [loading, setLoading] = (0, import_react8.useState)(true);
   const [error, setError] = (0, import_react8.useState)(null);
@@ -1579,11 +1580,43 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
   const [triageHistory, setTriageHistory] = (0, import_react8.useState)([]);
   const [triageDetailsOpen, setTriageDetailsOpen] = (0, import_react8.useState)(false);
   const [showTriageCard, setShowTriageCard] = (0, import_react8.useState)(false);
+  const [studyMeStatus, setStudyMeStatus] = (0, import_react8.useState)(null);
+  const [studyMeStatusLoading, setStudyMeStatusLoading] = (0, import_react8.useState)(true);
   const triagePoll = (0, import_react8.useRef)(null);
   const hasFinishedInitialLoad = (0, import_react8.useRef)(false);
   const openedSourceMessage = (0, import_react8.useRef)(false);
   const tagsRef = (0, import_react8.useRef)(tags);
   tagsRef.current = tags;
+  (0, import_react8.useEffect)(() => {
+    let cancelled = false;
+    let timer = null;
+    const loadStudyMeStatus = async () => {
+      try {
+        const response = await proxyFetch("/agent/insights/gather/login-status");
+        if (!response.ok) {
+          if (!cancelled) setStudyMeStatus(null);
+          return;
+        }
+        const next = await response.json();
+        if (cancelled) return;
+        setStudyMeStatus(next);
+        if (next.state === "queued" || next.state === "running") {
+          timer = window.setTimeout(() => {
+            void loadStudyMeStatus();
+          }, 1e3);
+        }
+      } catch {
+        if (!cancelled) setStudyMeStatus(null);
+      } finally {
+        if (!cancelled) setStudyMeStatusLoading(false);
+      }
+    };
+    void loadStudyMeStatus();
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
   const loadTags = (0, import_react8.useCallback)(async () => {
     try {
       const res = await proxyFetch("/agent/inbox/tags");
@@ -1799,8 +1832,16 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     setSelected(/* @__PURE__ */ new Set());
   };
   const runTriage = async () => {
+    if (studyMeStatus?.state !== "completed") return;
     try {
       const res = await proxyFetch("/agent/inbox/network/queue-triage", { method: "POST" });
+      if (res.status === 409) {
+        const detail = await res.json().catch(() => null);
+        if (detail?.detail?.studyMeState) {
+          setStudyMeStatus((current) => current ? { ...current, state: detail.detail.studyMeState } : current);
+        }
+        return;
+      }
       if (!res.ok) return;
       const progress = await res.json();
       setTriage(progress);
@@ -1856,6 +1897,11 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
   const clearSelection = () => setSelected(/* @__PURE__ */ new Set());
   const unreadEmailCount = emails.filter((email) => email.unread).length;
   const reviewButtonLabel = unreadEmailCount ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"}` : "Review inbox";
+  const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
+  const studyMeReady = studyMeStatus?.state === "completed";
+  const triageBlocked = !studyMeReady;
+  const triageTitle = studyMeRunning ? `Waiting for ${agentName} to finish studying you\u2026` : studyMeStatusLoading ? "Checking Study Me before Inbox Assistant starts" : "Finish Study Me before Inbox Assistant starts";
+  const triageBlockedCopy = studyMeRunning ? "Inbox Assistant will be ready as soon as your indexed history is complete." : studyMeStatusLoading ? "Checking whether your indexed history is ready." : "Complete Study Me first so Inbox Assistant can use your indexed context.";
   return /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)(import_jsx_runtime12.Fragment, { children: [
     /* @__PURE__ */ (0, import_jsx_runtime12.jsx)(InboxHeader, { unreadCount: unreadEmailCount, onCompose }),
     showTriageCard && (triage ? /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("section", { className: InboxTab_default.triage, "aria-live": "polite", children: [
@@ -1867,9 +1913,14 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: triage.status === "running" ? "Reviewing your inbox" : triage.status === "completed" ? "Your inbox review is ready" : "Your inbox review needs attention" }),
         /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: triage.status === "running" ? `Looking at ${triage.processed} of ${triage.total} unread emails. You can keep browsing.` : triage.status === "completed" ? "Your assistant has prepared suggestions for you to review." : "We could not finish reviewing every email. You can try again when you are ready." })
       ] }),
-      triage.status !== "running" && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("div", { className: InboxTab_default.triageActions, children: /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageReviewBtn, onClick: () => {
-        void openTriageDetails();
-      }, children: "Review details" }) }),
+      /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageActions, children: [
+        triage.status !== "running" && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageReviewBtn, onClick: () => {
+          void openTriageDetails();
+        }, children: "Review details" }),
+        triageHistory.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageHistoryLink, onClick: () => {
+          void openTriageDetails();
+        }, children: "Review History" })
+      ] }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageProgress, children: [
         /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageLabel, children: [
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { children: triage.status === "running" ? "Review in progress" : "Review summary" }),
@@ -1899,16 +1950,16 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("span", { "aria-hidden": "true", children: "\u2726" }),
           " Inbox assistant"
         ] }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: "Clear the small stuff. Keep the important things." }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: unreadEmailCount ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.` : "Review recent mail and surface anything that still needs your attention." }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageCapabilities, children: [
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("h3", { className: InboxTab_default.triageTitle, children: triageBlocked ? triageTitle : "Clear the small stuff. Keep the important things." }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageCopy, children: triageBlocked ? triageBlockedCopy : unreadEmailCount ? `Review ${unreadEmailCount} unread email${unreadEmailCount === 1 ? "" : "s"} and surface what needs your attention.` : "Review recent mail and surface anything that still needs your attention." }),
+        !triageBlocked && /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("p", { className: InboxTab_default.triageCapabilities, children: [
           /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("strong", { children: "Can do:" }),
           " apply Gmail tags \xB7 draft replies \xB7 suggest Google Tasks"
         ] })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime12.jsxs)("div", { className: InboxTab_default.triageActions, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, children: reviewButtonLabel }),
-        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." }),
+        /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { className: InboxTab_default.triageRunBtn, onClick: runTriage, disabled: triageBlocked, children: studyMeRunning ? "Waiting for Study Me" : studyMeStatusLoading ? "Checking Study Me\u2026" : studyMeReady ? reviewButtonLabel : "Complete Study Me first" }),
+        !triageBlocked && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("p", { className: InboxTab_default.triageTrust, children: "Nothing is sent or changed without your review." }),
         triageHistory.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime12.jsx)("button", { type: "button", className: InboxTab_default.triageHistoryLink, onClick: () => {
           void openTriageDetails();
         }, children: "Review History" })

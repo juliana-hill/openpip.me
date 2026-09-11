@@ -1,4 +1,7 @@
 import {
+  Card_default
+} from "./chunk-FKLB4VL5.js";
+import {
   Input_default
 } from "./chunk-VZUAWI7R.js";
 import {
@@ -6,7 +9,7 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-45GXUIC7.js";
+} from "./chunk-PIVCWVBE.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
@@ -14,11 +17,11 @@ import {
   FloatingAssistant,
   getUserData,
   patchUserData
-} from "./chunk-NN5B2RQM.js";
+} from "./chunk-AIOOHO65.js";
 import {
   AppHeader,
   notifyAgentIdentityChanged
-} from "./chunk-GKLEY6TF.js";
+} from "./chunk-2MTXSAZN.js";
 import "./chunk-OHWNV7E6.js";
 import {
   Bot,
@@ -41,7 +44,7 @@ import {
   require_jsx_runtime,
   require_react,
   useThemeSync
-} from "./chunk-DONEC6XU.js";
+} from "./chunk-D4E7FHL5.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
@@ -285,21 +288,6 @@ function AgentSection() {
 
 // components/settings/AddressSection.tsx
 var import_react3 = __toESM(require_react());
-
-// components/ui/Card.module.css
-var Card_default = {
-  card: "Card_card",
-  fadeSlideUp: "Card_fadeSlideUp",
-  accent: "Card_accent",
-  cardHeader: "Card_cardHeader",
-  cardTitle: "Card_cardTitle",
-  cardDescription: "Card_cardDescription",
-  cardAction: "Card_cardAction",
-  cardContent: "Card_cardContent",
-  cardFooter: "Card_cardFooter"
-};
-
-// components/settings/AddressSection.tsx
 var import_jsx_runtime3 = __toESM(require_jsx_runtime());
 function iconForLabel(label) {
   const lower = label.toLowerCase();

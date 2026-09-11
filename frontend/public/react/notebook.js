@@ -3,10 +3,10 @@ import {
 } from "./chunk-H5AG5GHM.js";
 import {
   FloatingAssistant
-} from "./chunk-NN5B2RQM.js";
+} from "./chunk-AIOOHO65.js";
 import {
   AppHeader
-} from "./chunk-GKLEY6TF.js";
+} from "./chunk-2MTXSAZN.js";
 import "./chunk-OHWNV7E6.js";
 import {
   proxyFetch,
@@ -14,7 +14,7 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-DONEC6XU.js";
+} from "./chunk-D4E7FHL5.js";
 import {
   __toESM
 } from "./chunk-4VNS5WPM.js";
