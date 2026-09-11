@@ -33,6 +33,7 @@ import { proxyFetch } from "@/lib/proxy";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import type { InsightGatheringStatus } from "@/components/dashboard/StudyMeCard";
 import inboxStyles from "@/components/inbox/inbox/InboxTab.module.css";
+import inboxHeaderStyles from "@/components/inbox/inbox/InboxHeader.module.css";
 import styles from "./RoutesPage.module.css";
 
 type Activity = "city" | "hiking" | "road trip" | "camping" | "cycling" | "water";
@@ -206,8 +207,10 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
           : "Use the completed Study Me index as the starting point for a separate, read-only trip library."
         : "The trip library is gated until Study Me has finished building your indexed history.";
   return <div className={styles.pageStack}>
-    <h1 className={styles.pageTitle}>Travel Planning</h1>
-    <section className={inboxStyles.triage} aria-live="polite">
+    <div className={inboxHeaderStyles.row}>
+      <div className={inboxHeaderStyles.left}><h2 className={inboxHeaderStyles.title}>Travel Planning</h2></div>
+    </div>
+    {!loading && !studyMeStatusLoading && <section className={inboxStyles.triage} aria-live="polite">
       <div className={inboxStyles.triageContent}>
         <p className={inboxStyles.triageKicker}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h3 className={inboxStyles.triageTitle}>{gateTitle}</h3>
@@ -221,7 +224,7 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
         <div className={inboxStyles.triageLabel}><span>Study Me in progress</span><span>{studyMeProgress}% complete</span></div>
         <div className={inboxStyles.triageTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={studyMeProgress} aria-label="Study Me progress"><div className={inboxStyles.triageFill} style={{ width: `${studyMeProgress}%` }} /></div>
       </div>}
-    </section>
+    </section>}
     <div className={styles.entryGrid}>
       <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
       <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /><Card className={styles.signalCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What we’ll look at</p><CardTitle>Preparation, not reservations</CardTitle></div><ShieldAlert size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.signalList}>{starterSignals.map(({ icon: Icon, label, detail }) => <div className={styles.signalRow} key={label}><span className={styles.signalIcon}><Icon size={16} /></span><div><strong>{label}</strong><span>{detail}</span></div></div>)}</CardContent></Card></div>
