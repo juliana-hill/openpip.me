@@ -186,6 +186,27 @@ def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:
     assert "body" not in entry
 
 
+def test_write_lazy_date_index_omits_empty_dates(monkeypatch) -> None:
+    writes: list[str] = []
+    deletes: list[str] = []
+
+    async def fake_write(_token: str, _folder: str, filename: str, _data: dict):
+        writes.append(filename)
+
+    async def fake_delete(_token: str, _folder: str, filename: str):
+        deletes.append(filename)
+
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+    monkeypatch.setattr(insight_gathering, "delete_json_file", fake_delete)
+
+    asyncio.run(insight_gathering._write_lazy_date_index(
+        "token", {"dateStates": {"2020-11-18": "completed"}}, "2020-11-18", {},
+    ))
+
+    assert writes == []
+    assert deletes == ["2020-11-18.json"]
+
+
 def test_collect_manifest_metadata_contains_pointers_not_records(monkeypatch) -> None:
     async def fake_boundary(*_args, **_kwargs):
         return date(2021, 1, 1)

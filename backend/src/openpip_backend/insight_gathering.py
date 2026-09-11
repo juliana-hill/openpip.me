@@ -11,7 +11,7 @@ from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from .agent import DEFAULT_AGENT_NAME, build_executive_assistant, load_context_documents
-from .google_drive_docs import list_json_files, read_json_file, write_json_file
+from .google_drive_docs import delete_json_file, list_json_files, read_json_file, write_json_file
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
     GoogleApiError,
@@ -1142,6 +1142,12 @@ async def _write_lazy_date_index(
         ),
         key=lambda item: str(item.get("sourceId") or ""),
     )
+    if not day_entries:
+        # Empty crawl dates are checkpointed in metadata.json through
+        # dateStates/currentDate. Do not create one mostly-empty JSON file per
+        # day just to represent that no source records were found.
+        await delete_json_file(access_token, _MANIFEST_FOLDER, _date_filename(day))
+        return
     pages = [
         {"page": page_number, "entries": day_entries[offset:offset + _BATCH_SIZE]}
         for page_number, offset in enumerate(range(0, len(day_entries), _BATCH_SIZE), start=1)
