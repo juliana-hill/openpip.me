@@ -77,6 +77,22 @@ def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> No
     assert result["statusMessage"] == "Resuming the historical review."
 
 
+def test_count_manifest_dates_only_counts_iso_date_files(monkeypatch) -> None:
+    async def fake_list(_token: str, _folder: str):
+        return {
+            "metadata": {},
+            "2021-10-13": {},
+            "2021-10-14": {},
+            "undated": {},
+            "not-a-date": {},
+            "2021-02-30": {},
+        }
+
+    monkeypatch.setattr(insight_gathering, "list_json_files", fake_list)
+
+    assert asyncio.run(insight_gathering._count_manifest_dates("token")) == 2
+
+
 def test_login_status_does_not_start_a_persisted_run(monkeypatch) -> None:
     stale = {"state": "running", "runId": "run-1"}
     started = False

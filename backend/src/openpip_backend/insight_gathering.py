@@ -100,6 +100,7 @@ def _default_status() -> dict[str, Any]:
         "collection": {name: _collection_stage() for name in _COLLECTION_SOURCES},
         "oldestSourceDates": {},
         "newestSourceDates": {},
+        "datesIndexed": None,
         "insightsWritten": 0,
         "events": [],
         "error": None,
@@ -167,6 +168,23 @@ async def _read_status(access_token: str) -> dict[str, Any]:
     return result
 
 
+def _is_dated_manifest_file(stem: str) -> bool:
+    try:
+        date.fromisoformat(stem)
+    except ValueError:
+        return False
+    return True
+
+
+async def _count_manifest_dates(access_token: str) -> int | None:
+    try:
+        files = await list_json_files(access_token, _MANIFEST_FOLDER)
+    except Exception as error:
+        _logger.warning("historical insight gathering: unable to count manifest dates: %s", error)
+        return None
+    return sum(1 for stem in files if _is_dated_manifest_file(str(stem)))
+
+
 async def _write_status(access_token: str, status: dict[str, Any]) -> None:
     status["progress"] = 100 if status.get("state") == "completed" else _progress(status)
     _logger.info(
@@ -183,6 +201,10 @@ async def get_insight_gathering_status(
     token_resolver: TokenResolver | None = None,
 ) -> dict[str, Any]:
     status = await _read_status(access_token)
+    if status.get("datesIndexed") is None:
+        dates_indexed = await _count_manifest_dates(access_token)
+        if dates_indexed is not None:
+            status["datesIndexed"] = dates_indexed
     if status.get("state") in {"queued", "running"}:
         owner = _owner(access_token, owner_key)
         active_id = _active_jobs.get(owner)
@@ -211,6 +233,9 @@ async def get_insight_gathering_login_status(
     paused so the card can offer an explicit Resume button.
     """
     status = await _read_status(access_token)
+    dates_indexed = await _count_manifest_dates(access_token)
+    if dates_indexed is not None:
+        status["datesIndexed"] = dates_indexed
     if status.get("state") in {"queued", "running"}:
         owner = _owner(access_token, owner_key)
         active_id = _active_jobs.get(owner)
@@ -801,6 +826,9 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     manifest.pop("sourceCounts", None)
     if had_legacy_fields:
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    dates_indexed = await _count_manifest_dates(access_token)
+    if dates_indexed is not None:
+        status["datesIndexed"] = dates_indexed
     stage = status["stages"]["history"]
     if stage.get("status") != "completed":
         stage["status"] = "running"
@@ -861,6 +889,11 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
             manifest["dates"] = list(dict.fromkeys(manifest["dates"]))
             status["currentDate"] = manifest.get("currentDate")
             await _write_lazy_date_index(access_token, manifest, date_key, date_records)
+            # Count only after the completed day's dated file has been
+            # written, then persist both checkpoints together.
+            dates_indexed = await _count_manifest_dates(access_token)
+            if dates_indexed is not None:
+                status["datesIndexed"] = dates_indexed
             await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
             _add_event(status, f"Indexed history for {day.isoformat()}", f"{len(date_records)} source records indexed")
             await _write_status(access_token, status)

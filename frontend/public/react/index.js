@@ -286,7 +286,7 @@ function StudyMeCard({
       /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptCopy, children: running ? statusMessage || `Reviewing ${stage.toLowerCase()} to gather useful historical details.` : resumable ? "Your saved historical review is ready to resume when you are ready." : `Let ${agentName} review your past history to gather important historical details about you without having to rehash old news.` }),
       running && /* @__PURE__ */ (0, import_jsx_runtime3.jsxs)("p", { className: DashboardPage_default.assistantPromptMeta, children: [
         progressLabel,
-        status.insightsWritten ? ` \xB7 ${status.insightsWritten} date${status.insightsWritten === 1 ? "" : "s"} indexed` : ""
+        status.datesIndexed ? ` \xB7 ${status.datesIndexed} date${status.datesIndexed === 1 ? "" : "s"} indexed` : ""
       ] }),
       status.state === "failed" && /* @__PURE__ */ (0, import_jsx_runtime3.jsx)("p", { className: DashboardPage_default.assistantPromptMeta, children: "The review paused. You can resume it whenever you are ready." })
     ] }),

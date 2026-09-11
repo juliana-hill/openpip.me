@@ -7,6 +7,7 @@ export type InsightGatheringStatus = {
   currentStage?: string | null;
   currentDate?: string | null;
   statusMessage?: string | null;
+  datesIndexed?: number | null;
   insightsWritten?: number;
   stages?: {
     history?: { total?: number };
@@ -61,7 +62,7 @@ export function StudyMeCard({
         </p>
         {running && (
           <p className={styles.assistantPromptMeta}>
-            {progressLabel}{status.insightsWritten ? ` · ${status.insightsWritten} date${status.insightsWritten === 1 ? "" : "s"} indexed` : ""}
+            {progressLabel}{status.datesIndexed ? ` · ${status.datesIndexed} date${status.datesIndexed === 1 ? "" : "s"} indexed` : ""}
           </p>
         )}
         {status.state === "failed" && <p className={styles.assistantPromptMeta}>The review paused. You can resume it whenever you are ready.</p>}
