@@ -18,9 +18,10 @@
     "ai_usage": "",
     "codex_usage": ""
   },
-  "current_stage": "resources",
   "completed_stages": [
-    "review-hackathon-rules"
+    "review-hackathon-rules",
+    "resources",
+    "submit-project"
   ],
   "rules_acknowledged": true,
   "learning": {
@@ -32,7 +33,14 @@
   },
   "submission": {
     "draft_file": "devpost-submission.md",
-    "status": "not-started"
+    "status": "submitted",
+    "project_slug": "openpip",
+    "project_url": "https://devpost.com/software/openpip",
+    "submitted_at": "2026-09-10T23:46:41.614-04:00",
+    "artifacts": {
+      "architecture_diagram": "docs/agents-for-humans/openpip-agents-for-humans-architecture.pdf"
+    }
   },
-  "next_command": "resources"
+  "current_stage": "submit-project",
+  "next_command": "hackathon-map"
 }

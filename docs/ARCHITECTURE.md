@@ -6,6 +6,7 @@ The travel-agent frontend and its marketing landing-page directory are copied ve
 
 ```mermaid
 flowchart LR
+  Auth[Google sign-in + consent] --> Onboarding[First onboarding step:\nStudy Me]
   UI[Cloud Run Express + HJS Today / Review / Settings / Contacts] --> API[Cloud Run FastAPI web API]
   API --> Store[(SQLite local / durable production store\nproposals + preferences + audit events)]
   API --> Invoker[Agent invocation boundary]
@@ -22,7 +23,8 @@ flowchart LR
   Chat --> Proposal[Drive review proposal]
   Scan --> ChMem
   ChMem -. matched preferences .-> Invoker
-  Dashboard --> Study[One-time historical insight pipeline]
+  Onboarding --> Study[One-time historical insight pipeline]
+  UI --> Onboarding
   Study --> Timeline[Drive manifest: bounded, paginated chronology]
   Study --> Memories[Drive durable insights]
   Memories -. assistant context .-> Invoker
@@ -87,8 +89,10 @@ Scheduler can trigger authenticated Cloud Run endpoints when background work
 is needed. There are no mock providers or fake records in the actual
 frontend.
 
-The Dashboard's **Study Me** flow is an onboarding/legacy-user pipeline, not a
-chat command. It runs at most once after completion. Startup performs only
+The Dashboard's **Study Me** flow is the first onboarding step after sign-in and
+Google consent. It is an onboarding/legacy-user pipeline, not a chat command.
+The dashboard presents it before the assistant begins relying on historical
+context, and it runs at most once after completion. Startup performs only
 metadata boundary probes for Gmail, Calendar, and Drive, recording the oldest
 and newest date for every collection type in the small
 `OpenPip/memory/insights_gathering/manifest/metadata.json` pointer file. It

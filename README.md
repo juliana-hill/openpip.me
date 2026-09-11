@@ -5,6 +5,20 @@ consultants, founders, and small-business owners. It produces a daily briefing
 and source-cited proposals; it never sends, schedules, modifies, or calls
 without an explicit human decision.
 
+## First onboarding step: Study Me
+
+After signing in and connecting Google, the first onboarding step is **Study
+Me**. From the dashboard, you can ask OpenPip to review your existing Gmail,
+Calendar, Tasks, Contacts, and Drive history so it can understand the context
+that makes its help useful to you.
+
+Study Me processes one date at a time. It creates a compact, recoverable index
+and then extracts durable memories such as preferences, routines, work history,
+and other documented personal context. It does not save raw messages or
+documents in the manifest. You can resume the review if it pauses, and the
+resulting memories are used by chat, inbox triage, proposals, and the daily
+briefing.
+
 ## How context works
 
 OpenPip keeps its safety policy, tool inventory, and orchestration instructions
