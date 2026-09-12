@@ -41,6 +41,29 @@ _REQUIRED_SIGNAL_CATEGORIES = {
     "volcanic_activity", "earthquake", "tsunami", "water", "fire", "air_quality",
     "gear", "route", "security", "kidnapping",
 }
+_SIGNAL_CATEGORY_ALIASES = {
+    "uv index": "uv", "sun exposure": "uv", "extreme heat": "temperature", "extreme cold": "temperature",
+    "heat": "temperature", "cold": "temperature", "altitude sickness": "altitude", "acclimatization": "altitude",
+    "vaccination": "health", "entry requirements": "health", "disease exposure": "disease", "wildlife": "animals",
+    "bear safety": "animals", "volcano": "volcanic_activity", "volcanic activity": "volcanic_activity",
+    "volcanic eruption": "volcanic_activity", "volcanic ash": "volcanic_activity", "so2": "volcanic_activity",
+    "earthquakes": "earthquake", "tsunami risk": "tsunami", "water scarcity": "water", "drought": "water",
+    "wildfire": "fire", "air quality": "air_quality", "smoke": "air_quality", "equipment": "gear",
+    "hiking gear": "gear", "trails": "route", "trail": "route", "route context": "route", "crime": "security",
+    "personal safety": "security", "travel advisory": "security", "conflict": "security", "hostage": "kidnapping",
+    "kidnapping risk": "kidnapping", "abduction": "kidnapping",
+}
+
+
+def _signal_category(value: Any) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+    compact = normalized.replace(" ", "_")
+    if compact in _REQUIRED_SIGNAL_CATEGORIES:
+        return compact
+    for alias, category in sorted(_SIGNAL_CATEGORY_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if alias in normalized:
+            return category
+    return compact
 
 
 def _date_part(value: Any) -> str | None:
@@ -328,8 +351,8 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
     ]
     signals = output.get("signals") if isinstance(output.get("signals"), list) else []
     normalized_signals = [
-        {"category": str(item.get("category") or "travel conditions")[:60], "title": str(item.get("title") or "Review current conditions")[:120], "detail": str(item.get("detail") or "Verify this signal with the linked source.")[:500], "severity": str(item.get("severity") or "info")[:20]}
-        for item in signals[:16]
+        {"category": _signal_category(item.get("category")) or "travel conditions", "title": str(item.get("title") or "Review current conditions")[:120], "detail": str(item.get("detail") or "Verify this signal with the linked source.")[:500], "severity": str(item.get("severity") or "info")[:20]}
+        for item in signals[:32]
         if isinstance(item, dict)
     ]
     stays = output.get("stays") if isinstance(output.get("stays"), list) else []
@@ -389,8 +412,8 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
         combined["sources"].extend(sources)
         if stage == "itinerary" and result.get("routeSummary"):
             combined["signals"].append({"category": "route", "title": "Route context", "detail": result["routeSummary"], "severity": "info"})
-    for attempt in range(2):
-        categories = {str(item.get("category") or "").strip().casefold() for item in combined["signals"] if isinstance(item, dict)}
+    for attempt in range(4):
+        categories = {_signal_category(item.get("category")) for item in combined["signals"] if isinstance(item, dict)}
         missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
         if not missing:
             break
@@ -400,7 +423,7 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
         combined["signals"].extend(result.get("signals") or [])
         combined["sources"].extend(sources)
     output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
-    categories = {str(item.get("category") or "").strip().casefold() for item in output["signals"] if isinstance(item, dict)}
+    categories = {_signal_category(item.get("category")) for item in output["signals"] if isinstance(item, dict)}
     missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
     if not output["days"] or not output["preparation"] or not output["signals"] or not output["sources"] or not output["stays"] or not output["places"] or missing:
         raise ValueError("Travel-planning pipeline is missing required categories: " + ", ".join(missing))

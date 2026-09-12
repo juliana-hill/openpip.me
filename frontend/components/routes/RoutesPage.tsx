@@ -290,7 +290,6 @@ function PlanBuildScreen({ draft, agentName, stage, error, onRetry, onBack }: { 
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Assembling the itinerary output</strong><span>Source-linked preparation prompts for review</span></div></div>
         </div>}
-        <p className={styles.planBuildNote}>This may take a moment. Nothing is booked or purchased.</p>
         {failed && onRetry ? <Button variant="secondary" onClick={onRetry}>Retry research</Button> : <Button variant="secondary" onClick={onBack}>Back to trips</Button>}
         {failed && <button className={styles.backButton} type="button" onClick={onBack}>Back to trips</button>}
       </CardContent>
