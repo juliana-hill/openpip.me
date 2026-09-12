@@ -196,10 +196,10 @@ def test_normalize_output_keeps_recommendations_without_source_links() -> None:
     output = _normalize_output(
         {
             "stays": [
-                {"name": "Verified stay", "sourceUrl": "https://www.stay.example/lodging/?utm_source=nova#hotel"},
-                {"name": "Uncited stay"},
+                {"name": "Verified stay", "type": "hotel", "sourceUrl": "https://www.stay.example/lodging/?utm_source=nova#hotel"},
+                {"name": "Uncited stay", "type": "hotel"},
             ],
-            "places": [{"name": "Verified place", "sourceUrl": "https://place.example/trail/"}],
+            "places": [{"name": "Verified place", "type": "hiking_trail", "sourceUrl": "https://place.example/trail/"}],
         },
         ["https://stay.example/lodging", "https://place.example/trail"],
         {"destination": "Tokyo, Japan"},
@@ -214,8 +214,8 @@ def test_normalize_output_keeps_recommendations_without_source_links() -> None:
 def test_normalize_output_preserves_item_urls_without_citation_metadata() -> None:
     output = _normalize_output(
         {
-            "stays": [{"name": "Stay", "sourceUrl": "https://stay.example/tokyo"}],
-            "places": [{"name": "Place", "sourceUrl": "https://place.example/takao"}],
+            "stays": [{"name": "Stay", "type": "hotel", "sourceUrl": "https://stay.example/tokyo"}],
+            "places": [{"name": "Place", "type": "hiking_trail", "sourceUrl": "https://place.example/takao"}],
         },
         [],
         {"destination": "Tokyo, Japan"},
@@ -241,14 +241,47 @@ def test_markdown_recommendations_keep_items_without_urls() -> None:
         "name": "Central hotel",
         "detail": "Near transit and useful for city days.",
         "area": "",
-        "type": "other",
+        "type": "hotel",
         "safety": "",
     }]
     assert parsed["places"] == [{
         "name": "Mount Takao",
         "detail": "A marked trail with a direct train connection.",
-        "type": "other",
+        "type": "hiking_trail",
         "route": "",
+    }]
+
+
+def test_markdown_recommendations_group_nested_fields_under_one_item() -> None:
+    parsed = _parse_grounded_text(
+        """
+        ## Where to stay
+        - **Shinjuku Area**
+          - **Why it is a useful base:** Central, well-connected, and close to transit.
+          - **Safety notes:** Stay aware in crowded areas. Source: https://stay.example/shinjuku
+
+        ## What to see
+        - **Mount Takao Trails**
+          - **What to see or do:** Hike the marked trails.
+          - **Route context:** Start at Takao Station. Source: https://trail.example/takao
+        """,
+        "itinerary",
+    )
+
+    assert parsed["stays"] == [{
+        "name": "Shinjuku Area",
+        "detail": "Central, well-connected, and close to transit.",
+        "sourceUrl": "https://stay.example/shinjuku",
+        "area": "",
+        "type": "neighborhood",
+        "safety": "Stay aware in crowded areas.",
+    }]
+    assert parsed["places"] == [{
+        "name": "Mount Takao Trails",
+        "detail": "Hike the marked trails.",
+        "sourceUrl": "https://trail.example/takao",
+        "type": "hiking_trail",
+        "route": "Start at Takao Station.",
     }]
 
 
@@ -322,8 +355,8 @@ def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
             "overview": "Tokyo",
             "routeSummary": "Transit to each researched area.",
             "days": [{"date": "2026-09-30", "title": "City day", "detail": "Explore.", "route": "Train", "conditions": "Mild."}],
-            "stays": [{"name": "Central hotel", "sourceUrl": "https://stay.example/tokyo"}],
-            "places": [{"name": "Mount Takao", "sourceUrl": "https://trail.example/takao"}],
+                "stays": [{"name": "Central hotel", "type": "hotel", "sourceUrl": "https://stay.example/tokyo"}],
+                "places": [{"name": "Mount Takao", "type": "hiking_trail", "sourceUrl": "https://trail.example/takao"}],
         }, ["https://guide.example/tokyo"]
 
     monkeypatch.setattr(trip_pipeline, "_run_grounded_stage", fake_stage)

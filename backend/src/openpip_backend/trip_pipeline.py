@@ -76,6 +76,8 @@ _SIGNAL_CATEGORY_ALIASES = {
 }
 _TRACKING_QUERY_PREFIXES = ("utm_",)
 _TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
+_STAY_TYPES = {"hotel", "hostel", "apartment", "camping", "neighborhood"}
+_PLACE_TYPES = {"attraction", "hiking_trail", "viewpoint", "museum", "temple", "shrine", "park", "market"}
 
 
 def _prompt_blocks(filename: str) -> tuple[str, ...]:
@@ -690,8 +692,28 @@ def _bullet_items(text: str) -> list[str]:
 
 
 def _recommendation_items(text: str) -> list[dict[str, Any]]:
+    """Parse only top-level recommendation bullets into structured items.
+
+    Nova sometimes expands the requested one-line format into nested bullets.
+    Those nested bullets are fields on the parent recommendation, not new
+    recommendations. Keep the grouping deterministic here instead of asking
+    the model to emit JSON.
+    """
+    grouped: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if re.match(r"^(?:[-*•]|\d+[.)])\s+", line):
+            if current:
+                grouped.append("\n".join(current).strip())
+            current = [re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", line).strip()]
+        elif current and line.strip():
+            current.append(line.strip())
+    if current:
+        grouped.append("\n".join(current).strip())
+
     items: list[dict[str, Any]] = []
-    for raw in _bullet_items(text):
+    for raw in grouped or _bullet_items(text):
+        raw = re.sub(r"\s+", " ", raw).strip()
         url = next(iter(_urls_in_text(raw)), None)
         link_match = re.search(r"\[([^]]+)\]\((https?://[^)]+)\)", raw)
         if link_match:
@@ -707,12 +729,66 @@ def _recommendation_items(text: str) -> list[dict[str, Any]]:
                 detail = raw
         detail = re.sub(r"\s+", " ", detail).strip()
         if url:
-            detail = detail.replace(url, "").strip(" -–:;")
+            detail = detail.replace(url, "")
+        detail = re.sub(r"\s*\*\*Source\*\*\s*:? *$", "", detail, flags=re.IGNORECASE)
+        detail = re.sub(r"\s*Source\s*:? *$", "", detail, flags=re.IGNORECASE)
+        detail = detail.strip(" -–:;")
         item = {"name": name[:160] or "Recommendation", "detail": detail[:500]}
         if url:
             item["sourceUrl"] = url
+
+        # Convert nested Markdown fields into the JSON fields used by the UI.
+        # This also prevents labels such as "Source" from becoming item names.
+        fields: dict[str, str] = {}
+        for label in ("Why it is a useful base", "Safety notes", "What to see or do", "Route context"):
+            field_match = re.search(
+                rf"(?:^|\s)(?:-\s*)?\*\*{re.escape(label)}\s*:?\*\*\s*:?\s*(.*?)(?=\s+-\s*\*\*[^*]+?(?::\*\*|\*\*:)\s*|$)",
+                detail,
+                flags=re.IGNORECASE,
+            )
+            if field_match:
+                fields[label.casefold()] = field_match.group(1).strip()
+        if fields:
+            item["detail"] = fields.get("why it is a useful base", fields.get("what to see or do", detail))[:500]
+            if "safety notes" in fields:
+                item["safety"] = fields["safety notes"][:400]
+            if "route context" in fields:
+                item["route"] = fields["route context"][:400]
         items.append(item)
     return items
+
+
+def _recommendation_type(name: str, detail: str, kind: str) -> str | None:
+    """Assign a display category from parsed recommendation text."""
+    text = f"{name} {detail}".casefold()
+    if kind == "stay":
+        for marker, category in (
+            ("hotel", "hotel"),
+            ("hostel", "hostel"),
+            ("apartment", "apartment"),
+            ("camp", "camping"),
+            ("neighborhood", "neighborhood"),
+            ("area", "neighborhood"),
+        ):
+            if marker in text:
+                return category
+        return None
+    for marker, category in (
+        ("trail", "hiking_trail"),
+        ("hike", "hiking_trail"),
+        ("temple", "temple"),
+        ("shrine", "shrine"),
+        ("museum", "museum"),
+        ("park", "park"),
+        ("market", "market"),
+        ("viewpoint", "viewpoint"),
+        ("skytree", "attraction"),
+        ("asakusa", "attraction"),
+        ("kamakura", "attraction"),
+    ):
+        if marker in text:
+            return category
+    return None
 
 
 def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
@@ -770,11 +846,24 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
             lowered = title.casefold()
             if any(word in lowered for word in ("stay", "accommodation", "lodging", "hotel", "hostel")):
                 for item in _recommendation_items(body):
-                    item.update({"area": "", "type": "other", "safety": ""})
+                    item_type = _recommendation_type(item["name"], item.get("detail", ""), "stay")
+                    if item_type not in _STAY_TYPES:
+                        continue
+                    item.update({
+                        "area": "",
+                        "type": item_type,
+                        "safety": item.get("safety", ""),
+                    })
                     parsed["stays"].append(item)
             if any(word in lowered for word in ("see", "do", "attraction", "place", "trail", "activity", "museum")):
                 for item in _recommendation_items(body):
-                    item.update({"type": "other", "route": ""})
+                    item_type = _recommendation_type(item["name"], item.get("detail", ""), "place")
+                    if item_type not in _PLACE_TYPES:
+                        continue
+                    item.update({
+                        "type": item_type,
+                        "route": item.get("route", ""),
+                    })
                     parsed["places"].append(item)
         if not parsed["overview"]:
             parsed["overview"] = next((body for title, body in sections if title.casefold() == "overview"), "")[:800]
@@ -875,10 +964,11 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
         normalized
         for item in stays[:8]
         if isinstance(item, dict)
+        and str(item.get("type") or "").strip().casefold().replace("-", "_") in _STAY_TYPES
         for normalized in [{
             "name": str(item.get("name") or "Unverified stay option")[:160],
             "area": str(item.get("area") or "Area requires confirmation")[:120],
-            "type": str(item.get("type") or "other")[:40],
+            "type": str(item.get("type"))[:40],
             "detail": str(item.get("detail") or "Verify this lodging option before relying on it.")[:500],
             "safety": str(item.get("safety") or "Review current neighborhood and access conditions.")[:400],
             "sourceUrl": _grounded_item_url(item, grounded_sources),
@@ -889,9 +979,10 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
         normalized
         for item in places[:12]
         if isinstance(item, dict)
+        and str(item.get("type") or "").strip().casefold().replace("-", "_") in _PLACE_TYPES
         for normalized in [{
             "name": str(item.get("name") or "Unverified place")[:160],
-            "type": str(item.get("type") or "other")[:40],
+            "type": str(item.get("type"))[:40],
             "detail": str(item.get("detail") or "Verify this place before relying on it.")[:500],
             "route": str(item.get("route") or "Route context requires confirmation.")[:400],
             "sourceUrl": _grounded_item_url(item, grounded_sources),
