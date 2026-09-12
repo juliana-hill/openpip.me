@@ -173,7 +173,9 @@ def _grounded_item_url(item: dict[str, Any], source_urls: list[str]) -> str | No
     if not candidate_key:
         return None
     source_by_key = {_url_key(url): url for url in source_urls if _url_key(url)}
-    return source_by_key.get(candidate_key)
+    # Preserve a URL supplied on the recommendation even when the grounding
+    # provider returned its citation separately or omitted citation metadata.
+    return source_by_key.get(candidate_key) or candidate
 
 
 def _signal_category(value: Any) -> str:
@@ -524,17 +526,25 @@ def _recommendation_items(text: str) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for raw in _bullet_items(text):
         url = next(iter(_urls_in_text(raw)), None)
-        if not url:
-            continue
         link_match = re.search(r"\[([^]]+)\]\((https?://[^)]+)\)", raw)
         if link_match:
             name = link_match.group(1).strip()
+            detail = raw
         else:
             bold_match = re.match(r"\*\*(.+?)\*\*\s*(?:[:\-–]\s*)?(.*)$", raw)
-            name = bold_match.group(1).strip() if bold_match else raw.split(" - ", 1)[0].split(" — ", 1)[0].strip()
-        detail = re.sub(r"\s+", " ", raw).strip()
-        detail = detail.replace(url, "").strip(" -–:;")
-        items.append({"name": name[:160] or "Verified recommendation", "detail": detail[:500], "sourceUrl": url})
+            if bold_match:
+                name = bold_match.group(1).rstrip(":").strip()
+                detail = bold_match.group(2)
+            else:
+                name = raw.split(" - ", 1)[0].split(" — ", 1)[0].strip()
+                detail = raw
+        detail = re.sub(r"\s+", " ", detail).strip()
+        if url:
+            detail = detail.replace(url, "").strip(" -–:;")
+        item = {"name": name[:160] or "Recommendation", "detail": detail[:500]}
+        if url:
+            item["sourceUrl"] = url
+        items.append(item)
     return items
 
 
@@ -827,13 +837,13 @@ async def _run_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str)
         job["finishedAt"] = datetime.now(UTC).isoformat()
 
 
-async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str, Any]:
-    """Queue the travel-planning pipeline for a trip missing completion."""
+async def queue_trip_agent_pipeline(access_token: str, trip_id: str, force: bool = False) -> dict[str, Any]:
+    """Queue the travel-planning pipeline, optionally starting from scratch."""
     files = await list_json_files(access_token, _OUTPUT_FOLDER)
     record = files.get(trip_id)
     if not isinstance(record, dict) or not record.get("destination"):
         raise KeyError(trip_id)
-    if record.get("agent-pipeline") == "complete" and _has_recommendations(record.get("agent-pipeline-output")):
+    if not force and record.get("agent-pipeline") == "complete" and _has_recommendations(record.get("agent-pipeline-output")):
         return {"id": None, "status": "complete", "trip": _public_trip(record)}
 
     current_run_id = str(record.get("agent-pipeline-run-id") or "")
@@ -841,6 +851,9 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
     if current_job and current_job.get("status") in {"queued", "running"}:
         return {key: value for key, value in {**current_job, "trip": _public_trip(record)}.items() if key != "task"}
 
+    if force:
+        for key in ("agent-pipeline-output", "agent-pipeline-error", "agent-pipeline-completed-at"):
+            record.pop(key, None)
     run_id = uuid4().hex
     record["agent-pipeline"] = "queued"
     record["agent-pipeline-run-id"] = run_id

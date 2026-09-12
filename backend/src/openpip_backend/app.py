@@ -851,10 +851,10 @@ async def agent_trip_create(payload: dict[str, Any], token: str = Depends(get_go
 
 
 @app.post("/agent/trips/{trip_id}/pipeline")
-async def agent_trip_pipeline(trip_id: str, token: str = Depends(get_google_token)):
-    """Queue a saved trip for the travel-planning pipeline when needed."""
+async def agent_trip_pipeline(trip_id: str, retry: bool = Query(False), token: str = Depends(get_google_token)):
+    """Queue a saved trip, optionally forcing a fresh travel-planning run."""
     try:
-        return await queue_trip_agent_pipeline(token, trip_id)
+        return await queue_trip_agent_pipeline(token, trip_id, force=retry)
     except KeyError as error:
         raise HTTPException(status_code=404, detail="Trip not found") from error
     except GoogleApiError as error:

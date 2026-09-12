@@ -93,6 +93,47 @@ def test_normalize_output_keeps_recommendations_without_source_links() -> None:
     assert _has_recommendations(output)
 
 
+def test_normalize_output_preserves_item_urls_without_citation_metadata() -> None:
+    output = _normalize_output(
+        {
+            "stays": [{"name": "Stay", "sourceUrl": "https://stay.example/tokyo"}],
+            "places": [{"name": "Place", "sourceUrl": "https://place.example/takao"}],
+        },
+        [],
+        {"destination": "Tokyo, Japan"},
+    )
+
+    assert output["stays"][0]["sourceUrl"] == "https://stay.example/tokyo"
+    assert output["places"][0]["sourceUrl"] == "https://place.example/takao"
+
+
+def test_markdown_recommendations_keep_items_without_urls() -> None:
+    parsed = _parse_grounded_text(
+        """
+        ## Where to stay
+        - **Central hotel:** Near transit and useful for city days.
+
+        ## What to see
+        - **Mount Takao:** A marked trail with a direct train connection.
+        """,
+        "itinerary",
+    )
+
+    assert parsed["stays"] == [{
+        "name": "Central hotel",
+        "detail": "Near transit and useful for city days.",
+        "area": "",
+        "type": "other",
+        "safety": "",
+    }]
+    assert parsed["places"] == [{
+        "name": "Mount Takao",
+        "detail": "A marked trail with a direct train connection.",
+        "type": "other",
+        "route": "",
+    }]
+
+
 def test_recommendations_require_both_categories_but_not_source_links() -> None:
     assert not _has_recommendations({"stays": [{"name": "Stay"}]})
     assert not _has_recommendations({
