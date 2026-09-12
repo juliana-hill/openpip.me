@@ -174,13 +174,17 @@ function PlanForm({ onSubmit }: { onSubmit: (draft: PlanDraft) => void }) {
 }
 
 function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen, syncAllowed }: { collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; syncAllowed: boolean }) {
+  const [activePhase, setActivePhase] = useState<Phase>("current");
   const count = collection.trips.length;
+  const phases: Phase[] = ["current", "upcoming", "past"];
+  const labels: Record<Phase, string> = { past: "Past", current: "Current", upcoming: "Upcoming" };
+  const activeTrips = collection.groups[activePhase];
   return (
     <Card className={styles.libraryCard}>
       <CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Saved trip library</p><CardTitle>Past, current & upcoming</CardTitle><CardDescription className={styles.sectionDescription}>Built from your separate trip records. Nothing is booked here.</CardDescription></div><Button variant="ghost" size="sm" onClick={onSync} disabled={syncing || loading || !syncAllowed} aria-label="Refresh trip library from Study Me"><RefreshCw size={15} className={syncing ? styles.spin : ""} /> {syncing ? "Building" : "Refresh"}</Button></CardHeader>
       {syncMessage && <p className={styles.syncMessage} role="status">{syncMessage}</p>}
       <CardContent className={styles.libraryContent}>
-        {loading ? <div className={styles.libraryLoading}><span className={styles.loadingBar} /><span className={styles.loadingBarShort} /></div> : count > 0 ? <div className={styles.tripGroups}><TripGroup phase="past" trips={collection.groups.past} onOpen={onOpen} /><TripGroup phase="current" trips={collection.groups.current} onOpen={onOpen} /><TripGroup phase="upcoming" trips={collection.groups.upcoming} onOpen={onOpen} /></div> : <div className={styles.emptyTrips}><div className={styles.emptyIcon}><CalendarDays size={22} /></div><div><h3>No saved trips yet</h3><p>{collection.pipeline?.state === "not_run" ? "After Study Me completes, refresh this library to organize trip context from the shared index." : "Build a plan from scratch or refresh the completed Study Me index."}</p></div></div>}
+        {loading ? <div className={styles.libraryLoading}><span className={styles.loadingBar} /><span className={styles.loadingBarShort} /></div> : count > 0 ? <><div className={styles.phaseTabs} role="tablist" aria-label="Trip phases">{phases.map((phase) => <button key={phase} type="button" role="tab" aria-selected={activePhase === phase} className={`${styles.phaseChip} ${activePhase === phase ? styles.phaseChipActive : ""}`} onClick={() => setActivePhase(phase)}>{labels[phase]} <span>{collection.groups[phase].length}</span></button>)}</div><div className={styles.tripList}>{activeTrips.length > 0 ? activeTrips.map((trip) => <TripCard key={trip.id} trip={trip} onOpen={onOpen} />) : <p className={styles.emptyGroup}>No saved trips here yet.</p>}</div></> : <div className={styles.emptyTrips}><div className={styles.emptyIcon}><CalendarDays size={22} /></div><div><h3>No saved trips yet</h3><p>{collection.pipeline?.state === "not_run" ? "After Study Me completes, refresh this library to organize trip context from the shared index." : "Build a plan from scratch or refresh the completed Study Me index."}</p></div></div>}
       </CardContent>
     </Card>
   );
