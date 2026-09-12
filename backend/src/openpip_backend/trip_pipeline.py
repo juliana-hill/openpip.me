@@ -250,7 +250,10 @@ def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
     start, end = text.find("{"), text.rfind("}")
     if start < 0 or end <= start:
         raise ValueError("Nova did not return a JSON research stage")
-    parsed = json.loads(text[start:end + 1])
+    # Grounding responses occasionally include a raw newline or tab inside a
+    # quoted detail field. The content is still JSON-shaped, so accept those
+    # control characters instead of failing the entire research run.
+    parsed = json.loads(text[start:end + 1], strict=False)
     if not isinstance(parsed, dict):
         raise ValueError("Nova research stage was not an object")
     return parsed, sources
