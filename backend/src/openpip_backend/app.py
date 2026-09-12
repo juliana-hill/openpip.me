@@ -66,7 +66,7 @@ from .insight_gathering import (
     get_insight_gathering_status,
     start_insight_gathering,
 )
-from .trip_pipeline import list_trips, save_trip, sync_trip_library
+from .trip_pipeline import get_trip_agent_pipeline, list_trips, queue_trip_agent_pipeline, save_trip, sync_trip_library
 from .google_oauth import (
     OAuthConfigError,
     OAuthSessionStore,
@@ -846,6 +846,28 @@ async def agent_trip_create(payload: dict[str, Any], token: str = Depends(get_go
         return {"trip": await save_trip(token, payload)}
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.post("/agent/trips/{trip_id}/pipeline")
+async def agent_trip_pipeline(trip_id: str, token: str = Depends(get_google_token)):
+    """Queue a saved trip for the travel-planning pipeline when needed."""
+    try:
+        return await queue_trip_agent_pipeline(token, trip_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Trip not found") from error
+    except GoogleApiError as error:
+        raise _google_error(error) from error
+
+
+@app.get("/agent/trips/{trip_id}/pipeline/{run_id}")
+async def agent_trip_pipeline_status(trip_id: str, run_id: str, token: str = Depends(get_google_token)):
+    """Poll one travel-planning pipeline run."""
+    try:
+        return await get_trip_agent_pipeline(token, trip_id, run_id)
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail="Trip not found") from error
     except GoogleApiError as error:
         raise _google_error(error) from error
 

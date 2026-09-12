@@ -38,6 +38,15 @@ type Activity = "city" | "hiking" | "road trip" | "camping" | "cycling" | "water
 type View = "overview" | "plan";
 type Phase = "past" | "current" | "upcoming";
 
+type AgentPipelineOutput = {
+  overview?: string;
+  routeSummary?: string;
+  days?: Array<{ day?: number; date?: string | null; title?: string; detail?: string; route?: string; conditions?: string }>;
+  preparation?: Array<{ title?: string; detail?: string }>;
+  signals?: Array<{ category?: string; title?: string; detail?: string; severity?: string }>;
+  sources?: Array<{ url?: string; retrievedAt?: string }>;
+};
+
 type TripRecord = {
   id: string;
   kind?: "scratch" | "detected";
@@ -49,6 +58,9 @@ type TripRecord = {
   evidence?: string;
   confidence?: "confirmed" | "likely" | "needs review";
   sources?: Array<{ url?: string | null }>;
+  "agent-pipeline"?: "queued" | "running" | "complete" | "failed";
+  "agent-pipeline-stage"?: string;
+  "agent-pipeline-output"?: AgentPipelineOutput;
   phase: Phase;
 };
 
@@ -66,6 +78,7 @@ type PlanDraft = {
   endDate: string;
   activities: Activity[];
   pace: string;
+  agentOutput?: AgentPipelineOutput;
 };
 
 const emptyCollection: TripCollection = { trips: [], groups: { past: [], current: [], upcoming: [] }, pipeline: { state: "not_run" } };
@@ -184,38 +197,34 @@ function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen
 function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync, onOpen, onCreatePlan }: { agentName: string; studyMeStatus: InsightGatheringStatus | null; studyMeStatusLoading: boolean; collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; onCreatePlan: (draft: PlanDraft) => void }) {
   const studyMeReady = studyMeStatus?.state === "completed";
   const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
-  const gateTitle = studyMeRunning
-    ? `Waiting for ${agentName} to finish studying you…`
+  const gateTitle = studyMeReady
+    ? collection.trips.length > 0 ? "Your trip library is ready" : "Build your trip library"
+    : studyMeRunning
+      ? "Plan from scratch while Study Me finishes"
+      : "Plan a trip from scratch";
+  const gateCopy = studyMeReady
+    ? collection.trips.length > 0
+      ? "Review your saved trips, or start a new plan with current preparation context."
+      : "Use the completed Study Me index to organize previous trips, or start a new plan now."
     : studyMeStatusLoading
-      ? "Checking Study Me before travel planning starts"
-      : studyMeReady
-        ? collection.trips.length > 0 ? "Your trip library is ready" : "Build your trip library"
-        : "Study Me needs to finish first";
-  const gateCopy = studyMeRunning
-    ? "Once the historical index is complete, I’ll organize your past, current, and future trips from that shared context."
-    : studyMeStatusLoading
-      ? "Checking whether your indexed history is ready."
-      : studyMeReady
-        ? collection.trips.length > 0
-          ? "Your saved trips are ready to review and prepare."
-          : "Use the completed Study Me index as the starting point for a separate, read-only trip library."
-        : "The trip library is gated until Study Me has finished building your indexed history.";
+      ? "You can start a new plan now. Your indexed trip history will be available when Study Me is ready."
+      : "Start a new plan now. Only the indexed trip library waits for Study Me to finish.";
   return <div className={styles.pageStack}>
     <div className={inboxHeaderStyles.row}>
       <div className={inboxHeaderStyles.left}><h2 className={inboxHeaderStyles.title}>Travel Planning</h2></div>
     </div>
-    {!loading && !studyMeStatusLoading && <section className={inboxStyles.triage} aria-live="polite">
+    {!loading && <section className={inboxStyles.triage} aria-live="polite">
       <div className={inboxStyles.triageContent}>
         <p className={inboxStyles.triageKicker}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h3 className={inboxStyles.triageTitle}>{gateTitle}</h3>
         <p className={inboxStyles.triageCopy}>{gateCopy}</p>
       </div>
       <div className={inboxStyles.triageActions}>
-        {studyMeRunning || studyMeStatusLoading ? <span className={inboxStyles.triageTrust}>{studyMeRunning ? "Waiting for Study Me" : "Checking Study Me…"}</span> : studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <span className={inboxStyles.triageTrust}>Waiting for Study Me</span>}
+        {studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <button type="button" className={inboxStyles.triageRunBtn} onClick={() => document.getElementById("plan-another-trip")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Plan another trip</button>}
       </div>
     </section>}
     <div className={styles.entryGrid}>
-      <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
+      <Card id="plan-another-trip" className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
       <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /></div>
     </div>
   </div>;
@@ -229,21 +238,31 @@ function ItineraryDay({ day, date, title, detail, icon: Icon }: { day: string; d
   return <div className={styles.dayRow}><div className={styles.dayRail}><span>{day}</span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div><Icon size={18} className={styles.dayIcon} /></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
 }
 
+function draftFromTrip(trip: TripRecord): PlanDraft {
+  const knownActivities = activities.map(({ value }) => value).filter((value) => trip.activities?.includes(value));
+  return { id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced", agentOutput: trip["agent-pipeline-output"] };
+}
+
 function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean; onBack: () => void }) {
   const activityLabel = draft.activities.length > 0 ? draft.activities.join(", ") : "a flexible mix of activities";
   const firstDate = formatDate(draft.startDate);
   const lastDate = formatDate(draft.endDate || draft.startDate);
   const dayTwoIcon = draft.activities.includes("hiking") ? Mountain : draft.activities.includes("water") ? Droplets : Compass;
+  const output = draft.agentOutput;
+  const preparation = output?.preparation || [];
+  const generatedDays = output?.days || [];
+  const priorityIcons = [Mountain, Sun, ListChecks];
   return <div className={styles.pageStack}>
     <button className={styles.backButton} type="button" onClick={onBack}><ChevronLeft size={16} /> All trips</button>
     <section className={styles.workspaceHeader}><div><p className={styles.eyebrow}>{saved ? "Saved plan" : "Planning draft"}</p><h1>{draft.destination}</h1><div className={styles.workspaceMeta}><span><CalendarDays size={15} /> {draft.startDate || draft.endDate ? `${firstDate} – ${lastDate}` : "Dates to be decided"}</span><span><Compass size={15} /> {activityLabel}</span><Badge variant="muted">{draft.pace} pace</Badge></div></div><Button variant="secondary" onClick={onBack}><Plus size={16} /> New plan</Button></section>
-    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>Research stays source-linked.</strong><p>Current weather, health, hazard, and route signals will be checked before you rely on this plan.</p></div><Button variant="ghost" size="sm" disabled>Research current conditions</Button></div>
-    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div><Badge variant="warning">Draft</Badge></div><div className={styles.priorityGrid}><PriorityAction icon={Mountain} tone="coralTone" title="Confirm elevation" detail="Sleeping altitude will determine acclimatization guidance." /><PriorityAction icon={Sun} tone="goldTone" title="Check the exposure" detail="Weather and UV windows should shape each outdoor day." /><PriorityAction icon={ListChecks} tone="blueTone" title="Build the gear list" detail={`Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.`} /></div></section>
-    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Outline</p><CardTitle>A flexible itinerary</CardTitle><CardDescription className={styles.sectionDescription}>Shape first, then add verified places and route legs.</CardDescription></div><Badge variant="muted">3 days</Badge></CardHeader><CardContent className={styles.timeline}><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></CardContent></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></div></CardContent></Card><Card className={styles.sourceCard}><CardContent className={styles.sourceContent}><div className={styles.sourceCardTitle}><Sparkles size={16} /> Grounded research</div><p>Nova will show the sources behind current conditions and preparation advice.</p><span className={styles.sourceStatus}><span className={styles.statusDot} /> Sources will appear here</span></CardContent></Card></aside></div>
+    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{output?.overview ? "Agent research is source-linked." : "Research stays source-linked."}</strong><p>{output?.overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p></div><Button variant="ghost" size="sm" disabled>Research current conditions</Button></div>
+    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div><Badge variant={output ? "success" : "warning"}>{output ? "Ready" : "Draft"}</Badge></div><div className={styles.priorityGrid}>{(preparation.length > 0 ? preparation.slice(0, 3) : [{ title: "Confirm elevation", detail: "Sleeping altitude will determine acclimatization guidance." }, { title: "Check the exposure", detail: "Weather and UV windows should shape each outdoor day." }, { title: "Build the gear list", detail: `Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.` }]).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Verify before departure."} />)}</div></section>
+    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Outline</p><CardTitle>A flexible itinerary</CardTitle><CardDescription className={styles.sectionDescription}>{output?.routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></div><Badge variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} day={String(day.day || index + 1).padStart(2, "0")} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || `Day ${index + 1}`} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></>}</div></CardContent></Card><Card className={styles.sourceCard}><CardContent className={styles.sourceContent}><div className={styles.sourceCardTitle}><Sparkles size={16} /> Grounded research</div><p>{output?.sources?.length ? `${output.sources.length} source${output.sources.length === 1 ? "" : "s"} attached to this plan.` : "Nova will show the sources behind current conditions and preparation advice."}</p>{output?.sources?.slice(0, 5).map((source, index) => source.url ? <a key={`${source.url}-${index}`} className={styles.sourceLink} href={source.url} target="_blank" rel="noopener noreferrer">Source {index + 1} <ExternalLink size={12} /></a> : null)}{!output?.sources?.length && <span className={styles.sourceStatus}><span className={styles.statusDot} /> Sources will appear here</span>}</CardContent></Card></aside></div>
   </div>;
 }
 
-function PlanBuildScreen({ draft, agentName, onBack }: { draft: PlanDraft; agentName: string; onBack: () => void }) {
+function PlanBuildScreen({ draft, agentName, stage, onBack }: { draft: PlanDraft; agentName: string; stage?: string; onBack: () => void }) {
+  const stageLabel = stage ? stage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Starting";
   return <div className={styles.planBuildPage} aria-live="polite">
     <Card className={styles.planBuildCard}>
       <CardContent>
@@ -251,6 +270,7 @@ function PlanBuildScreen({ draft, agentName, onBack }: { draft: PlanDraft; agent
         <p className={styles.eyebrow}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h1>Building your preparation plan</h1>
         <p className={styles.planBuildCopy}>The agent is shaping your itinerary for {draft.destination}, then preparing the conditions and safety details you’ll want before you go.</p>
+        <p className={styles.planBuildStage}>Current stage: {stageLabel}</p>
         <div className={styles.planBuildSteps}>
           <div className={styles.planBuildStep}><span className={styles.planBuildSpinner} aria-hidden="true" /><div><strong>Building the trip shape</strong><span>{draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · {draft.pace} pace</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
@@ -271,6 +291,7 @@ export function RoutesPage({ userName, userImage }: Props) {
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [saved, setSaved] = useState(false);
   const [planBuilding, setPlanBuilding] = useState(false);
+  const [planBuildStage, setPlanBuildStage] = useState<string | undefined>();
   const [collection, setCollection] = useState<TripCollection>(emptyCollection);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -340,10 +361,19 @@ export function RoutesPage({ userName, userImage }: Props) {
     setDraft(next);
     setSaved(false);
     setPlanBuilding(true);
+    setPlanBuildStage("starting");
     setView("plan");
     try {
       const response = await proxyFetch("/agent/trips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "scratch", destination: next.destination, startDate: next.startDate || null, endDate: next.endDate || null, activities: next.activities, pace: next.pace }) });
-      if (response.ok) { setSaved(true); await loadTrips(); }
+      if (response.ok) {
+        const payload = await response.json() as { trip?: TripRecord };
+        if (payload.trip) {
+          setDraft(draftFromTrip(payload.trip));
+          setSaved(true);
+          await processTripPipeline(payload.trip);
+          await loadTrips();
+        }
+      }
     } catch {
       // Keep the draft visible; it is not presented as saved when Drive is unavailable.
     } finally {
@@ -351,14 +381,46 @@ export function RoutesPage({ userName, userImage }: Props) {
     }
   }
 
-  function openTrip(trip: TripRecord) {
-    const knownActivities = activities.map(({ value }) => value).filter((value) => trip.activities?.includes(value));
-    setDraft({ id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced" });
+  async function openTrip(trip: TripRecord) {
+    setDraft(draftFromTrip(trip));
     setSaved(true);
-    setPlanBuilding(false);
     setView("plan");
+    if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"]) {
+      setPlanBuilding(false);
+      return;
+    }
+    setPlanBuilding(true);
+    setPlanBuildStage(trip["agent-pipeline-stage"] || "starting");
+    await processTripPipeline(trip);
+  }
+
+  async function processTripPipeline(trip: TripRecord) {
+    try {
+      const response = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline`, { method: "POST" });
+      if (response.ok) {
+        const payload = await response.json() as { id?: string | null; status?: string; stage?: string; trip?: TripRecord; error?: string };
+        if (payload.trip) setDraft(draftFromTrip(payload.trip));
+        setPlanBuildStage(payload.stage || payload.trip?.["agent-pipeline-stage"] || payload.status);
+        if (payload.id && payload.status !== "complete") {
+            let status = payload.status;
+            while (status !== "complete" && status !== "failed") {
+            await new Promise((resolve) => window.setTimeout(resolve, 500));
+            const pollResponse = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline/${encodeURIComponent(payload.id)}`);
+            if (!pollResponse.ok) break;
+            const next = await pollResponse.json() as { status?: string; stage?: string; trip?: TripRecord; error?: string };
+            status = next.status || "queued";
+            setPlanBuildStage(next.stage || next.trip?.["agent-pipeline-stage"] || status);
+            if (next.trip) setDraft(draftFromTrip(next.trip));
+          }
+        }
+      }
+    } catch {
+      // Keep the saved trip visible if the pipeline cannot be reached.
+    } finally {
+      setPlanBuilding(false);
+    }
   }
 
   const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding ? <PlanBuildScreen draft={draft} agentName={agentName} onBack={() => { setPlanBuilding(false); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} onBack={() => { setPlanBuilding(false); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
 }

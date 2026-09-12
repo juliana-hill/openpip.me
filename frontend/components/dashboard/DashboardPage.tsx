@@ -20,6 +20,7 @@ type BriefEvent = { title: string; start: string };
 type TaskSnapshot = { title: string; priority: number; source: string }[];
 type RouteSnapshot = { origin: string; destination: string; date: string } | null;
 type ScheduledPlan = AgentRun;
+type TripCounts = { past: number; current: number; upcoming: number };
 
 const localToday = () => new Date().toLocaleDateString("en-CA");
 const localNow = () => new Date().toLocaleTimeString();
@@ -33,6 +34,7 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [eventsTotal, setEventsTotal] = useState(0);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [route, setRoute] = useState<RouteSnapshot>(null);
+  const [tripCounts, setTripCounts] = useState<TripCounts | null>(null);
   const [scheduledPlan, setScheduledPlan] = useState<ScheduledPlan | null>(null);
   const [pipelineActions, setPipelineActions] = useState<ScheduledPlan[]>([]);
   const [latestPipelineAction, setLatestPipelineAction] = useState<ScheduledPlan | null>(null);
@@ -332,11 +334,25 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       } catch { /* silent */ }
     }
 
+    async function loadTripCounts() {
+      try {
+        const response = await proxyFetch("/agent/trips");
+        if (!response.ok) return;
+        const data = await response.json() as { groups?: { past?: unknown[]; current?: unknown[]; upcoming?: unknown[] } };
+        setTripCounts({
+          past: data.groups?.past?.length ?? 0,
+          current: data.groups?.current?.length ?? 0,
+          upcoming: data.groups?.upcoming?.length ?? 0,
+        });
+      } catch { /* keep the loading state truthful when the library is unavailable */ }
+    }
+
     async function init() {
       try {
         const [{ briefTasks, briefEvents }] = await Promise.all([
           loadTasks(),
           loadRoute(),
+          loadTripCounts(),
           refreshScheduledActions(),
         ]);
         // Pipeline scan is manual — user clicks the button to start it
@@ -480,14 +496,22 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
         <ReviewDashboardCard className={styles.outcomeReview} style={{ animationDelay: "120ms" }} onLoaded={handleReviewLoaded} />
 
-        {/* Travel planning is always visible as an outcome card. It only claims an
-            active plan when the browser has a persisted route search. */}
+        {/* Travel planning reads the same durable trip library as /trips. */}
         <Link href="/trips" className={`${styles.card} ${styles.cardHalf} ${styles.outcomePlan}`} style={{ animationDelay: "180ms" }}>
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle}>Travel planning</span>
             <span className={styles.cardArrow}>→</span>
           </div>
-          {scheduledPlan && scheduledPlan.type === "trip_plan" ? <>
+          {tripCounts ? <>
+            <p className={styles.outcomeMetric}>Your trip library</p>
+            <div className={styles.tripCounts} aria-label="Saved trip counts">
+              <span><b>{tripCounts.past}</b> Past</span>
+              <span><b>{tripCounts.current}</b> Current</span>
+              <span><b>{tripCounts.upcoming}</b> Upcoming</span>
+            </div>
+            <p className={styles.outcomeDescription}>Saved itinerary context from your trip library. Nothing is booked here.</p>
+            <div className={styles.outcomeFooter}><span>{tripCounts.past + tripCounts.current + tripCounts.upcoming} saved trip{tripCounts.past + tripCounts.current + tripCounts.upcoming === 1 ? "" : "s"}</span><b>Open library</b></div>
+          </> : scheduledPlan && scheduledPlan.type === "trip_plan" ? <>
             <p className={styles.outcomeMetric}>{scheduledPlan.title}</p>
             <p className={styles.outcomeDescription}>{scheduledPlan.status === "queued" ? "Queued in Scheduled Actions. The agent will start it shortly." : "The agent is working from your approved proposal."}</p>
             <div className={styles.outcomeFooter}><span>{scheduledPlan.status === "queued" ? "Queued" : "In progress"}</span><b>Active</b></div>
