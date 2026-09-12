@@ -7,14 +7,21 @@
 // No cookies: every request attaches the session JWT (see ./session.ts) as
 // the X-OpenPip-Session header instead of relying on the browser's automatic
 // cookie transport.
-import { sessionHeaders } from "./session";
+import { clearSession, sessionHeaders } from "./session";
 
 const PROXY_URL = "";
+let loginRedirectStarted = false;
 
 export function proxyFetch(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${PROXY_URL}${path}`, {
     ...init,
+    // Authenticated application data must never be served from a stale
+    // browser response after the session has expired.
+    cache: init?.cache ?? "no-store",
     headers: { ...sessionHeaders(), ...(init?.headers ?? {}) },
+  }).then((response) => {
+    if (response.status === 401) redirectToLogin();
+    return response;
   });
 }
 
@@ -28,6 +35,8 @@ export function proxyLoginUrl(next = "/") {
 // carrying the current path as `next` so /auth/callback returns here after
 // signing in.
 export function redirectToLogin() {
-  if (typeof window === "undefined") return;
-  window.location.href = proxyLoginUrl(`${window.location.pathname}${window.location.search}`);
+  if (typeof window === "undefined" || loginRedirectStarted) return;
+  loginRedirectStarted = true;
+  clearSession();
+  window.location.replace(proxyLoginUrl(`${window.location.pathname}${window.location.search}`));
 }

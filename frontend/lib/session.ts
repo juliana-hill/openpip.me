@@ -11,6 +11,7 @@
 // party that ever verifies it (backend/src/openpip_backend/google_oauth.py).
 
 const SESSION_KEY = "openpip_session";
+const USER_PICTURE_CACHE_KEY = "user-picture-cache";
 export const SESSION_HEADER = "X-OpenPip-Session";
 
 function captureSessionFromUrlFragment(): void {
@@ -54,6 +55,9 @@ export function clearSession(): void {
   if (typeof window === "undefined") return;
   try {
     sessionStorage.removeItem(SESSION_KEY);
+    // Profile data is user-specific too. Do not let the next session inherit
+    // the previous user's cached avatar while the auth boundary is reloading.
+    sessionStorage.removeItem(USER_PICTURE_CACHE_KEY);
   } catch {
     // ignore
   }

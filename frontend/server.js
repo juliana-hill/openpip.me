@@ -67,6 +67,14 @@ async function proxy(req, res, upstream) {
     response.headers.forEach((value, key) => {
       if (key.toLowerCase() !== "content-length") res.setHeader(key, value);
     });
+    // These are authenticated, user-specific responses. Never let the
+    // browser or an intermediate proxy reuse one after the session expires.
+    const requestPath = req.originalUrl.split("?")[0];
+    if (["/auth", "/agent", "/api"].some((prefix) => requestPath === prefix || requestPath.startsWith(`${prefix}/`))) {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+    }
     res.send(Buffer.from(await response.arrayBuffer()));
   } catch (error) {
     res.status(502).json({ error: "Upstream unavailable", detail: error.message });
