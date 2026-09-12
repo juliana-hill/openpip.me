@@ -509,7 +509,6 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
               <span><b>{tripCounts.current}</b> Current</span>
               <span><b>{tripCounts.upcoming}</b> Upcoming</span>
             </div>
-            <p className={styles.outcomeDescription}>Saved itinerary context from your trip library. Nothing is booked here.</p>
             <div className={styles.outcomeFooter}><span>{tripCounts.past + tripCounts.current + tripCounts.upcoming} saved trip{tripCounts.past + tripCounts.current + tripCounts.upcoming === 1 ? "" : "s"}</span><b>Open library</b></div>
           </> : scheduledPlan && scheduledPlan.type === "trip_plan" ? <>
             <p className={styles.outcomeMetric}>{scheduledPlan.title}</p>
