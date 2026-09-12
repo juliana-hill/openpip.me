@@ -11,14 +11,12 @@ import {
   Compass,
   Droplets,
   ExternalLink,
-  HeartPulse,
   ListChecks,
   MapPin,
   Mountain,
   Plane,
   Plus,
   RefreshCw,
-  ShieldAlert,
   Sparkles,
   Sun,
 } from "lucide-react";
@@ -79,13 +77,6 @@ const activities: Array<{ value: Activity; label: string }> = [
   { value: "camping", label: "Camping" },
   { value: "cycling", label: "Cycling" },
   { value: "water", label: "Water activity" },
-];
-
-const starterSignals = [
-  { icon: Sun, label: "Weather & UV", detail: "Forecast windows and sun exposure by day" },
-  { icon: Mountain, label: "Altitude", detail: "Sleeping elevation and acclimatization prompts" },
-  { icon: HeartPulse, label: "Health & entry", detail: "Vaccination, disease, and document guidance" },
-  { icon: Droplets, label: "Water & conditions", detail: "Water availability, fire, and air quality" },
 ];
 
 function formatDate(value?: string | null): string {
@@ -225,7 +216,7 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
     </section>}
     <div className={styles.entryGrid}>
       <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
-      <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /><Card className={styles.signalCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What we’ll look at</p><CardTitle>Preparation, not reservations</CardTitle></div><ShieldAlert size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.signalList}>{starterSignals.map(({ icon: Icon, label, detail }) => <div className={styles.signalRow} key={label}><span className={styles.signalIcon}><Icon size={16} /></span><div><strong>{label}</strong><span>{detail}</span></div></div>)}</CardContent></Card></div>
+      <div className={styles.sideStack}><TripLibrary collection={collection} loading={loading} syncing={syncing} syncMessage={syncMessage} onSync={onSync} onOpen={onOpen} syncAllowed={studyMeReady} /></div>
     </div>
   </div>;
 }
@@ -252,6 +243,26 @@ function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean;
   </div>;
 }
 
+function PlanBuildScreen({ draft, agentName, onBack }: { draft: PlanDraft; agentName: string; onBack: () => void }) {
+  return <div className={styles.planBuildPage} aria-live="polite">
+    <Card className={styles.planBuildCard}>
+      <CardContent>
+        <div className={styles.planBuildIcon}><Sparkles size={22} aria-hidden="true" /></div>
+        <p className={styles.eyebrow}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
+        <h1>Building your preparation plan</h1>
+        <p className={styles.planBuildCopy}>The agent is shaping your itinerary for {draft.destination}, then preparing the conditions and safety details you’ll want before you go.</p>
+        <div className={styles.planBuildSteps}>
+          <div className={styles.planBuildStep}><span className={styles.planBuildSpinner} aria-hidden="true" /><div><strong>Building the trip shape</strong><span>{draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · {draft.pace} pace</span></div></div>
+          <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
+          <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Assembling the itinerary output</strong><span>Source-linked preparation prompts for review</span></div></div>
+        </div>
+        <p className={styles.planBuildNote}>This may take a moment. Nothing is booked or purchased.</p>
+        <Button variant="secondary" onClick={onBack}>Back to trips</Button>
+      </CardContent>
+    </Card>
+  </div>;
+}
+
 type Props = Readonly<{ userName: string; userImage: string }>;
 
 export function RoutesPage({ userName, userImage }: Props) {
@@ -259,6 +270,7 @@ export function RoutesPage({ userName, userImage }: Props) {
   const [view, setView] = useState<View>("overview");
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [saved, setSaved] = useState(false);
+  const [planBuilding, setPlanBuilding] = useState(false);
   const [collection, setCollection] = useState<TripCollection>(emptyCollection);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -327,12 +339,15 @@ export function RoutesPage({ userName, userImage }: Props) {
   async function submitDraft(next: PlanDraft) {
     setDraft(next);
     setSaved(false);
+    setPlanBuilding(true);
     setView("plan");
     try {
       const response = await proxyFetch("/agent/trips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "scratch", destination: next.destination, startDate: next.startDate || null, endDate: next.endDate || null, activities: next.activities, pace: next.pace }) });
       if (response.ok) { setSaved(true); await loadTrips(); }
     } catch {
       // Keep the draft visible; it is not presented as saved when Drive is unavailable.
+    } finally {
+      setPlanBuilding(false);
     }
   }
 
@@ -340,9 +355,10 @@ export function RoutesPage({ userName, userImage }: Props) {
     const knownActivities = activities.map(({ value }) => value).filter((value) => trip.activities?.includes(value));
     setDraft({ id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced" });
     setSaved(true);
+    setPlanBuilding(false);
     setView("plan");
   }
 
   const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding ? <PlanBuildScreen draft={draft} agentName={agentName} onBack={() => { setPlanBuilding(false); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
 }

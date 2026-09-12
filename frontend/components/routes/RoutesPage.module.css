@@ -374,6 +374,109 @@
   gap: 8px;
 }
 
+.planBuildPage {
+  display: grid;
+  min-height: 520px;
+  place-items: center;
+}
+
+.planBuildCard {
+  width: min(100%, 680px);
+  text-align: center;
+}
+
+.planBuildCard > :global(*) {
+  padding: 36px;
+}
+
+.planBuildIcon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border-radius: 16px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  animation: planBuildPulse 1.8s ease-in-out infinite;
+}
+
+.planBuildCard h1 {
+  margin: 8px 0 10px;
+  font-size: clamp(1.65rem, 3vw, 2.25rem);
+}
+
+.planBuildCopy {
+  max-width: 540px;
+  margin: 0 auto;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-md);
+  line-height: 1.55;
+}
+
+.planBuildSteps {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+  margin: 28px auto 18px;
+  text-align: left;
+}
+
+.planBuildStep {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px 15px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg);
+}
+
+.planBuildStep strong,
+.planBuildStep span {
+  display: block;
+}
+
+.planBuildStep strong {
+  font-size: var(--font-size-sm);
+}
+
+.planBuildStep div span {
+  margin-top: 3px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+}
+
+.planBuildSpinner,
+.planBuildDot {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border-radius: 50%;
+}
+
+.planBuildSpinner {
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: spin .8s linear infinite;
+}
+
+.planBuildDot {
+  background: var(--color-border);
+}
+
+.planBuildNote {
+  margin: 0 0 20px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+@keyframes planBuildPulse {
+  50% { transform: scale(1.06); box-shadow: 0 8px 24px color-mix(in srgb, var(--color-accent) 20%, transparent); }
+}
+
 .tripGroup {
   min-width: 0;
 }
