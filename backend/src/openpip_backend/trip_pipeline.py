@@ -15,6 +15,7 @@ import logging
 import os
 import re
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
@@ -28,6 +29,24 @@ _INPUT_FOLDER = "OpenPip/memory/insights_gathering/manifest"
 _OUTPUT_FOLDER = "OpenPip/travel/trips"
 _RUN_FOLDER = "OpenPip/travel/trips/manifest"
 _logger = logging.getLogger(__name__)
+_PROMPTS_DIR = Path(os.getenv("OPENPIP_PROMPTS_DIR", "/app/prompts"))
+if not _PROMPTS_DIR.exists():
+    _PROMPTS_DIR = Path(__file__).resolve().parents[3] / "prompts"
+_STAGE_PROMPT_FILES = {
+    "conditions": "stage-01-conditions.md",
+    "health": "stage-02-health-and-hazards.md",
+    "itinerary": "stage-03-itinerary.md",
+    "gap": "gap-review.md",
+}
+_PROMPT_BLOCK_RE = re.compile(r"```(?:[A-Za-z0-9_-]+)?[ \t]*\n(.*?)```", re.DOTALL)
+_URL_RE = re.compile(r"https?://[^\s<>)\]\"']+")
+_DATE_HEADING_RE = re.compile(
+    r"^(?:day\s+\d+\b|\d{4}-\d{2}-\d{2}\b|"
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?)\b",
+    re.IGNORECASE,
+)
 
 _TRIP_TERMS = {
     "airport", "boarding", "car rental", "check-in", "confirmation", "flight",
@@ -56,6 +75,105 @@ _SIGNAL_CATEGORY_ALIASES = {
 }
 _TRACKING_QUERY_PREFIXES = ("utm_",)
 _TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
+
+
+def _prompt_blocks(filename: str) -> tuple[str, ...]:
+    """Load the prose blocks from one of the committed production prompts."""
+    path = _PROMPTS_DIR / filename
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise RuntimeError(f"Travel prompt file is unavailable: {path}") from error
+    blocks = tuple(match.group(1).strip() for match in _PROMPT_BLOCK_RE.finditer(text))
+    if not blocks:
+        raise RuntimeError(f"Travel prompt file has no fenced prompt block: {path}")
+    return blocks
+
+
+def _render_trip_prompt(record: dict[str, Any], focus: str) -> str:
+    """Render the production prompt template without keeping a copy in code."""
+    blocks = _prompt_blocks("trip-research-template.md")
+    if len(blocks) < 3:
+        raise RuntimeError("trip-research-template.md must contain three fenced blocks")
+    template, normal_schema, itinerary_schema = blocks[:3]
+    rendered_focus = str(focus or "").strip()
+    replacements = {
+        "{{destination}}": str(record.get("destination") or "").strip(),
+        "{{start_date}}": str(record.get("startDate") or "flexible"),
+        "{{end_date}}": str(record.get("endDate") or "flexible"),
+        "{{activities}}": ", ".join(str(value) for value in record.get("activities") or []) or "general travel",
+        "{{pace}}": str(record.get("pace") or "Balanced"),
+        "{{focus}}": rendered_focus,
+    }
+    rendered = template
+    for token, value in replacements.items():
+        rendered = rendered.replace(token, value)
+    schema = itinerary_schema if rendered_focus.startswith("a practical") else normal_schema
+    return rendered.replace("Use this exact output shape:", f"Use this exact output shape: {schema}")
+
+
+def _trip_prompt(record: dict[str, Any], focus: str) -> str:
+    """Compatibility name for callers that used the production prompt builder."""
+    return _render_trip_prompt(record, focus)
+
+
+def _stage_focus(stage: str, missing_categories: list[str] | None = None) -> str:
+    if stage == "gap":
+        focus = _prompt_blocks(_STAGE_PROMPT_FILES[stage])[0]
+        return focus.replace("{{missing_categories}}", ", ".join(missing_categories or []))
+    if stage not in _STAGE_PROMPT_FILES:
+        raise ValueError(f"Unknown travel prompt stage: {stage}")
+    return _prompt_blocks(_STAGE_PROMPT_FILES[stage])[0]
+
+
+def _http_url(value: Any) -> str | None:
+    url = str(value or "").strip().rstrip(".,;:)")
+    if not url.startswith(("https://", "http://")):
+        return None
+    return url[:2000]
+
+
+def _url_key(value: Any) -> str | None:
+    url = _http_url(value)
+    if not url:
+        return None
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").casefold()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    if not hostname:
+        return None
+    port = parsed.port
+    if port in {80, 443}:
+        port = None
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    query = urlencode(sorted(
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.casefold().startswith(_TRACKING_QUERY_PREFIXES) and key.casefold() not in _TRACKING_QUERY_KEYS
+    ))
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit((parsed.scheme.casefold(), netloc, path, query, ""))
+
+
+def _urls_in_text(text: str) -> list[str]:
+    return list(dict.fromkeys(url for url in (_http_url(value) for value in _URL_RE.findall(text)) if url))
+
+
+def _grounded_item_url(item: dict[str, Any], source_urls: list[str]) -> str | None:
+    candidate = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
+    if not candidate:
+        candidate = next(iter(_urls_in_text(json.dumps(item, ensure_ascii=False))), None)
+    if not candidate:
+        return None
+    candidate_key = _url_key(candidate)
+    if not candidate_key:
+        return None
+    source_by_key = {_url_key(url): url for url in source_urls if _url_key(url)}
+    return source_by_key.get(candidate_key)
 
 
 def _signal_category(value: Any) -> str:
@@ -108,50 +226,6 @@ def _source(item: dict[str, Any]) -> dict[str, Any]:
         "detail": item.get("detail"),
         "url": item.get("url"),
     }
-
-
-def _http_url(value: Any) -> str | None:
-    url = str(value or "").strip()
-    if not url.startswith(("https://", "http://")):
-        return None
-    return url[:2000]
-
-
-def _url_key(value: Any) -> str | None:
-    url = _http_url(value)
-    if not url:
-        return None
-    try:
-        parsed = urlsplit(url)
-    except ValueError:
-        return None
-    hostname = (parsed.hostname or "").casefold()
-    if hostname.startswith("www."):
-        hostname = hostname[4:]
-    if not hostname:
-        return None
-    port = parsed.port
-    if port in {80, 443}:
-        port = None
-    netloc = hostname if port is None else f"{hostname}:{port}"
-    query = urlencode(sorted(
-        (key, value)
-        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
-        if not key.casefold().startswith(_TRACKING_QUERY_PREFIXES) and key.casefold() not in _TRACKING_QUERY_KEYS
-    ))
-    path = parsed.path.rstrip("/") or "/"
-    return urlunsplit((parsed.scheme.casefold(), netloc, path, query, ""))
-
-
-def _grounded_item_url(item: dict[str, Any], source_urls: list[str]) -> str | None:
-    candidate = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
-    if not candidate:
-        return None
-    candidate_key = _url_key(candidate)
-    if not candidate_key:
-        return None
-    source_by_key = {_url_key(url): url for url in source_urls if _url_key(url)}
-    return source_by_key.get(candidate_key)
 
 
 def _read_index_records(files: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -251,16 +325,12 @@ def _public_trip(record: dict[str, Any]) -> dict[str, Any]:
     } | {"phase": _phase(start_date, end_date)}
 
 
-def _has_source_linked_recommendations(output: Any) -> bool:
+def _has_recommendations(output: Any) -> bool:
     if not isinstance(output, dict):
         return False
     stays = [item for item in (output.get("stays") or []) if isinstance(item, dict)]
     places = [item for item in (output.get("places") or []) if isinstance(item, dict)]
-    recommendations = [
-        item
-        for item in stays + places
-    ]
-    return bool(stays) and bool(places) and all(_http_url(item.get("sourceUrl")) for item in recommendations)
+    return bool(stays) and bool(places)
 
 
 def _missing_output_requirements(output: dict[str, Any], missing_categories: list[str]) -> list[str]:
@@ -269,8 +339,8 @@ def _missing_output_requirements(output: dict[str, Any], missing_categories: lis
         ("preparation", "preparation guidance"),
         ("signals", "condition and safety signals"),
         ("sources", "grounded sources"),
-        ("stays", "source-linked places to stay"),
-        ("places", "source-linked places to see"),
+        ("stays", "places to stay"),
+        ("places", "places to see"),
     )
     missing = [label for key, label in requirements if not output.get(key)]
     if missing_categories:
@@ -322,36 +392,8 @@ async def save_trip(access_token: str, payload: dict[str, Any]) -> dict[str, Any
     return _public_trip(record)
 
 
-def _repair_json_with_llm(client: Any, candidate: str) -> dict[str, Any]:
-    """Ask Nova to repair syntax without running grounding again."""
-    response = client.converse(
-        modelId=_NOVA_GROUNDING_MODEL_ID,
-        messages=[{
-            "role": "user",
-            "content": [{"text": (
-                "Repair the following malformed JSON and return only one valid JSON object. "
-                "Preserve every key and value exactly; do not add, remove, summarize, research, "
-                "or invent anything. Fix syntax only.\n\n"
-                f"Malformed JSON:\n{candidate}"
-            )}],
-        }],
-    )
-    content = response.get("output", {}).get("message", {}).get("content", [])
-    text = "\n".join(block["text"] for block in content if isinstance(block, dict) and "text" in block)
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("Nova could not repair the malformed research JSON")
-    try:
-        repaired = json.loads(text[start:end + 1], strict=False)
-    except json.JSONDecodeError as error:
-        raise ValueError("Nova returned malformed research JSON after repair") from error
-    if not isinstance(repaired, dict):
-        raise ValueError("Nova repair result was not an object")
-    return repaired
-
-
-def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
-    """Run one bounded Nova Grounding research stage and parse its JSON."""
+def _grounded_response(prompt: str) -> tuple[str, list[str]]:
+    """Run one bounded Nova Grounding call and return its raw text and citations."""
     client = boto3.client(
         "bedrock-runtime",
         region_name=os.getenv("AWS_REGION", "us-east-1"),
@@ -372,69 +414,274 @@ def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
         for citation in block["citationsContent"].get("citations", [])
         if citation.get("location", {}).get("web", {}).get("url")
     ))
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("Nova did not return a JSON research stage")
-    # Grounding responses occasionally include a raw newline or tab inside a
-    # quoted detail field. The content is still JSON-shaped, so accept those
-    # control characters instead of failing the entire research run.
-    candidate = text[start:end + 1]
+    return text, sources
+
+
+def _json_objects(text: str) -> list[dict[str, Any]]:
+    """Extract balanced JSON objects without asking a model to repair them."""
+    objects: list[dict[str, Any]] = []
+    start: int | None = None
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, character in enumerate(text):
+        if start is None:
+            if character == "{":
+                start = index
+                depth = 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:index + 1]
+                try:
+                    parsed = json.loads(candidate, strict=False)
+                except (TypeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, dict):
+                    objects.append(parsed)
+                start = None
+    return objects
+
+
+def _heading_sections(text: str) -> list[tuple[str, str]]:
+    sections: list[tuple[str, str]] = []
+    title: str | None = None
+    body: list[str] = []
+
+    def flush() -> None:
+        if title is not None:
+            sections.append((title, "\n".join(body).strip()))
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        is_heading = stripped.startswith(("#", "**", "__"))
+        if is_heading:
+            candidate = re.sub(r"^#{1,6}\s*", "", stripped).strip()
+            candidate = re.sub(r"^(?:\*\*|__)(.*?)(?:\*\*|__)\s*:?[ \t]*$", r"\1", candidate).strip()
+            if candidate and len(candidate) <= 140:
+                flush()
+                title = candidate
+                body = []
+                continue
+        body.append(line)
+    flush()
+    return sections
+
+
+def _heading_category(title: str) -> str | None:
+    normalized = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+    for category in sorted(_REQUIRED_SIGNAL_CATEGORIES, key=len, reverse=True):
+        label = category.replace("_", " ")
+        if normalized == label or label in normalized:
+            return category
+    for alias, category in sorted(_SIGNAL_CATEGORY_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
+        if alias in normalized:
+            return category
+    return None
+
+
+def _severity(text: str) -> str:
+    lowered = text.casefold()
+    if any(word in lowered for word in ("urgent", "emergency", "immediately", "do not travel")):
+        return "urgent"
+    if any(word in lowered for word in ("warning", "caution", "risk", "avoid", "danger")):
+        return "caution"
+    return "info"
+
+
+def _bullet_items(text: str) -> list[str]:
+    items: list[str] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if re.match(r"^(?:[-*•]|\d+[.)])\s+", stripped):
+            if current:
+                items.append(" ".join(current).strip())
+            current = [re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", stripped)]
+        elif current and stripped:
+            current.append(stripped)
+    if current:
+        items.append(" ".join(current).strip())
+    if items:
+        return items
+    return [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
+
+
+def _recommendation_items(text: str) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for raw in _bullet_items(text):
+        url = next(iter(_urls_in_text(raw)), None)
+        if not url:
+            continue
+        link_match = re.search(r"\[([^]]+)\]\((https?://[^)]+)\)", raw)
+        if link_match:
+            name = link_match.group(1).strip()
+        else:
+            bold_match = re.match(r"\*\*(.+?)\*\*\s*(?:[:\-–]\s*)?(.*)$", raw)
+            name = bold_match.group(1).strip() if bold_match else raw.split(" - ", 1)[0].split(" — ", 1)[0].strip()
+        detail = re.sub(r"\s+", " ", raw).strip()
+        detail = detail.replace(url, "").strip(" -–:;")
+        items.append({"name": name[:160] or "Verified recommendation", "detail": detail[:500], "sourceUrl": url})
+    return items
+
+
+def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
+    sections = _heading_sections(text)
+    parsed: dict[str, Any] = {"overview": "", "signals": [], "preparation": []}
+    for title, body in sections:
+        category = _heading_category(title)
+        if category:
+            detail = re.sub(r"SOURCE URL:\s*https?://\S+", "", body, flags=re.IGNORECASE).strip()
+            parsed["signals"].append({
+                "category": category,
+                "title": title,
+                "detail": detail[:500] or "Verify current conditions with the cited source.",
+                "severity": _severity(detail),
+            })
+        if any(word in title.casefold() for word in ("preparation", "gear", "what to bring", "pack")):
+            for item in _bullet_items(body):
+                match = re.match(r"\*\*(.+?):\*\*\s*(.*)$", item) or re.match(
+                    r"\*\*(.+?)\*\*\s*[:\-–]\s*(.*)$", item
+                )
+                if match:
+                    item_title, detail = match.groups()
+                else:
+                    item_title, detail = "Preparation item", item
+                parsed["preparation"].append({"title": item_title[:120], "detail": detail[:500]})
+
+        lowered = title.casefold()
+        if stage == "itinerary" and any(word in lowered for word in ("route", "overview")):
+            parsed["routeSummary"] = body[:500]
+
+    if stage == "itinerary":
+        parsed.setdefault("routeSummary", "")
+        parsed["stays"] = []
+        parsed["places"] = []
+        parsed["days"] = []
+        for title, body in sections:
+            if _DATE_HEADING_RE.match(title.strip()):
+                parsed["days"].append({
+                    "date": _date_part(title) if re.match(r"\d{4}-", title) else None,
+                    "title": title,
+                    "detail": body[:800],
+                    "route": parsed.get("routeSummary", ""),
+                    "conditions": "",
+                })
+            lowered = title.casefold()
+            if any(word in lowered for word in ("stay", "accommodation", "lodging", "hotel", "hostel")):
+                for item in _recommendation_items(body):
+                    item.update({"area": "", "type": "other", "safety": ""})
+                    parsed["stays"].append(item)
+            if any(word in lowered for word in ("see", "do", "attraction", "place", "trail", "activity", "museum")):
+                for item in _recommendation_items(body):
+                    item.update({"type": "other", "route": ""})
+                    parsed["places"].append(item)
+        if not parsed["overview"]:
+            parsed["overview"] = next((body for title, body in sections if title.casefold() == "overview"), "")[:800]
+    return parsed
+
+
+def _promote_item_urls(output: dict[str, Any]) -> dict[str, Any]:
+    for key in ("stays", "places"):
+        items = output.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict) and not item.get("sourceUrl"):
+                url = next(iter(_urls_in_text(json.dumps(item, ensure_ascii=False))), None)
+                if url:
+                    item["sourceUrl"] = url
+    return output
+
+
+def _parse_grounded_text(text: str, stage: str) -> dict[str, Any]:
+    """Parse Nova's raw grounded text locally; no model is used for formatting."""
+    objects = [_promote_item_urls(item) for item in _json_objects(text)]
+    if stage == "itinerary":
+        for item in reversed(objects):
+            if any(key in item for key in ("days", "stays", "places", "routeSummary")):
+                return item
+    else:
+        for item in reversed(objects):
+            if "signals" in item or "preparation" in item:
+                return item
+    if objects:
+        return objects[-1]
+    return _parse_markdown_research(text, stage)
+
+
+def _trip_agent_model():
+    from strands.models import BedrockModel
+
+    region = os.getenv("AWS_REGION", "us-east-1")
+    access_key = os.getenv("AWS_APP_ACCESS_KEY_ID") or os.getenv("AWS_ACCESS_KEY_ID")
+    secret_key = os.getenv("AWS_APP_SECRET_ACCESS_KEY") or os.getenv("AWS_SECRET_ACCESS_KEY")
+    if access_key and secret_key:
+        session = boto3.Session(
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+        )
+        return BedrockModel(model_id=os.getenv("OPENPIP_TRIP_AGENT_MODEL_ID", "amazon.nova-pro-v1:0"), boto_session=session)
+    return BedrockModel(model_id=os.getenv("OPENPIP_TRIP_AGENT_MODEL_ID", "amazon.nova-pro-v1:0"), region_name=region)
+
+
+def _run_grounded_stage(record: dict[str, Any], stage: str, focus: str) -> tuple[dict[str, Any], list[str]]:
+    """Run one deterministic stage through Strands, retaining the tool's raw output."""
+    from strands import Agent, tool
+
+    system_prompt = _trip_prompt(record, focus)
+    captured: dict[str, Any] = {"text": "", "sources": []}
+
+    @tool
+    def research_grounded_stage() -> str:
+        """Run the Nova Grounding research call and return its raw text unchanged."""
+        text, sources = _grounded_response(system_prompt)
+        captured["text"] = text
+        captured["sources"] = sources
+        return text
+
     try:
-        parsed = json.loads(candidate, strict=False)
-    except json.JSONDecodeError:
-        parsed = _repair_json_with_llm(client, candidate)
+        agent = Agent(
+            model=_trip_agent_model(),
+            tools=[research_grounded_stage],
+            system_prompt=system_prompt,
+            name=f"OpenPip {stage} research",
+        )
+        agent("Use the grounding tool once and return its raw response unchanged.", limits={"turns": 2})
+    except Exception:
+        _logger.exception("Strands travel stage failed before returning grounded output: %s", stage)
+
+    if not captured["text"]:
+        captured["text"], captured["sources"] = _grounded_response(system_prompt)
+    raw_text = str(captured["text"])
+    sources = list(dict.fromkeys([*captured["sources"], *_urls_in_text(raw_text)]))
+    parsed = _parse_grounded_text(raw_text, "itinerary" if stage == "itinerary" else stage)
     if not isinstance(parsed, dict):
-        raise ValueError("Nova research stage was not an object")
+        raise ValueError(f"Nova returned no parseable {stage} research")
     return parsed, sources
 
 
-def _trip_prompt(record: dict[str, Any], focus: str) -> str:
-    destination = str(record.get("destination") or "").strip()
-    dates = f"{record.get('startDate') or 'flexible'} to {record.get('endDate') or 'flexible'}"
-    activities = ", ".join(str(value) for value in record.get("activities") or []) or "general travel"
-    is_itinerary_stage = focus.startswith("a practical")
-    schema = (
-        '{"overview":"short summary","signals":[{"category":"weather|temperature|uv|altitude|health|disease|animals|water|fire|volcanic_activity|earthquake|tsunami|air_quality|gear|route|security|kidnapping","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
-        if not is_itinerary_stage
-        else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","stays":[{"name":"...","area":"...","type":"hotel|hostel|camping|other","detail":"why this is a useful base","safety":"access and safety notes","sourceUrl":"exact URL from a grounded citation supporting this stay"}],"places":[{"name":"...","type":"attraction|trail|viewpoint|museum|other","detail":"what to see or do","route":"how it fits the route","sourceUrl":"exact URL from a grounded citation supporting this place"}],"days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
-    )
-    return (
-        "You are a stage in a travel-planning agent pipeline. Use Nova web "
-        "grounding to research current, public, source-verifiable information.\n"
-        f"Destination: {destination}\nDates: {dates}\nActivities: {activities}\n"
-        f"Pace: {record.get('pace') or 'Balanced'}\nFocus: {focus}\n\n"
-        "Treat these as required checks when relevant: extreme heat/cold and "
-        "temperature illness; weather and UV; sleeping altitude and altitude sickness; "
-        "vaccinations, entry, and disease; animals and wildlife deterrence such as bear "
-        "spray or bear bells where relevant, lawful, and recommended; volcanic eruptions, ash, SO2, and "
-        "respiratory protection; earthquakes and tsunamis; drought, water scarcity, "
-        "fire, and air quality; route hazards and closures; and activity-specific gear "
-        "such as water, moisture-wicking layers, warm water-resistant clothing, tents, "
-        "and hiking/climbing gloves; and neighborhood-level personal safety, including high-crime areas around "
-        "hotels and hostels, tourist-targeted pickpocketing and theft patterns, and common hotspots such as transit "
-        "hubs, crowded attractions, markets, nightlife, and hotel or hostel approaches; and current official country- or "
-        "region-level travel advisories for U.S. citizens, including conflict, terrorism, kidnapping, arbitrary detention, "
-        "hostage-taking, sanctions, and entry constraints. For hiking and climbing, explicitly check whether outdoor "
-        "travelers face kidnapping or hostage risk in conflict, border, or otherwise restricted areas, and whether permits, "
-        "escorts, route closures, or no-go guidance apply. Do not skip a category merely because it seems "
-        "unlikely—report it as low/unknown risk with a source or explain that coverage "
-        "is unavailable. For hiking routes, require evidence that the route is a real "
-        "marked or maintained trail from an official land manager or reputable trail "
-        "source; explicitly check for drainage systems, washes, gullies, service roads, "
-        "and informal paths that could be misidentified.\n\n"
-        "For a real trip proposal, research several source-verifiable places to stay "
-        "or safe lodging areas and several things to see or do. Give reasons, access "
-        "context, and safety notes; these are recommendations only, never bookings or "
-        "guarantees of availability. Every stay and place must include a sourceUrl copied "
-        "exactly from one of the Nova Grounding citations that supports that specific item. "
-        "If a place or route cannot be verified by a citation, omit it rather than inventing "
-        "it or returning an uncited recommendation.\n\n"
-        "Return JSON only. Do not book, purchase, or invent availability. Do not "
-        "use private email, calendar, passport, or medical data. Tie warnings to "
-        "grounded sources and describe uncertainty. This is preparation guidance, "
-        "not medical diagnosis or a guarantee that a route or facility is safe/open. "
-        f"Use this exact output shape: {schema}"
-    )
+def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
+    """Compatibility helper for direct callers; parsing stays local and bounded."""
+    text, sources = _grounded_response(prompt)
+    parsed = _parse_grounded_text(text, "conditions")
+    if not isinstance(parsed, dict):
+        raise ValueError("Nova returned no parseable research stage")
+    return parsed, list(dict.fromkeys([*sources, *_urls_in_text(text)]))
 
 
 def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[str, Any]) -> dict[str, Any]:
@@ -477,7 +724,6 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
             "safety": str(item.get("safety") or "Review current neighborhood and access conditions.")[:400],
             "sourceUrl": _grounded_item_url(item, grounded_sources),
         }]
-        if normalized["sourceUrl"]
     ]
     places = output.get("places") if isinstance(output.get("places"), list) else []
     normalized_places = [
@@ -491,7 +737,6 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
             "route": str(item.get("route") or "Route context requires confirmation.")[:400],
             "sourceUrl": _grounded_item_url(item, grounded_sources),
         }]
-        if normalized["sourceUrl"]
     ]
     return {
         "overview": str(output.get("overview") or f"Preparation plan for {record.get('destination')}.")[:800],
@@ -508,14 +753,10 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
 async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
     """Run separate grounded stages and validate the assembled output."""
     combined: dict[str, Any] = {"days": [], "preparation": [], "signals": [], "sources": [], "stays": [], "places": []}
-    stages = [
-        ("conditions", "weather, extreme heat and cold, wind chill, frostbite, heat stroke, hyperthermia, hypothermia, UV, altitude, water availability, wildfire, volcanic activity, ash and volcanic gas such as SO2, earthquakes, tsunami risk and alerts, air quality, and official closures or exclusion zones"),
-        ("health and hazards", "vaccination and entry guidance, disease exposure, animals and wildlife deterrence such as bear spray or bear bells where relevant and lawful, heat stroke and hyperthermia precautions, hypothermia and cold-exposure precautions, volcanic-ash and gas health precautions, earthquake and tsunami preparedness, neighborhood-level crime and personal safety around hotels and hostels, tourist-targeted pickpocketing and theft hotspots near transit hubs and attractions, current official travel advisories for U.S. citizens including Do Not Travel or higher-risk designations, conflict, terrorism, kidnapping and hostage-taking risks for hikers and rock-climbers, arbitrary detention, sanctions, entry constraints, permits, escorts, route restrictions, security, and emergency considerations"),
-        ("itinerary", "a practical real-trip proposal with a day-by-day itinerary, route context, several source-verifiable places to stay or safe lodging areas, and several verified things to see or do; propose recommendations only, never bookings; verify real marked hiking trails using official park or land-manager maps, trailhead information, and a reputable trail dataset; do not mistake a drainage channel, wash, gully, service road, social path, or terrain line that merely looks like a trail for a maintained route, and flag any route that cannot be verified; for camping assess water carrying and tent conditions, moisture-wicking layers, warm layers, and water-resistant clothing; for hiking or climbing assess hiking gloves and route-specific equipment such as cable or exposed-rock sections, using Half Dome in Yosemite only as an example and never assuming it applies without verifying the route; where wildlife risk warrants it, include bear spray, bear bells, food storage, and local rules rather than assuming those items are universally appropriate"),
-    ]
-    for stage, focus in stages:
+    for stage, prompt_stage in (("conditions", "conditions"), ("health and hazards", "health"), ("itinerary", "itinerary")):
+        focus = _stage_focus(prompt_stage)
         job["stage"] = stage
-        result, sources = await asyncio.to_thread(_grounded_json, _trip_prompt(record, focus))
+        result, sources = await asyncio.to_thread(_run_grounded_stage, record, prompt_stage, focus)
         if stage == "itinerary":
             combined["days"].extend(result.get("days") or [])
             combined["routeSummary"] = result.get("routeSummary")
@@ -528,32 +769,17 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
         if stage == "itinerary" and result.get("routeSummary"):
             combined["signals"].append({"category": "route", "title": "Route context", "detail": result["routeSummary"], "severity": "info"})
     for attempt in range(4):
-        current_output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
-        categories = {_signal_category(item.get("category")) for item in current_output["signals"] if isinstance(item, dict)}
-        missing_categories = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-        missing_requirements = _missing_output_requirements(current_output, missing_categories)
-        if not missing_requirements:
+        categories = {_signal_category(item.get("category")) for item in combined["signals"] if isinstance(item, dict)}
+        missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
+        if not missing:
             break
-        itinerary_needed = any(label in missing_requirements for label in ("itinerary days", "source-linked places to stay", "source-linked places to see"))
-        category_focus = ""
-        if missing_categories:
-            category_focus = " Return at least one grounded signal object for every exact missing category, using the lowercase category value verbatim (do not substitute a synonym): " + ", ".join(missing_categories) + "."
-        if itinerary_needed:
-            recommendation_needed = any(label in missing_requirements for label in ("source-linked places to stay", "source-linked places to see"))
-            if recommendation_needed:
-                focus = "a practical real-trip proposal focused on source-linked lodging and activities. Explicitly supply these missing output sections: " + ", ".join(missing_requirements) + ". Return at least three stays and three places when grounded sources support them. Every stay and place must include sourceUrl copied exactly from a Nova Grounding citation; omit any item that cannot be cited." + category_focus
-            else:
-                focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements) + "." + category_focus
-        else:
-            focus = "explicitly fill these missing required outputs: " + ", ".join(missing_requirements) + "." + category_focus
-        job["stage"] = "gap review: " + ", ".join(missing_requirements[:4])
-        result, sources = await asyncio.to_thread(_grounded_json, _trip_prompt(record, focus))
-        if itinerary_needed:
-            combined["days"].extend(result.get("days") or [])
-            combined["routeSummary"] = result.get("routeSummary") or combined.get("routeSummary")
-            combined["overview"] = result.get("overview") or combined.get("overview")
-            combined["stays"].extend(result.get("stays") or [])
-            combined["places"].extend(result.get("places") or [])
+        job["stage"] = "gap review: " + ", ".join(missing[:4])
+        result, sources = await asyncio.to_thread(
+            _run_grounded_stage,
+            record,
+            "gap",
+            _stage_focus("gap", missing),
+        )
         combined["preparation"].extend(result.get("preparation") or [])
         combined["signals"].extend(result.get("signals") or [])
         combined["sources"].extend(sources)
@@ -562,47 +788,43 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
     missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
     missing_requirements = _missing_output_requirements(output, missing)
     if missing_requirements:
-        raise ValueError("Travel-planning pipeline is missing required output: " + "; ".join(missing_requirements))
+        raise ValueError("Travel-planning pipeline is missing required output: " + ", ".join(missing_requirements))
     return output
 
 
 async def _run_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str) -> None:
     job = _agent_pipeline_jobs[run_id]
-    job["status"] = "running"
-    files = await list_json_files(access_token, _OUTPUT_FOLDER)
-    record = files.get(trip_id)
-    if not isinstance(record, dict) or not record.get("destination"):
-        raise KeyError(trip_id)
-    record["agent-pipeline"] = "running"
-    record["agent-pipeline-stage"] = "starting"
-    await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-
-    attempt = 0
-    while True:
-        attempt += 1
+    try:
+        job["status"] = "running"
+        files = await list_json_files(access_token, _OUTPUT_FOLDER)
+        record = files.get(trip_id)
+        if not isinstance(record, dict) or not record.get("destination"):
+            raise KeyError(trip_id)
+        record["agent-pipeline"] = "running"
+        record["agent-pipeline-stage"] = "starting"
+        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+        output = await _research_trip(record, job)
+        record["agent-pipeline-output"] = output
+        record["agent-pipeline"] = "complete"
+        record["agent-pipeline-stage"] = "complete"
+        record["agent-pipeline-completed-at"] = datetime.now(UTC).isoformat()
+        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+        job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
+    except Exception as error:
+        _logger.exception("Travel-planning pipeline failed for trip %s", trip_id)
+        job.update({"status": "failed", "stage": "failed", "error": str(error)[:500]})
         try:
-            output = await _research_trip(record, job)
-            record["agent-pipeline-output"] = output
-            record["agent-pipeline"] = "complete"
-            record["agent-pipeline-stage"] = "complete"
-            record.pop("agent-pipeline-error", None)
-            record["agent-pipeline-completed-at"] = datetime.now(UTC).isoformat()
-            await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-            job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
-            job["finishedAt"] = datetime.now(UTC).isoformat()
-            return
-        except Exception as error:
-            message = str(error)[:500]
-            _logger.exception("Travel-planning pipeline attempt %s failed for trip %s; retrying", attempt, trip_id)
-            job.update({"status": "running", "stage": "retrying", "error": message, "attempt": attempt})
-            record["agent-pipeline"] = "running"
-            record["agent-pipeline-stage"] = "retrying"
-            record["agent-pipeline-error"] = message
-            try:
+            files = await list_json_files(access_token, _OUTPUT_FOLDER)
+            record = files.get(trip_id)
+            if isinstance(record, dict):
+                record["agent-pipeline"] = "failed"
+                record["agent-pipeline-stage"] = "failed"
+                record["agent-pipeline-error"] = str(error)[:500]
                 await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-            except Exception:
-                _logger.exception("Could not persist travel-planning retry state for trip %s", trip_id)
-            await asyncio.sleep(min(60, 2 ** min(attempt - 1, 5)))
+        except Exception:
+            pass
+    finally:
+        job["finishedAt"] = datetime.now(UTC).isoformat()
 
 
 async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str, Any]:
@@ -611,7 +833,7 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
     record = files.get(trip_id)
     if not isinstance(record, dict) or not record.get("destination"):
         raise KeyError(trip_id)
-    if record.get("agent-pipeline") == "complete" and _has_source_linked_recommendations(record.get("agent-pipeline-output")):
+    if record.get("agent-pipeline") == "complete" and _has_recommendations(record.get("agent-pipeline-output")):
         return {"id": None, "status": "complete", "trip": _public_trip(record)}
 
     current_run_id = str(record.get("agent-pipeline-run-id") or "")

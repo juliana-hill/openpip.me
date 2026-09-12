@@ -42,8 +42,8 @@ type View = "overview" | "plan";
 type Phase = "past" | "current" | "upcoming";
 
 type AgentPipelineOutput = {
-  overview?: string;
-  routeSummary?: string;
+  overview?: string | Record<string, unknown>;
+  routeSummary?: string | Record<string, unknown>;
   stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string; sourceUrl?: string }>;
   places?: Array<{ name?: string; type?: string; detail?: string; route?: string; sourceUrl?: string }>;
   days?: Array<{ day?: number; date?: string | null; title?: string; detail?: string; route?: string; conditions?: string }>;
@@ -132,14 +132,12 @@ function setTripPath(tripId?: string, replace = false): void {
 }
 
 function TripCard({ trip, onOpen }: { trip: TripRecord; onOpen: (trip: TripRecord) => void }) {
-  const confidenceVariant = trip.confidence === "confirmed" ? "success" : trip.confidence === "likely" ? "warning" : "muted";
   const sourceUrl = trip.sources?.find((source) => source.url)?.url;
   return (
     <Card className={styles.tripCard}>
       <CardContent className={styles.tripCardContent}>
         <div className={styles.detectedTopline}>
           <span className={styles.sourceMark}><CalendarDays size={14} /> {trip.evidence || (trip.kind === "scratch" ? "Saved plan" : "Indexed history")}</span>
-          {trip.confidence && <Badge variant={confidenceVariant}>{trip.confidence}</Badge>}
         </div>
         <h3 className={styles.detectedTitle}>{trip.destination}</h3>
         <p className={styles.detectedDates}>{formatRange(trip.startDate, trip.endDate)}</p>
@@ -256,8 +254,8 @@ function PriorityAction({ icon: Icon, tone, title, detail }: { icon: typeof Sun;
   return <div className={`${styles.priorityAction} ${styles[tone]}`}><span className={styles.priorityIcon}><Icon size={17} /></span><div><strong>{title}</strong><p>{detail}</p></div></div>;
 }
 
-function ItineraryDay({ day, date, title, detail, icon: Icon }: { day: string; date: string; title: string; detail: string; icon: typeof Plane }) {
-  return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={`Day ${day}`}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
+function ItineraryDay({ date, title, detail, icon: Icon }: { date: string; title: string; detail: string; icon: typeof Plane }) {
+  return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={date}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
 }
 
 function placeIconForType(type?: string): typeof MapPin {
@@ -267,10 +265,40 @@ function placeIconForType(type?: string): typeof MapPin {
   return MapPin;
 }
 
-function hasSourceLinkedRecommendations(output?: AgentPipelineOutput): boolean {
-  const stays = output?.stays || [];
-  const places = output?.places || [];
-  return stays.length > 0 && places.length > 0 && [...stays, ...places].every((item) => /^https?:\/\//i.test(item.sourceUrl || ""));
+function placeTypeLabel(type?: string): string {
+  const normalized = (type || "other").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const labels: Record<string, string> = {
+    attraction: "Attraction",
+    city_area: "City area",
+    hiking_trail: "Hiking trail",
+    trail: "Trail",
+    viewpoint: "Viewpoint",
+    museum: "Museum",
+    temple: "Temple",
+    shrine: "Shrine",
+    park: "Park",
+    market: "Market",
+    neighborhood: "Neighborhood",
+    hotel: "Hotel",
+    hostel: "Hostel",
+    apartment: "Apartment",
+    camping: "Camping",
+    other: "Other",
+  };
+  return labels[normalized] || normalized.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function readableAgentText(value: unknown, fallback = ""): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map((item) => readableAgentText(item)).filter(Boolean).join(" ");
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    for (const key of ["description", "summary", "text", "detail", "itinerary", "recommendations", "items"]) {
+      const text = readableAgentText(record[key]);
+      if (text) return text;
+    }
+  }
+  return fallback;
 }
 
 function draftFromTrip(trip: TripRecord): PlanDraft {
@@ -283,8 +311,8 @@ function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
   const places = output.places || [];
   if (stays.length === 0 && places.length === 0) return null;
   return <div className={styles.recommendationGrid}>
-    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={styles.recommendationRow} key={`${stay.name}-${index}`}><strong>{stay.name || "Stay option"}</strong><span>{[stay.type, stay.area].filter(Boolean).join(" · ")}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}{stay.sourceUrl && <a className={styles.recommendationSourceLink} href={stay.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div>)}</CardContent></Card>}
-    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={`${styles.recommendationRow} ${styles.placeRecommendationRow}`} key={`${place.name}-${index}`}><span className={styles.placeRecommendationIcon}><PlaceIcon size={26} aria-hidden="true" /></span><div className={styles.placeRecommendationContent}><div className={styles.placeRecommendationTitle}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}>{place.type || "Activity"}</span></div><p>{place.detail}</p>{place.route && <small>{place.route}</small>}{place.sourceUrl && <a className={styles.recommendationSourceLink} href={place.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div></div>; })}</CardContent></Card>}
+    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={`${styles.recommendationRow} ${styles.stayRecommendationRow}`} key={`${stay.name}-${index}`}><div className={styles.stayTile}><Building2 size={22} aria-hidden="true" /><span>{placeTypeLabel(stay.type)}</span></div><div className={styles.stayRecommendationContent}><strong>{stay.name || "Stay option"}</strong><span>{stay.area || "Area to confirm"}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}</div>{stay.sourceUrl && <a className={styles.recommendationSourceLink} href={stay.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div>)}</CardContent></Card>}
+    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={`${styles.recommendationRow} ${styles.placeRecommendationRow}`} key={`${place.name}-${index}`}><span className={styles.placeRecommendationIcon}><PlaceIcon size={26} aria-hidden="true" /></span><div className={styles.placeRecommendationContent}><div className={styles.placeRecommendationTitle}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}>{placeTypeLabel(place.type)}</span></div><p>{place.detail}</p>{place.route && <small>{place.route}</small>}{place.sourceUrl && <a className={styles.recommendationSourceLink} href={place.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div></div>; })}</CardContent></Card>}
   </div>;
 }
 
@@ -297,45 +325,88 @@ function ResearchSources({ output }: { output: AgentPipelineOutput }) {
   </Collapsible>;
 }
 
-function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean; onBack: () => void }) {
+function buildStepIndex(stage?: string): number {
+  const normalized = (stage || "").toLowerCase();
+  if (normalized.includes("gap review") || normalized.includes("itinerary") || normalized.includes("complete")) return 2;
+  if (normalized.includes("health") || normalized.includes("hazard")) return 1;
+  return 0;
+}
+
+function Workspace({ draft, saved, onBack, onRetry }: { draft: PlanDraft; saved: boolean; onBack: () => void; onRetry: () => void }) {
   const activityLabel = draft.activities.length > 0 ? draft.activities.join(", ") : "a flexible mix of activities";
   const firstDate = formatDate(draft.startDate);
   const lastDate = formatDate(draft.endDate || draft.startDate);
   const dayTwoIcon = draft.activities.includes("hiking") ? Mountain : draft.activities.includes("water") ? Droplets : Compass;
   const output = draft.agentOutput;
+  const overview = readableAgentText(output?.overview);
+  const routeSummary = readableAgentText(output?.routeSummary);
   const preparation = output?.preparation || [];
   const generatedDays = output?.days || [];
   const priorityIcons = [Mountain, Sun, ListChecks];
   return <div className={styles.pageStack}>
     <button className={styles.backButton} type="button" onClick={onBack}><ChevronLeft size={16} /> All trips</button>
-    <section className={styles.workspaceHeader}><div><p className={styles.eyebrow}>{saved ? "Saved plan" : "Planning draft"}</p><h1>{draft.destination}</h1><div className={styles.workspaceMeta}><span><CalendarDays size={15} /> {draft.startDate || draft.endDate ? `${firstDate} – ${lastDate}` : "Dates to be decided"}</span><span><Compass size={15} /> {activityLabel}</span><Badge variant="muted">{draft.pace} pace</Badge></div></div><Button variant="secondary" onClick={onBack}><Plus size={16} /> New plan</Button></section>
-    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{output?.overview ? "Agent research is source-linked." : "Research stays source-linked."}</strong><p>{output?.overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p>{output && <ResearchSources output={output} />}</div></div>
-    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div></div><div className={styles.priorityGrid}>{(preparation.length > 0 ? preparation.slice(0, 3) : [{ title: "Confirm elevation", detail: "Sleeping altitude will determine acclimatization guidance." }, { title: "Check the exposure", detail: "Weather and UV windows should shape each outdoor day." }, { title: "Build the gear list", detail: `Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.` }]).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Verify before departure."} />)}</div></section>
+    <section className={styles.workspaceHeader}><div><p className={styles.eyebrow}>{saved ? "Saved plan" : "Planning draft"}</p><h1>{draft.destination}</h1><div className={styles.workspaceMeta}><span><CalendarDays size={15} /> {draft.startDate || draft.endDate ? `${firstDate} – ${lastDate}` : "Dates to be decided"}</span><span><Compass size={15} /> {activityLabel}</span><Badge variant="muted">{draft.pace} pace</Badge></div></div><Button variant="secondary" onClick={onRetry}><RefreshCw size={16} /> Start over</Button></section>
+    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{overview ? "Agent research is ready." : "Research is being assembled."}</strong><p>{overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p>{output && <ResearchSources output={output} />}</div></div>
+    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div></div>{preparation.length > 0 ? <div className={styles.priorityGrid}>{preparation.slice(0, 3).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Research-based guidance for this trip."} />)}</div> : <p className={styles.prepEmpty}>The agent did not return preparation details for this plan.</p>}</section>
     {output && <ResearchRecommendations output={output} />}
-    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><Collapsible><CardHeader className={styles.sectionHeader}><div className={styles.itineraryHeaderContent}><p className={styles.eyebrow}>Outline</p><CollapsibleTrigger className={styles.itinerarySummaryTrigger} aria-controls="itinerary-route-summary"><span className={styles.itineraryTitle}>A flexible itinerary</span><ChevronDown size={16} className={styles.itinerarySummaryIcon} /></CollapsibleTrigger><CollapsibleContent id="itinerary-route-summary" className={styles.itinerarySummaryContent}><CardDescription className={styles.sectionDescription}>{output?.routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></CollapsibleContent></div><Badge className={styles.durationBadge} variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} day={String(day.day || index + 1).padStart(2, "0")} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || `Day ${index + 1}`} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Collapsible></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></>}</div></CardContent></Card></aside></div>
+    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><Collapsible><CardHeader className={styles.sectionHeader}><div className={styles.itineraryHeaderContent}><p className={styles.eyebrow}>Outline</p><CollapsibleTrigger className={styles.itinerarySummaryTrigger} aria-controls="itinerary-route-summary"><span className={styles.itineraryTitle}>A flexible itinerary</span><ChevronDown size={16} className={styles.itinerarySummaryIcon} /></CollapsibleTrigger><CollapsibleContent id="itinerary-route-summary" className={styles.itinerarySummaryContent}><CardDescription className={styles.sectionDescription}>{routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></CollapsibleContent></div><Badge className={styles.durationBadge} variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || "Plan this day"} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Collapsible></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>What you’ll need</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <p className={styles.prepEmpty}>The agent did not return preparation details for this plan.</p>}</div></CardContent></Card></aside></div>
   </div>;
 }
 
 function PlanBuildScreen({ draft, agentName, stage, error, onRetry, onBack }: { draft: PlanDraft; agentName: string; stage?: string; error?: string | null; onRetry?: () => void; onBack: () => void }) {
   const failed = Boolean(error);
   const stageLabel = stage ? stage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Starting";
+  const rawActiveStep = buildStepIndex(stage);
+  const [activeStep, setActiveStep] = useState(rawActiveStep);
+  useEffect(() => {
+    setActiveStep((current) => Math.max(current, rawActiveStep));
+  }, [rawActiveStep]);
+  const buildSteps = [
+    ["Prepare around current conditions", "Weather, exposure, access, and environmental constraints"],
+    ["Prepare around health & hazards", "Health, wildlife, security, and official advisory context"],
+    ["Build the itinerary", `${draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · ${draft.pace} pace · planned around researched conditions`],
+  ] as const;
   return <div className={styles.planBuildPage} aria-live="polite">
     <Card className={styles.planBuildCard}>
       <CardContent>
         <div className={styles.planBuildIcon}><Sparkles size={22} aria-hidden="true" /></div>
         <p className={styles.eyebrow}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h1>{failed ? "Travel research could not finish" : "Building your preparation plan"}</h1>
-        <p className={styles.planBuildCopy}>{failed ? `The agent did not produce a complete, source-linked trip for ${draft.destination}.` : `The agent is shaping your itinerary for ${draft.destination}, then preparing the conditions and safety details you’ll want before you go.`}</p>
+        <p className={styles.planBuildCopy}>{failed ? `The agent did not produce a complete trip for ${draft.destination}.` : `The agent is researching conditions and hazards first, then shaping an itinerary around what it found for ${draft.destination}.`}</p>
         <p className={styles.planBuildStage}>{failed ? "Pipeline status: Failed" : stageLabel}</p>
-        {failed ? <p className={styles.planBuildError} role="alert">{error}</p> : <div className={styles.planBuildSteps}>
-          <div className={styles.planBuildStep}><span className={styles.planBuildSpinner} aria-hidden="true" /><div><strong>Building the trip shape</strong><span>{draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · {draft.pace} pace</span></div></div>
-          <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
-          <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Assembling the itinerary output</strong><span>Source-linked preparation prompts for review</span></div></div>
+        {failed ? <><p className={styles.planBuildError} role="alert">{error}</p><div className={styles.planBuildSteps}>
+          {buildSteps.map(([title, detail], index) => {
+            const complete = index < activeStep;
+            const current = index === activeStep;
+            return <div className={`${styles.planBuildStep} ${current ? styles.planBuildStepCurrent : ""}`} key={title} aria-current={current ? "step" : undefined}>
+              {complete ? <span className={styles.planBuildComplete} aria-label="Complete"><Check size={11} /></span> : current ? <span className={styles.planBuildSpinner} aria-hidden="true" /> : <span className={styles.planBuildDot} aria-hidden="true" />}
+              <div><strong>{title}</strong><span>{detail}</span></div>
+            </div>;
+          })}
+        </div></> : <div className={styles.planBuildSteps}>
+          {buildSteps.map(([title, detail], index) => {
+            const complete = index < activeStep;
+            const current = index === activeStep;
+            return <div className={`${styles.planBuildStep} ${current ? styles.planBuildStepCurrent : ""}`} key={title} aria-current={current ? "step" : undefined}>
+              {complete ? <span className={styles.planBuildComplete} aria-label="Complete"><Check size={11} /></span> : current ? <span className={styles.planBuildSpinner} aria-hidden="true" /> : <span className={styles.planBuildDot} aria-hidden="true" />}
+              <div><strong>{title}</strong><span>{detail}</span></div>
+            </div>;
+          })}
         </div>}
         {failed && onRetry && <Button variant="secondary" onClick={onRetry}>Retry research</Button>}
         {failed && <button className={styles.backButton} type="button" onClick={onBack}>Back to trips</button>}
       </CardContent>
     </Card>
+  </div>;
+}
+
+function TripPageLoader() {
+  return <div className={styles.tripPageLoader} role="status" aria-live="polite">
+    <div className={styles.tripPageLoaderIcon}><RefreshCw size={22} aria-hidden="true" /></div>
+    <p className={styles.eyebrow}>Travel planning</p>
+    <h1>Loading your trip</h1>
+    <p>Pulling in the saved trip details and current research.</p>
+    <span className={styles.tripPageLoaderBar} aria-hidden="true" />
   </div>;
 }
 
@@ -449,7 +520,7 @@ export function RoutesPage({ userName, userImage }: Props) {
     setSaved(true);
     setPlanBuildError(null);
     setView("plan");
-    if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"] && hasSourceLinkedRecommendations(trip["agent-pipeline-output"])) {
+    if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"]) {
       setPlanBuilding(false);
       return;
     }
@@ -503,10 +574,10 @@ export function RoutesPage({ userName, userImage }: Props) {
     setView("overview");
   }
 
-  async function processTripPipeline(trip: TripRecord): Promise<boolean> {
+  async function processTripPipeline(trip: TripRecord, retry = false): Promise<boolean> {
     setPlanBuildError(null);
     try {
-      const response = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline`, { method: "POST" });
+      const response = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline${retry ? "?retry=true" : ""}`, { method: "POST" });
       if (!response.ok) throw new Error("The travel-planning pipeline could not be started.");
       const payload = await response.json() as { id?: string | null; status?: string; stage?: string; trip?: TripRecord; error?: string };
       if (payload.trip) setDraft(draftFromTrip(payload.trip));
@@ -539,14 +610,23 @@ export function RoutesPage({ userName, userImage }: Props) {
     }
   }
 
-  function retryPlanBuild() {
+  function retryPlanBuild(force = false) {
     if (!draft?.id) return;
     setPlanBuildError(null);
     setPlanBuilding(true);
     setPlanBuildStage("retrying");
-    void processTripPipeline({ id: draft.id, kind: draft.kind, destination: draft.destination, startDate: draft.startDate, endDate: draft.endDate, activities: draft.activities, pace: draft.pace, phase: "current" });
+    void processTripPipeline({ id: draft.id, kind: draft.kind, destination: draft.destination, startDate: draft.startDate, endDate: draft.endDate, activities: draft.activities, pace: draft.pace, phase: "current" }, force);
   }
 
   const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding || planBuildError ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={showOverview} /> : <Workspace draft={draft} saved={saved} onBack={showOverview} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
+  const pageContent = view === "overview"
+    ? <Overview {...overviewProps} />
+    : routeTripId && !draft
+      ? <TripPageLoader />
+      : draft
+        ? planBuilding || planBuildError
+          ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={showOverview} />
+          : <Workspace draft={draft} saved={saved} onBack={showOverview} onRetry={() => retryPlanBuild(true)} />
+        : <Overview {...overviewProps} />;
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{pageContent}</PageShell><FloatingAssistant /></>;
 }
