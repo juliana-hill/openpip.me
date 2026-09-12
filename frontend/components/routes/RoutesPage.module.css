@@ -980,6 +980,17 @@
   line-height: 1.45;
 }
 
+.recommendationRow .recommendationType {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.recommendationType svg {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+}
+
 .recommendationRow p {
   margin-bottom: 0;
 }

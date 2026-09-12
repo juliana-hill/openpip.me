@@ -259,6 +259,13 @@ function ItineraryDay({ day, date, title, detail, icon: Icon }: { day: string; d
   return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={`Day ${day}`}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
 }
 
+function placeIconForType(type?: string): typeof MapPin {
+  const normalized = type?.toLowerCase() || "";
+  if (normalized.includes("trail") || normalized.includes("hike")) return Mountain;
+  if (normalized.includes("museum")) return Sparkles;
+  return MapPin;
+}
+
 function draftFromTrip(trip: TripRecord): PlanDraft {
   const knownActivities = activities.map(({ value }) => value).filter((value) => trip.activities?.includes(value));
   return { id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced", agentOutput: trip["agent-pipeline-output"] };
@@ -270,7 +277,7 @@ function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
   if (stays.length === 0 && places.length === 0) return null;
   return <div className={styles.recommendationGrid}>
     {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={styles.recommendationRow} key={`${stay.name}-${index}`}><strong>{stay.name || "Stay option"}</strong><span>{[stay.type, stay.area].filter(Boolean).join(" · ")}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}</div>)}</CardContent></Card>}
-    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => <div className={styles.recommendationRow} key={`${place.name}-${index}`}><strong>{place.name || "Place to verify"}</strong><span>{place.type || "Activity"}</span><p>{place.detail}</p>{place.route && <small>{place.route}</small>}</div>)}</CardContent></Card>}
+    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={styles.recommendationRow} key={`${place.name}-${index}`}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}><PlaceIcon size={14} aria-hidden="true" /> {place.type || "Activity"}</span><p>{place.detail}</p>{place.route && <small>{place.route}</small>}</div>; })}</CardContent></Card>}
   </div>;
 }
 
