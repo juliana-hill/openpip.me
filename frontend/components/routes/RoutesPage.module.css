@@ -443,6 +443,12 @@
 .planBuildCard {
   width: min(100%, 680px);
   text-align: center;
+  transition: none;
+}
+
+.planBuildCard:hover {
+  transform: none;
+  box-shadow: var(--shadow-md);
 }
 
 .planBuildCard > :global(*) {

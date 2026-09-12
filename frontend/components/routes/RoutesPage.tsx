@@ -326,13 +326,13 @@ function PlanBuildScreen({ draft, agentName, stage, error, onRetry, onBack }: { 
         <p className={styles.eyebrow}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h1>{failed ? "Travel research could not finish" : "Building your preparation plan"}</h1>
         <p className={styles.planBuildCopy}>{failed ? `The agent did not produce a complete, source-linked trip for ${draft.destination}.` : `The agent is shaping your itinerary for ${draft.destination}, then preparing the conditions and safety details you’ll want before you go.`}</p>
-        <p className={styles.planBuildStage}>{failed ? "Pipeline status: Failed" : `Current stage: ${stageLabel}`}</p>
+        <p className={styles.planBuildStage}>{failed ? "Pipeline status: Failed" : stageLabel}</p>
         {failed ? <p className={styles.planBuildError} role="alert">{error}</p> : <div className={styles.planBuildSteps}>
           <div className={styles.planBuildStep}><span className={styles.planBuildSpinner} aria-hidden="true" /><div><strong>Building the trip shape</strong><span>{draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · {draft.pace} pace</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Assembling the itinerary output</strong><span>Source-linked preparation prompts for review</span></div></div>
         </div>}
-        {failed && onRetry ? <Button variant="secondary" onClick={onRetry}>Retry research</Button> : <Button variant="secondary" onClick={onBack}>Back to trips</Button>}
+        {failed && onRetry && <Button variant="secondary" onClick={onRetry}>Retry research</Button>}
         {failed && <button className={styles.backButton} type="button" onClick={onBack}>Back to trips</button>}
       </CardContent>
     </Card>

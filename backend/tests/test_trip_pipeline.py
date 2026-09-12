@@ -1,4 +1,4 @@
-from openpip_backend.trip_pipeline import _has_source_linked_recommendations, _normalize_output
+from openpip_backend.trip_pipeline import _has_source_linked_recommendations, _missing_output_requirements, _normalize_output
 
 
 def test_normalize_output_keeps_only_recommendations_with_grounded_source_urls() -> None:
@@ -26,3 +26,17 @@ def test_source_linked_recommendations_require_both_categories() -> None:
         "stays": [{"sourceUrl": "https://stay.example"}],
         "places": [{"sourceUrl": "https://place.example"}],
     })
+
+
+def test_missing_output_requirements_reports_sections_when_categories_are_complete() -> None:
+    missing = _missing_output_requirements(
+        {"signals": [{"category": "weather"}], "sources": [{"url": "https://example.com"}]},
+        [],
+    )
+
+    assert missing == [
+        "itinerary days",
+        "preparation guidance",
+        "source-linked places to stay",
+        "source-linked places to see",
+    ]

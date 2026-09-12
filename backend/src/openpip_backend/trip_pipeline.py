@@ -231,6 +231,21 @@ def _has_source_linked_recommendations(output: Any) -> bool:
     return bool(stays) and bool(places) and all(_http_url(item.get("sourceUrl")) for item in recommendations)
 
 
+def _missing_output_requirements(output: dict[str, Any], missing_categories: list[str]) -> list[str]:
+    requirements = (
+        ("days", "itinerary days"),
+        ("preparation", "preparation guidance"),
+        ("signals", "condition and safety signals"),
+        ("sources", "grounded sources"),
+        ("stays", "source-linked places to stay"),
+        ("places", "source-linked places to see"),
+    )
+    missing = [label for key, label in requirements if not output.get(key)]
+    if missing_categories:
+        missing.append("signal categories: " + ", ".join(missing_categories))
+    return missing
+
+
 async def list_trips(access_token: str) -> dict[str, Any]:
     files = await list_json_files(access_token, _OUTPUT_FOLDER)
     trips = [_public_trip(record) for record in files.values() if isinstance(record, dict) and record.get("destination")]
@@ -449,20 +464,34 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
         if stage == "itinerary" and result.get("routeSummary"):
             combined["signals"].append({"category": "route", "title": "Route context", "detail": result["routeSummary"], "severity": "info"})
     for attempt in range(4):
-        categories = {_signal_category(item.get("category")) for item in combined["signals"] if isinstance(item, dict)}
-        missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-        if not missing:
+        current_output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
+        categories = {_signal_category(item.get("category")) for item in current_output["signals"] if isinstance(item, dict)}
+        missing_categories = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
+        missing_requirements = _missing_output_requirements(current_output, missing_categories)
+        if not missing_requirements:
             break
-        job["stage"] = "gap review: " + ", ".join(missing[:4])
-        result, sources = await asyncio.to_thread(_grounded_json, _trip_prompt(record, "explicitly fill these missing required categories: " + ", ".join(missing)))
+        itinerary_needed = any(label in missing_requirements for label in ("itinerary days", "source-linked places to stay", "source-linked places to see"))
+        if itinerary_needed:
+            focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements)
+        else:
+            focus = "explicitly fill these missing required outputs: " + ", ".join(missing_requirements)
+        job["stage"] = "gap review: " + ", ".join(missing_requirements[:4])
+        result, sources = await asyncio.to_thread(_grounded_json, _trip_prompt(record, focus))
+        if itinerary_needed:
+            combined["days"].extend(result.get("days") or [])
+            combined["routeSummary"] = result.get("routeSummary") or combined.get("routeSummary")
+            combined["overview"] = result.get("overview") or combined.get("overview")
+            combined["stays"].extend(result.get("stays") or [])
+            combined["places"].extend(result.get("places") or [])
         combined["preparation"].extend(result.get("preparation") or [])
         combined["signals"].extend(result.get("signals") or [])
         combined["sources"].extend(sources)
     output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
     categories = {_signal_category(item.get("category")) for item in output["signals"] if isinstance(item, dict)}
     missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-    if not output["days"] or not output["preparation"] or not output["signals"] or not output["sources"] or not output["stays"] or not output["places"] or missing:
-        raise ValueError("Travel-planning pipeline is missing required categories: " + ", ".join(missing))
+    missing_requirements = _missing_output_requirements(output, missing)
+    if missing_requirements:
+        raise ValueError("Travel-planning pipeline is missing required output: " + "; ".join(missing_requirements))
     return output
 
 
