@@ -322,6 +322,34 @@ async def save_trip(access_token: str, payload: dict[str, Any]) -> dict[str, Any
     return _public_trip(record)
 
 
+def _repair_json_with_llm(client: Any, candidate: str) -> dict[str, Any]:
+    """Ask Nova to repair syntax without running grounding again."""
+    response = client.converse(
+        modelId=_NOVA_GROUNDING_MODEL_ID,
+        messages=[{
+            "role": "user",
+            "content": [{"text": (
+                "Repair the following malformed JSON and return only one valid JSON object. "
+                "Preserve every key and value exactly; do not add, remove, summarize, research, "
+                "or invent anything. Fix syntax only.\n\n"
+                f"Malformed JSON:\n{candidate}"
+            )}],
+        }],
+    )
+    content = response.get("output", {}).get("message", {}).get("content", [])
+    text = "\n".join(block["text"] for block in content if isinstance(block, dict) and "text" in block)
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("Nova could not repair the malformed research JSON")
+    try:
+        repaired = json.loads(text[start:end + 1], strict=False)
+    except json.JSONDecodeError as error:
+        raise ValueError("Nova returned malformed research JSON after repair") from error
+    if not isinstance(repaired, dict):
+        raise ValueError("Nova repair result was not an object")
+    return repaired
+
+
 def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
     """Run one bounded Nova Grounding research stage and parse its JSON."""
     client = boto3.client(
@@ -350,7 +378,11 @@ def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
     # Grounding responses occasionally include a raw newline or tab inside a
     # quoted detail field. The content is still JSON-shaped, so accept those
     # control characters instead of failing the entire research run.
-    parsed = json.loads(text[start:end + 1], strict=False)
+    candidate = text[start:end + 1]
+    try:
+        parsed = json.loads(candidate, strict=False)
+    except json.JSONDecodeError:
+        parsed = _repair_json_with_llm(client, candidate)
     if not isinstance(parsed, dict):
         raise ValueError("Nova research stage was not an object")
     return parsed, sources
