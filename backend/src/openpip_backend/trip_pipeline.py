@@ -37,7 +37,7 @@ _NOVA_GROUNDING_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
 _REQUIRED_SIGNAL_CATEGORIES = {
     "weather", "temperature", "uv", "altitude", "health", "disease", "animals",
     "volcanic_activity", "earthquake", "tsunami", "water", "fire", "air_quality",
-    "gear", "route", "security",
+    "gear", "route", "security", "kidnapping",
 }
 
 
@@ -259,7 +259,7 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
     dates = f"{record.get('startDate') or 'flexible'} to {record.get('endDate') or 'flexible'}"
     activities = ", ".join(str(value) for value in record.get("activities") or []) or "general travel"
     schema = (
-        '{"overview":"short summary","signals":[{"category":"weather|temperature|uv|altitude|health|disease|animals|water|fire|volcanic_activity|earthquake|tsunami|air_quality|gear|route|security","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
+        '{"overview":"short summary","signals":[{"category":"weather|temperature|uv|altitude|health|disease|animals|water|fire|volcanic_activity|earthquake|tsunami|air_quality|gear|route|security|kidnapping","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
         if focus != "a practical day-by-day itinerary and route context for the stated activities"
         else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
     )
@@ -279,7 +279,9 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
         "hotels and hostels, tourist-targeted pickpocketing and theft patterns, and common hotspots such as transit "
         "hubs, crowded attractions, markets, nightlife, and hotel or hostel approaches; and current official country- or "
         "region-level travel advisories for U.S. citizens, including conflict, terrorism, kidnapping, arbitrary detention, "
-        "sanctions, and entry constraints. Do not skip a category merely because it seems "
+        "hostage-taking, sanctions, and entry constraints. For hiking and climbing, explicitly check whether outdoor "
+        "travelers face kidnapping or hostage risk in conflict, border, or otherwise restricted areas, and whether permits, "
+        "escorts, route closures, or no-go guidance apply. Do not skip a category merely because it seems "
         "unlikely—report it as low/unknown risk with a source or explain that coverage "
         "is unavailable. For hiking routes, require evidence that the route is a real "
         "marked or maintained trail from an official land manager or reputable trail "
@@ -334,7 +336,7 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
     combined: dict[str, Any] = {"days": [], "preparation": [], "signals": [], "sources": []}
     stages = [
         ("conditions", "weather, extreme heat and cold, wind chill, frostbite, heat stroke, hyperthermia, hypothermia, UV, altitude, water availability, wildfire, volcanic activity, ash and volcanic gas such as SO2, earthquakes, tsunami risk and alerts, air quality, and official closures or exclusion zones"),
-        ("health and hazards", "vaccination and entry guidance, disease exposure, animals and wildlife deterrence such as bear spray or bear bells where relevant and lawful, heat stroke and hyperthermia precautions, hypothermia and cold-exposure precautions, volcanic-ash and gas health precautions, earthquake and tsunami preparedness, neighborhood-level crime and personal safety around hotels and hostels, tourist-targeted pickpocketing and theft hotspots near transit hubs and attractions, current official travel advisories for U.S. citizens including Do Not Travel or higher-risk designations, conflict, terrorism, kidnapping, arbitrary detention, sanctions, entry constraints, security, and emergency considerations"),
+        ("health and hazards", "vaccination and entry guidance, disease exposure, animals and wildlife deterrence such as bear spray or bear bells where relevant and lawful, heat stroke and hyperthermia precautions, hypothermia and cold-exposure precautions, volcanic-ash and gas health precautions, earthquake and tsunami preparedness, neighborhood-level crime and personal safety around hotels and hostels, tourist-targeted pickpocketing and theft hotspots near transit hubs and attractions, current official travel advisories for U.S. citizens including Do Not Travel or higher-risk designations, conflict, terrorism, kidnapping and hostage-taking risks for hikers and rock-climbers, arbitrary detention, sanctions, entry constraints, permits, escorts, route restrictions, security, and emergency considerations"),
         ("itinerary", "a practical day-by-day itinerary, route context, and activity-specific gear requirements; verify real marked hiking trails using official park or land-manager maps, trailhead information, and a reputable trail dataset; do not mistake a drainage channel, wash, gully, service road, social path, or terrain line that merely looks like a trail for a maintained route, and flag any route that cannot be verified; for camping assess water carrying and tent conditions, moisture-wicking layers, warm layers, and water-resistant clothing; for hiking or climbing assess hiking gloves and route-specific equipment such as cable or exposed-rock sections, using Half Dome in Yosemite only as an example and never assuming it applies without verifying the route; where wildlife risk warrants it, include bear spray, bear bells, food storage, and local rules rather than assuming those items are universally appropriate"),
     ]
     for stage, focus in stages:
