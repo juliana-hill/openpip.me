@@ -62,8 +62,9 @@ _REQUIRED_SIGNAL_CATEGORIES = {
     "gear", "route", "security", "kidnapping",
 }
 _SIGNAL_CATEGORY_ALIASES = {
-    "uv index": "uv", "sun exposure": "uv", "extreme heat": "temperature", "extreme cold": "temperature",
+    "uv index": "uv", "uv exposure": "uv", "sun exposure": "uv", "extreme heat": "temperature", "extreme cold": "temperature",
     "heat": "temperature", "cold": "temperature", "altitude sickness": "altitude", "acclimatization": "altitude",
+    "elevation": "altitude",
     "vaccination": "health", "entry requirements": "health", "disease exposure": "disease", "wildlife": "animals",
     "bear safety": "animals", "volcano": "volcanic_activity", "volcanic activity": "volcanic_activity",
     "volcanic eruption": "volcanic_activity", "volcanic ash": "volcanic_activity", "so2": "volcanic_activity",
@@ -90,12 +91,131 @@ def _prompt_blocks(filename: str) -> tuple[str, ...]:
     return blocks
 
 
-def _render_trip_prompt(record: dict[str, Any], focus: str) -> str:
+def _context_value(value: Any, limit: int) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()[:limit]
+
+
+def _render_existing_research(research: dict[str, Any] | None) -> str:
+    """Render prior stage results as bounded Markdown context for the next call."""
+    if not isinstance(research, dict):
+        return "No earlier stage research is available."
+
+    lines: list[str] = []
+    signals = research.get("signals") if isinstance(research.get("signals"), list) else []
+    categories = {
+        _signal_category(item.get("category"))
+        for item in signals
+        if isinstance(item, dict) and item.get("category")
+    }
+    missing_categories = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
+    if missing_categories:
+        lines.extend(["### Required signal categories still missing", ", ".join(missing_categories)])
+
+    overview = _context_value(research.get("overview"), 800)
+    if overview:
+        lines.extend(["### Existing overview", overview])
+
+    if signals:
+        lines.append("### Existing condition and safety signals")
+        for item in signals[:32]:
+            if not isinstance(item, dict):
+                continue
+            category = _context_value(item.get("category"), 60) or "signal"
+            title = _context_value(item.get("title"), 120) or "Existing finding"
+            detail = _context_value(item.get("detail"), 500)
+            severity = _context_value(item.get("severity"), 20)
+            source = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
+            suffix = f" Source: {source}" if source else ""
+            risk = f" ({severity})" if severity else ""
+            lines.append(f"- [{category}{risk}] {title}: {detail}{suffix}")
+
+    preparation = research.get("preparation") if isinstance(research.get("preparation"), list) else []
+    if preparation:
+        lines.append("### Existing preparation")
+        for item in preparation[:12]:
+            if not isinstance(item, dict):
+                continue
+            title = _context_value(item.get("title"), 120) or "Preparation item"
+            detail = _context_value(item.get("detail"), 500)
+            lines.append(f"- {title}: {detail}")
+
+    route_summary = _context_value(research.get("routeSummary"), 500)
+    if route_summary:
+        lines.extend(["### Existing route context", route_summary])
+
+    stays = research.get("stays") if isinstance(research.get("stays"), list) else []
+    if stays:
+        lines.append("### Existing stay recommendations")
+        for item in stays[:8]:
+            if not isinstance(item, dict):
+                continue
+            name = _context_value(item.get("name"), 160) or "Stay recommendation"
+            detail = _context_value(item.get("detail"), 500)
+            area = _context_value(item.get("area"), 120)
+            safety = _context_value(item.get("safety"), 400)
+            source = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
+            suffix = f" Source: {source}" if source else ""
+            safety_text = f" Safety: {safety}" if safety else ""
+            lines.append(f"- {name} ({area}): {detail}{safety_text}{suffix}")
+
+    places = research.get("places") if isinstance(research.get("places"), list) else []
+    if places:
+        lines.append("### Existing place recommendations")
+        for item in places[:12]:
+            if not isinstance(item, dict):
+                continue
+            name = _context_value(item.get("name"), 160) or "Place recommendation"
+            detail = _context_value(item.get("detail"), 500)
+            route = _context_value(item.get("route"), 400)
+            source = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
+            suffix = f" Source: {source}" if source else ""
+            lines.append(f"- {name}: {detail} Route: {route}{suffix}")
+
+    days = research.get("days") if isinstance(research.get("days"), list) else []
+    if days:
+        lines.append("### Existing itinerary days")
+        for item in days[:7]:
+            if not isinstance(item, dict):
+                continue
+            title = _context_value(item.get("title"), 120) or "Itinerary day"
+            detail = _context_value(item.get("detail"), 800)
+            route = _context_value(item.get("route"), 300)
+            conditions = _context_value(item.get("conditions"), 400)
+            route_text = f" Route: {route}" if route else ""
+            conditions_text = f" Conditions: {conditions}" if conditions else ""
+            lines.append(f"- {title}: {detail}{route_text}{conditions_text}")
+
+    sources = research.get("sources") if isinstance(research.get("sources"), list) else []
+    source_urls = list(dict.fromkeys(
+        url
+        for value in sources
+        for url in [_http_url(value.get("url") if isinstance(value, dict) else value)]
+        if url
+    ))
+    if source_urls:
+        lines.append("### Existing grounded sources")
+        lines.extend(f"- {url}" for url in source_urls[:20])
+
+    if not lines:
+        return "No earlier stage research is available."
+    rendered = "\n".join(lines)
+    return rendered[:24000] + ("\n[Earlier research truncated by the pipeline.]" if len(rendered) > 24000 else "")
+
+
+def _render_trip_prompt(
+    record: dict[str, Any],
+    focus: str,
+    stage: str | None = None,
+    existing_research: dict[str, Any] | None = None,
+) -> str:
     """Render the production prompt template without keeping a copy in code."""
     blocks = _prompt_blocks("trip-research-template.md")
-    if len(blocks) < 3:
-        raise RuntimeError("trip-research-template.md must contain three fenced blocks")
-    template, normal_schema, itinerary_schema = blocks[:3]
+    if not blocks:
+        raise RuntimeError("trip-research-template.md must contain a fenced prompt block")
+    template = blocks[0]
+    markdown_formats = _prompt_blocks("markdown-output-format.md")
+    if len(markdown_formats) < 2:
+        raise RuntimeError("markdown-output-format.md must contain conditions and itinerary blocks")
     rendered_focus = str(focus or "").strip()
     replacements = {
         "{{destination}}": str(record.get("destination") or "").strip(),
@@ -104,17 +224,29 @@ def _render_trip_prompt(record: dict[str, Any], focus: str) -> str:
         "{{activities}}": ", ".join(str(value) for value in record.get("activities") or []) or "general travel",
         "{{pace}}": str(record.get("pace") or "Balanced"),
         "{{focus}}": rendered_focus,
+        "{{existing_research}}": _render_existing_research(existing_research),
     }
     rendered = template
     for token, value in replacements.items():
         rendered = rendered.replace(token, value)
-    schema = itinerary_schema if rendered_focus.startswith("a practical") else normal_schema
-    return rendered.replace("Use this exact output shape:", f"Use this exact output shape: {schema}")
+    itinerary_stage = stage == "itinerary" or (stage is None and rendered_focus.startswith("a practical"))
+    stage_boundary = (
+        "This is the itinerary stage. Produce only the itinerary and recommendation sections below; do not repeat the full conditions, health, or hazard report."
+        if itinerary_stage
+        else "This is a conditions, health, or gap-review stage. Produce only the conditions, hazards, safety, and preparation sections below; do not produce lodging, attractions, route plans, or day-by-day itinerary content."
+    )
+    markdown_format = markdown_formats[1] if itinerary_stage else markdown_formats[0]
+    return f"{rendered}\n\n{stage_boundary}\n\n{markdown_format}"
 
 
-def _trip_prompt(record: dict[str, Any], focus: str) -> str:
+def _trip_prompt(
+    record: dict[str, Any],
+    focus: str,
+    stage: str | None = None,
+    existing_research: dict[str, Any] | None = None,
+) -> str:
     """Compatibility name for callers that used the production prompt builder."""
-    return _render_trip_prompt(record, focus)
+    return _render_trip_prompt(record, focus, stage, existing_research)
 
 
 def _stage_focus(stage: str, missing_categories: list[str] | None = None) -> str:
@@ -124,6 +256,46 @@ def _stage_focus(stage: str, missing_categories: list[str] | None = None) -> str
     if stage not in _STAGE_PROMPT_FILES:
         raise ValueError(f"Unknown travel prompt stage: {stage}")
     return _prompt_blocks(_STAGE_PROMPT_FILES[stage])[0]
+
+
+def _category_label(category: str) -> str:
+    return category.replace("_", " ").title()
+
+
+def _gap_focus(missing_categories: list[str], missing_requirements: list[str] | None = None) -> str:
+    """Create a targeted Markdown-only completion request for the next call."""
+    targets = [_category_label(category) for category in missing_categories]
+    targets.extend(requirement for requirement in (missing_requirements or []) if requirement not in targets)
+    focus = _stage_focus("gap", missing_categories)
+    target_text = ", ".join(targets) or "the missing preparation or source details"
+    headings = "\n".join(f"## {_category_label(category)}" for category in missing_categories)
+    heading_instruction = (
+        f"Return one new Markdown section under each of these exact headings:\n{headings}"
+        if headings
+        else "Return only the new Markdown sections needed for the missing requirements listed above."
+    )
+    return (
+        f"{focus}\n\n"
+        f"This is a completion pass for: {target_text}. Use the existing research context and do not repeat any category already present. "
+        f"{heading_instruction} Include a grounded source URL in every new section. Return Markdown only."
+    )
+
+
+def _itinerary_completion_focus(missing_requirements: list[str]) -> str:
+    requirements = ", ".join(missing_requirements) or "the missing itinerary details"
+    source_link_requirements = [
+        requirement for requirement in missing_requirements if requirement.startswith("source links for ")
+    ]
+    source_link_instruction = (
+        " For each existing recommendation missing a link, repeat only that recommendation with its exact existing name and add a full grounded URL on the same bullet using `Source: https://...`; do not add a new recommendation or invent a URL."
+        if source_link_requirements
+        else ""
+    )
+    return (
+        f"{_stage_focus('itinerary')}\n\n"
+        f"This is a completion pass. The Python aggregate already contains the itinerary content that was found. "
+        f"Produce only the missing itinerary requirements: {requirements}. Do not repeat existing days, stays, places, or route content unless repeating one existing recommendation is necessary to attach its missing source URL.{source_link_instruction} Return Markdown only."
+    )
 
 
 def _http_url(value: Any) -> str | None:
@@ -345,6 +517,20 @@ def _missing_output_requirements(output: dict[str, Any], missing_categories: lis
         ("places", "places to see"),
     )
     missing = [label for key, label in requirements if not output.get(key)]
+    stays = output.get("stays") if isinstance(output.get("stays"), list) else []
+    if stays and any(
+        not _grounded_item_url(item, [])
+        for item in stays
+        if isinstance(item, dict)
+    ):
+        missing.append("source links for places to stay")
+    places = output.get("places") if isinstance(output.get("places"), list) else []
+    if places and any(
+        not _grounded_item_url(item, [])
+        for item in places
+        if isinstance(item, dict)
+    ):
+        missing.append("source links for places to see")
     if missing_categories:
         missing.append("signal categories: " + ", ".join(missing_categories))
     return missing
@@ -395,7 +581,13 @@ async def save_trip(access_token: str, payload: dict[str, Any]) -> dict[str, Any
 
 
 def _grounded_response(prompt: str) -> tuple[str, list[str]]:
-    """Run one bounded Nova Grounding call and return its raw text and citations."""
+    """Run one bounded Nova Grounding call and keep citations beside their text.
+
+    Nova returns grounded output as interleaved ``text`` and
+    ``citationsContent`` blocks. The citation blocks are not part of the
+    model's Markdown text, so simply joining every text block drops the URLs
+    before the recommendation parser can attach them to a stay or place.
+    """
     client = boto3.client(
         "bedrock-runtime",
         region_name=os.getenv("AWS_REGION", "us-east-1"),
@@ -408,54 +600,23 @@ def _grounded_response(prompt: str) -> tuple[str, list[str]]:
         toolConfig={"tools": [{"systemTool": {"name": "nova_grounding"}}]},
     )
     content = response.get("output", {}).get("message", {}).get("content", [])
-    text = "\n".join(block["text"] for block in content if isinstance(block, dict) and "text" in block)
-    sources = list(dict.fromkeys(
-        citation["location"]["web"]["url"]
-        for block in content
-        if isinstance(block, dict) and isinstance(block.get("citationsContent"), dict)
-        for citation in block["citationsContent"].get("citations", [])
-        if citation.get("location", {}).get("web", {}).get("url")
-    ))
-    return text, sources
-
-
-def _json_objects(text: str) -> list[dict[str, Any]]:
-    """Extract balanced JSON objects without asking a model to repair them."""
-    objects: list[dict[str, Any]] = []
-    start: int | None = None
-    depth = 0
-    in_string = False
-    escaped = False
-    for index, character in enumerate(text):
-        if start is None:
-            if character == "{":
-                start = index
-                depth = 1
+    text_parts: list[str] = []
+    sources: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
             continue
-        if in_string:
-            if escaped:
-                escaped = False
-            elif character == "\\":
-                escaped = True
-            elif character == '"':
-                in_string = False
+        if isinstance(block.get("text"), str):
+            text_parts.append(block["text"])
+        citations_content = block.get("citationsContent")
+        if not isinstance(citations_content, dict):
             continue
-        if character == '"':
-            in_string = True
-        elif character == "{":
-            depth += 1
-        elif character == "}":
-            depth -= 1
-            if depth == 0:
-                candidate = text[start:index + 1]
-                try:
-                    parsed = json.loads(candidate, strict=False)
-                except (TypeError, ValueError):
-                    parsed = None
-                if isinstance(parsed, dict):
-                    objects.append(parsed)
-                start = None
-    return objects
+        for citation in citations_content.get("citations", []):
+            url = _http_url(citation.get("location", {}).get("web", {}).get("url")) if isinstance(citation, dict) else None
+            if not url:
+                continue
+            sources.append(url)
+            text_parts.append(f" Source: {url}")
+    return "\n".join(text_parts), list(dict.fromkeys(sources))
 
 
 def _heading_sections(text: str) -> list[tuple[str, str]]:
@@ -483,16 +644,22 @@ def _heading_sections(text: str) -> list[tuple[str, str]]:
     return sections
 
 
-def _heading_category(title: str) -> str | None:
+def _heading_categories(title: str) -> list[str]:
     normalized = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+    categories: list[str] = []
     for category in sorted(_REQUIRED_SIGNAL_CATEGORIES, key=len, reverse=True):
         label = category.replace("_", " ")
         if normalized == label or label in normalized:
-            return category
+            categories.append(category)
     for alias, category in sorted(_SIGNAL_CATEGORY_ALIASES.items(), key=lambda item: len(item[0]), reverse=True):
-        if alias in normalized:
-            return category
-    return None
+        if alias in normalized and category not in categories:
+            categories.append(category)
+    return categories
+
+
+def _heading_category(title: str) -> str | None:
+    """Return the first category for compatibility with existing callers."""
+    return next(iter(_heading_categories(title)), None)
 
 
 def _severity(text: str) -> str:
@@ -552,15 +719,18 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
     sections = _heading_sections(text)
     parsed: dict[str, Any] = {"overview": "", "signals": [], "preparation": []}
     for title, body in sections:
-        category = _heading_category(title)
-        if category:
+        if title.casefold() == "overview":
+            parsed["overview"] = body[:800]
+        categories = _heading_categories(title)
+        if categories:
             detail = re.sub(r"SOURCE URL:\s*https?://\S+", "", body, flags=re.IGNORECASE).strip()
-            parsed["signals"].append({
-                "category": category,
-                "title": title,
-                "detail": detail[:500] or "Verify current conditions with the cited source.",
-                "severity": _severity(detail),
-            })
+            for category in categories:
+                parsed["signals"].append({
+                    "category": category,
+                    "title": title,
+                    "detail": detail[:500] or "Verify current conditions with the cited source.",
+                    "severity": _severity(detail),
+                })
         if any(word in title.casefold() for word in ("preparation", "gear", "what to bring", "pack")):
             for item in _bullet_items(body):
                 match = re.match(r"\*\*(.+?):\*\*\s*(.*)$", item) or re.match(
@@ -571,6 +741,13 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
                 else:
                     item_title, detail = "Preparation item", item
                 parsed["preparation"].append({"title": item_title[:120], "detail": detail[:500]})
+                for category in _heading_categories(item_title):
+                    parsed["signals"].append({
+                        "category": category,
+                        "title": item_title[:120],
+                        "detail": detail[:500] or "Verify current conditions with the cited source.",
+                        "severity": _severity(detail),
+                    })
 
         lowered = title.casefold()
         if stage == "itinerary" and any(word in lowered for word in ("route", "overview")):
@@ -604,33 +781,9 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
     return parsed
 
 
-def _promote_item_urls(output: dict[str, Any]) -> dict[str, Any]:
-    for key in ("stays", "places"):
-        items = output.get(key)
-        if not isinstance(items, list):
-            continue
-        for item in items:
-            if isinstance(item, dict) and not item.get("sourceUrl"):
-                url = next(iter(_urls_in_text(json.dumps(item, ensure_ascii=False))), None)
-                if url:
-                    item["sourceUrl"] = url
-    return output
-
-
 def _parse_grounded_text(text: str, stage: str) -> dict[str, Any]:
-    """Parse Nova's raw grounded text locally; no model is used for formatting."""
-    objects = [_promote_item_urls(item) for item in _json_objects(text)]
-    if stage == "itinerary":
-        for item in reversed(objects):
-            if any(key in item for key in ("days", "stays", "places", "routeSummary")):
-                return item
-    else:
-        for item in reversed(objects):
-            if "signals" in item or "preparation" in item:
-                return item
-    if objects:
-        return objects[-1]
-    return _parse_markdown_research(text, stage)
+    """Parse Nova's grounded Markdown locally; the model never formats JSON."""
+    return _parse_markdown_research(str(text), stage)
 
 
 def _trip_agent_model():
@@ -649,11 +802,16 @@ def _trip_agent_model():
     return BedrockModel(model_id=os.getenv("OPENPIP_TRIP_AGENT_MODEL_ID", "amazon.nova-pro-v1:0"), region_name=region)
 
 
-def _run_grounded_stage(record: dict[str, Any], stage: str, focus: str) -> tuple[dict[str, Any], list[str]]:
+def _run_grounded_stage(
+    record: dict[str, Any],
+    stage: str,
+    focus: str,
+    existing_research: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
     """Run one deterministic stage through Strands, retaining the tool's raw output."""
     from strands import Agent, tool
 
-    system_prompt = _trip_prompt(record, focus)
+    system_prompt = _trip_prompt(record, focus, stage, existing_research)
     captured: dict[str, Any] = {"text": "", "sources": []}
 
     @tool
@@ -683,15 +841,6 @@ def _run_grounded_stage(record: dict[str, Any], stage: str, focus: str) -> tuple
     if not isinstance(parsed, dict):
         raise ValueError(f"Nova returned no parseable {stage} research")
     return parsed, sources
-
-
-def _grounded_json(prompt: str) -> tuple[dict[str, Any], list[str]]:
-    """Compatibility helper for direct callers; parsing stays local and bounded."""
-    text, sources = _grounded_response(prompt)
-    parsed = _parse_grounded_text(text, "conditions")
-    if not isinstance(parsed, dict):
-        raise ValueError("Nova returned no parseable research stage")
-    return parsed, list(dict.fromkeys([*sources, *_urls_in_text(text)]))
 
 
 def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[str, Any]) -> dict[str, Any]:
@@ -760,45 +909,208 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
     }
 
 
-async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
-    """Run separate grounded stages and validate the assembled output."""
-    combined: dict[str, Any] = {"days": [], "preparation": [], "signals": [], "sources": [], "stays": [], "places": []}
-    for stage, prompt_stage in (("conditions", "conditions"), ("health and hazards", "health"), ("itinerary", "itinerary")):
-        focus = _stage_focus(prompt_stage)
-        job["stage"] = stage
-        result, sources = await asyncio.to_thread(_run_grounded_stage, record, prompt_stage, focus)
-        if stage == "itinerary":
-            combined["days"].extend(result.get("days") or [])
-            combined["routeSummary"] = result.get("routeSummary")
-            combined["overview"] = result.get("overview")
-            combined["stays"].extend(result.get("stays") or [])
-            combined["places"].extend(result.get("places") or [])
-        combined["preparation"].extend(result.get("preparation") or [])
-        combined["signals"].extend(result.get("signals") or [])
-        combined["sources"].extend(sources)
-        if stage == "itinerary" and result.get("routeSummary"):
-            combined["signals"].append({"category": "route", "title": "Route context", "detail": result["routeSummary"], "severity": "info"})
-    for attempt in range(4):
-        categories = {_signal_category(item.get("category")) for item in combined["signals"] if isinstance(item, dict)}
-        missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-        if not missing:
-            break
-        job["stage"] = "gap review: " + ", ".join(missing[:4])
+_RESEARCH_STAGE_PLAN = (
+    ("conditions", "conditions"),
+    ("health", "health and hazards"),
+    ("itinerary", "itinerary"),
+)
+
+
+def _empty_research_assembly() -> dict[str, Any]:
+    return {"days": [], "preparation": [], "signals": [], "sources": [], "stays": [], "places": []}
+
+
+def _append_stage_result(assembled: dict[str, Any], stage: str, result: dict[str, Any], sources: list[str]) -> None:
+    """Append one parsed Markdown result in Python; no model merges stage data."""
+    if stage == "itinerary":
+        assembled["days"].extend(result.get("days") or [])
+        assembled["routeSummary"] = result.get("routeSummary")
+        assembled["overview"] = result.get("overview")
+        assembled["stays"].extend(result.get("stays") or [])
+        assembled["places"].extend(result.get("places") or [])
+        if result.get("routeSummary"):
+            assembled["signals"].append({
+                "category": "route",
+                "title": "Route context",
+                "detail": result["routeSummary"],
+                "severity": "info",
+            })
+    assembled["preparation"].extend(result.get("preparation") or [])
+    assembled["signals"].extend(result.get("signals") or [])
+    assembled["sources"].extend(sources)
+
+
+def _merge_recommendation_items(
+    existing: list[Any],
+    addition: list[Any],
+) -> list[Any]:
+    """Merge repeated completion bullets into the existing named item."""
+    merged = [dict(item) for item in existing if isinstance(item, dict)]
+    for item in addition:
+        if not isinstance(item, dict):
+            continue
+        name = re.sub(r"\s+", " ", str(item.get("name") or "")).strip().casefold()
+        match = next(
+            (
+                current for current in merged
+                if name and re.sub(r"\s+", " ", str(current.get("name") or "")).strip().casefold() == name
+            ),
+            None,
+        )
+        if match is None:
+            merged.append(dict(item))
+            continue
+        for key, value in item.items():
+            if key == "sourceUrl":
+                url = _http_url(value)
+                if url:
+                    match[key] = url
+            elif not match.get(key) and value:
+                match[key] = value
+    return merged
+
+
+def _merge_stage_result(existing: dict[str, Any], addition: dict[str, Any]) -> dict[str, Any]:
+    """Merge a completion response in Python while preserving prior findings."""
+    merged = dict(existing)
+    for key in ("signals", "preparation", "stays", "places", "days"):
+        prior = existing.get(key) if isinstance(existing.get(key), list) else []
+        new = addition.get(key) if isinstance(addition.get(key), list) else []
+        if new:
+            merged[key] = (
+                _merge_recommendation_items(prior, new)
+                if key in {"stays", "places"}
+                else [*prior, *new]
+            )
+    for key in ("overview", "routeSummary"):
+        if addition.get(key):
+            merged[key] = addition[key]
+    return merged
+
+
+def _assemble_research_stages(
+    stage_results: dict[str, Any],
+    gap_results: list[Any],
+) -> dict[str, Any]:
+    """Build the combined research object deterministically from stage checkpoints."""
+    assembled = _empty_research_assembly()
+    for stage, _ in _RESEARCH_STAGE_PLAN:
+        checkpoint = stage_results.get(stage)
+        if not isinstance(checkpoint, dict):
+            continue
+        result = checkpoint.get("result")
+        if not isinstance(result, dict):
+            continue
+        sources = checkpoint.get("sources")
+        _append_stage_result(assembled, stage, result, sources if isinstance(sources, list) else [])
+    for checkpoint in gap_results:
+        if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("result"), dict):
+            continue
+        sources = checkpoint.get("sources")
+        _append_stage_result(assembled, "gap", checkpoint["result"], sources if isinstance(sources, list) else [])
+    return assembled
+
+
+_MAX_COMPLETION_RESEARCH_CALLS = 12
+
+
+async def _research_trip(record: dict[str, Any], job: dict[str, Any], persist) -> dict[str, Any]:
+    """Resume stages and ask the model for missing output before completing."""
+    stage_results = record.get("agent-pipeline-stage-results")
+    if not isinstance(stage_results, dict):
+        stage_results = {}
+    gap_results = record.get("agent-pipeline-gap-results")
+    if not isinstance(gap_results, list):
+        gap_results = []
+
+    for stage, display_stage in _RESEARCH_STAGE_PLAN:
+        if isinstance(stage_results.get(stage), dict):
+            continue
+        focus = _stage_focus(stage)
+        job["stage"] = display_stage
+        record["agent-pipeline-stage"] = display_stage
+        await persist()
+        existing_research = _assemble_research_stages(stage_results, gap_results)
         result, sources = await asyncio.to_thread(
             _run_grounded_stage,
             record,
-            "gap",
-            _stage_focus("gap", missing),
+            stage,
+            focus,
+            existing_research,
         )
-        combined["preparation"].extend(result.get("preparation") or [])
-        combined["signals"].extend(result.get("signals") or [])
-        combined["sources"].extend(sources)
+        stage_results[stage] = {"result": result, "sources": list(dict.fromkeys(sources))}
+        record["agent-pipeline-stage-results"] = stage_results
+        record["agent-pipeline-stage"] = display_stage
+        await persist()
+
+    for _ in range(_MAX_COMPLETION_RESEARCH_CALLS):
+        combined = _assemble_research_stages(stage_results, gap_results)
+        output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
+        categories = {_signal_category(item.get("category")) for item in output["signals"] if isinstance(item, dict)}
+        missing_categories = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
+        missing_requirements = _missing_output_requirements(output, missing_categories)
+        if not missing_requirements:
+            return output
+
+        if missing_categories:
+            next_stage = "gap"
+            next_focus = _gap_focus(missing_categories, missing_requirements)
+            display_stage = "gap review: " + ", ".join(missing_categories[:4])
+        elif any(
+            requirement in missing_requirements
+            for requirement in (
+                "itinerary days",
+                "places to stay",
+                "places to see",
+                "source links for places to stay",
+                "source links for places to see",
+            )
+        ):
+            next_stage = "itinerary"
+            next_focus = _itinerary_completion_focus(missing_requirements)
+            display_stage = "itinerary completion: " + ", ".join(missing_requirements[:3])
+        else:
+            next_stage = "gap"
+            next_focus = _gap_focus([], missing_requirements)
+            display_stage = "completion: " + ", ".join(missing_requirements[:3])
+
+        job["stage"] = display_stage
+        record["agent-pipeline-stage"] = display_stage
+        await persist()
+        result, sources = await asyncio.to_thread(
+            _run_grounded_stage,
+            record,
+            next_stage,
+            next_focus,
+            combined,
+        )
+        if next_stage == "gap":
+            gap_results.append({"result": result, "sources": list(dict.fromkeys(sources))})
+            record["agent-pipeline-gap-results"] = gap_results
+        else:
+            checkpoint = stage_results.get(next_stage)
+            prior_result = checkpoint.get("result") if isinstance(checkpoint, dict) and isinstance(checkpoint.get("result"), dict) else {}
+            prior_sources = checkpoint.get("sources") if isinstance(checkpoint, dict) and isinstance(checkpoint.get("sources"), list) else []
+            stage_results[next_stage] = {
+                "result": _merge_stage_result(prior_result, result),
+                "sources": list(dict.fromkeys([*prior_sources, *sources])),
+            }
+            record["agent-pipeline-stage-results"] = stage_results
+        await persist()
+
+    combined = _assemble_research_stages(stage_results, gap_results)
     output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
-    categories = {_signal_category(item.get("category")) for item in output["signals"] if isinstance(item, dict)}
-    missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-    missing_requirements = _missing_output_requirements(output, missing)
-    if missing_requirements:
-        raise ValueError("Travel-planning pipeline is missing required output: " + ", ".join(missing_requirements))
+    _logger.warning(
+        "Travel-planning completion calls exhausted with remaining requirements: %s",
+        ", ".join(_missing_output_requirements(
+            output,
+            sorted(_REQUIRED_SIGNAL_CATEGORIES - {
+                _signal_category(item.get("category"))
+                for item in output["signals"]
+                if isinstance(item, dict)
+            }),
+        )),
+    )
     return output
 
 
@@ -811,14 +1123,21 @@ async def _run_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str)
         if not isinstance(record, dict) or not record.get("destination"):
             raise KeyError(trip_id)
         record["agent-pipeline"] = "running"
-        record["agent-pipeline-stage"] = "starting"
-        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-        output = await _research_trip(record, job)
+        if not record.get("agent-pipeline-stage-results"):
+            record["agent-pipeline-stage"] = "starting"
+
+        async def persist() -> None:
+            await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+
+        await persist()
+        output = await _research_trip(record, job, persist)
         record["agent-pipeline-output"] = output
         record["agent-pipeline"] = "complete"
         record["agent-pipeline-stage"] = "complete"
         record["agent-pipeline-completed-at"] = datetime.now(UTC).isoformat()
-        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+        record.pop("agent-pipeline-stage-results", None)
+        record.pop("agent-pipeline-gap-results", None)
+        await persist()
         job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
     except Exception as error:
         _logger.exception("Travel-planning pipeline failed for trip %s", trip_id)
@@ -852,8 +1171,15 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str, force: bool
         return {key: value for key, value in {**current_job, "trip": _public_trip(record)}.items() if key != "task"}
 
     if force:
-        for key in ("agent-pipeline-output", "agent-pipeline-error", "agent-pipeline-completed-at"):
+        for key in (
+            "agent-pipeline-output",
+            "agent-pipeline-error",
+            "agent-pipeline-completed-at",
+            "agent-pipeline-stage-results",
+            "agent-pipeline-gap-results",
+        ):
             record.pop(key, None)
+        record["agent-pipeline-stage"] = "starting"
     run_id = uuid4().hex
     record["agent-pipeline"] = "queued"
     record["agent-pipeline-run-id"] = run_id

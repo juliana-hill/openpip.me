@@ -852,7 +852,7 @@ async def agent_trip_create(payload: dict[str, Any], token: str = Depends(get_go
 
 @app.post("/agent/trips/{trip_id}/pipeline")
 async def agent_trip_pipeline(trip_id: str, retry: bool = Query(False), token: str = Depends(get_google_token)):
-    """Queue a saved trip, optionally forcing a fresh travel-planning run."""
+    """Resume a saved trip pipeline, or start over when retry=true is explicit."""
     try:
         return await queue_trip_agent_pipeline(token, trip_id, force=retry)
     except KeyError as error:

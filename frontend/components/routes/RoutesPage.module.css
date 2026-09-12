@@ -247,6 +247,28 @@
   line-height: 1.45;
 }
 
+.sectionDescription > :first-child,
+.dayDescription > :first-child,
+.recommendationMarkdown > :first-child,
+.recommendationNote > :first-child {
+  margin-top: 0;
+}
+
+.sectionDescription > :last-child,
+.dayDescription > :last-child,
+.recommendationMarkdown > :last-child,
+.recommendationNote > :last-child {
+  margin-bottom: 0;
+}
+
+.sectionDescription a,
+.dayDescription a,
+.recommendationMarkdown a,
+.recommendationNote a {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
 .itineraryHeaderContent {
   min-width: 0;
 }
@@ -1168,6 +1190,26 @@
   margin-bottom: 0;
 }
 
+.recommendationMarkdown,
+.recommendationNote {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.recommendationMarkdown ul,
+.recommendationMarkdown ol,
+.recommendationNote ul,
+.recommendationNote ol {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.recommendationMarkdown li + li,
+.recommendationNote li + li {
+  margin-top: 3px;
+}
+
 .stayRecommendationRow {
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr) auto;
@@ -1319,11 +1361,26 @@
   color: var(--color-text-muted);
 }
 
-.dayBody > p {
+.dayDescription {
   margin: 9px 0 12px;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   line-height: 1.55;
+}
+
+.dayDescription p,
+.dayDescription ul,
+.dayDescription ol {
+  margin: 0 0 8px;
+}
+
+.dayDescription ul,
+.dayDescription ol {
+  padding-left: 20px;
+}
+
+.dayDescription li + li {
+  margin-top: 4px;
 }
 
 .dayMeta {

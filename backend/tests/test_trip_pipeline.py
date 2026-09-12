@@ -1,8 +1,9 @@
-import json
+import asyncio
 
 import openpip_backend.trip_pipeline as trip_pipeline
 from openpip_backend.trip_pipeline import (
-    _grounded_json,
+    _gap_focus,
+    _grounded_response,
     _has_recommendations,
     _missing_output_requirements,
     _normalize_output,
@@ -24,7 +25,8 @@ def _record() -> dict[str, object]:
 
 
 def test_prompt_files_render_the_production_stage_inputs() -> None:
-    template, normal_schema, itinerary_schema = _prompt_blocks("trip-research-template.md")
+    template, = _prompt_blocks("trip-research-template.md")
+    markdown_formats = _prompt_blocks("markdown-output-format.md")
 
     assert _stage_focus("conditions").startswith("weather, extreme heat")
     assert _stage_focus("health").startswith("vaccination and entry")
@@ -37,18 +39,134 @@ def test_prompt_files_render_the_production_stage_inputs() -> None:
     assert "Dates: 2026-09-30 to 2026-10-07" in itinerary_prompt
     assert "Activities: city, hiking" in itinerary_prompt
     assert "Pace: Balanced" in itinerary_prompt
-    assert f"Use this exact output shape: {itinerary_schema}" in itinerary_prompt
-    assert normal_schema not in itinerary_prompt
+    assert "Return a grounded Markdown itinerary report only." in itinerary_prompt
+    assert markdown_formats[1] in itinerary_prompt
+    assert "This is the itinerary stage." in itinerary_prompt
+    assert "do not repeat the full conditions" in itinerary_prompt
+    assert "Return JSON" not in itinerary_prompt
+    assert "Use this exact output shape" not in itinerary_prompt
+
+    conditions_prompt = _trip_prompt(_record(), _stage_focus("conditions"), "conditions")
+    assert "Return a grounded Markdown research report only." in conditions_prompt
+    assert "Where to stay" not in conditions_prompt
+    assert "What to see" not in conditions_prompt
+    assert "Return a grounded Markdown itinerary report only." not in conditions_prompt
+    assert "Return JSON" not in conditions_prompt
+
+    health_prompt = _trip_prompt(_record(), _stage_focus("health"), "health")
+    assert "Where to stay" not in health_prompt
+    assert "What to see" not in health_prompt
+    assert "Return a grounded Markdown itinerary report only." not in health_prompt
 
 
-def test_grounded_parser_extracts_json_embedded_in_grounding_prose() -> None:
-    raw = 'Grounded result:\n{"overview":"Tokyo","signals":[],"preparation":[]}\nSources follow.'
+def test_later_stage_prompt_receives_python_assembled_context() -> None:
+    existing = {
+        "signals": [{"category": "weather", "title": "Weather", "detail": "Rain likely.", "severity": "info"}],
+        "preparation": [{"title": "Rain shell", "detail": "Pack waterproof clothing."}],
+        "sources": [{"url": "https://weather.example/tokyo"}],
+    }
+
+    prompt = _trip_prompt(_record(), _stage_focus("health"), "health", existing)
+
+    assert "Already found research:" in prompt
+    assert "[weather (info)] Weather: Rain likely." in prompt
+    assert "- Rain shell: Pack waterproof clothing." in prompt
+    assert "https://weather.example/tokyo" in prompt
+    assert "Required signal categories still missing" in prompt
+    assert "altitude" in prompt
+    assert "investigate only information that is missing" in prompt
+
+
+def test_gap_completion_is_another_llm_call_not_a_validation_error(monkeypatch) -> None:
+    missing = {"altitude", "fire", "uv"}
+    present = [
+        {"category": category, "title": category, "detail": "Checked", "severity": "info"}
+        for category in trip_pipeline._REQUIRED_SIGNAL_CATEGORIES - missing
+    ]
+    record = {
+        **_record(),
+        "agent-pipeline-stage-results": {
+            "conditions": {"result": {"signals": present, "preparation": [{"title": "Layers", "detail": "Pack layers."}]}, "sources": ["https://weather.example"]},
+            "health": {"result": {"signals": [], "preparation": []}, "sources": []},
+            "itinerary": {
+                "result": {
+                    "overview": "Tokyo",
+                    "routeSummary": "Use rail.",
+                    "days": [{"date": "2026-09-30", "title": "City", "detail": "Explore.", "route": "Rail", "conditions": "Mild."}],
+                    "stays": [{"name": "Central hotel"}],
+                    "places": [{"name": "Mount Takao"}],
+                },
+                "sources": ["https://guide.example/tokyo"],
+            },
+        },
+    }
+    gap_calls: list[tuple[str, dict[str, object]]] = []
+    itinerary_calls: list[tuple[str, dict[str, object]]] = []
+
+    def fake_stage(_record, stage, focus, existing_research=None):
+        if stage == "itinerary":
+            itinerary_calls.append((focus, existing_research or {}))
+            return {
+                "stays": [{"name": "Central hotel", "sourceUrl": "https://stay.example/tokyo"}],
+                "places": [{"name": "Mount Takao", "sourceUrl": "https://trail.example/takao"}],
+            }, []
+        assert stage == "gap"
+        gap_calls.append((focus, existing_research or {}))
+        category = sorted(missing)[len(gap_calls) - 1]
+        return {"signals": [{"category": category, "title": category, "detail": "Checked", "severity": "info"}]}, [f"https://{category}.example"]
+
+    monkeypatch.setattr(trip_pipeline, "_run_grounded_stage", fake_stage)
+
+    async def persist() -> None:
+        return None
+
+    output = asyncio.run(trip_pipeline._research_trip(record, {}, persist))
+
+    categories = {signal["category"] for signal in output["signals"]}
+    assert missing <= categories
+    assert len(gap_calls) == 3
+    assert len(itinerary_calls) == 1
+    assert "## Altitude" in gap_calls[0][0]
+    existing_categories = {signal["category"] for signal in gap_calls[0][1]["signals"]}
+    assert {signal["category"] for signal in present} <= existing_categories
+
+
+def test_grounded_parser_extracts_markdown_without_json_repair() -> None:
+    raw = "Grounded result:\n\n## Overview\nTokyo\n\n## Weather\nMild conditions.\n"
 
     assert _parse_grounded_text(raw, "conditions") == {
         "overview": "Tokyo",
-        "signals": [],
+        "signals": [{
+            "category": "weather",
+            "title": "Weather",
+            "detail": "Mild conditions.",
+            "severity": "info",
+        }],
         "preparation": [],
     }
+
+
+def test_markdown_heading_can_supply_multiple_signal_categories() -> None:
+    parsed = _parse_grounded_text(
+        "## Fire & Volcanic Activity\nMonitor official alerts.\n\n## Health and Disease\nReview travel guidance.",
+        "conditions",
+    )
+
+    assert [signal["category"] for signal in parsed["signals"]] == [
+        "volcanic_activity",
+        "fire",
+        "disease",
+        "health",
+    ]
+
+
+def test_preparation_bullets_can_supply_missing_signal_categories() -> None:
+    parsed = _parse_grounded_text(
+        "## Preparation\n- **UV:** Use sun protection.\n- **Altitude:** Acclimatize gradually.\n- **Wildfire risk:** Check closures.",
+        "conditions",
+    )
+
+    assert {signal["category"] for signal in parsed["signals"]} == {"uv", "altitude", "fire"}
 
 
 def test_grounded_parser_extracts_markdown_signals_preparation_and_urls() -> None:
@@ -134,6 +252,107 @@ def test_markdown_recommendations_keep_items_without_urls() -> None:
     }]
 
 
+def test_markdown_recommendations_keep_source_url_on_the_same_item() -> None:
+    parsed = _parse_grounded_text(
+        """
+        ## Where to stay
+        - **Central hotel:** Near transit. Source: https://stay.example/tokyo
+
+        ## What to see
+        - **Mount Takao:** A marked trail. Source: https://trail.example/takao
+        """,
+        "itinerary",
+    )
+
+    assert parsed["stays"][0]["name"] == "Central hotel"
+    assert parsed["stays"][0]["sourceUrl"] == "https://stay.example/tokyo"
+    assert parsed["places"][0]["name"] == "Mount Takao"
+    assert parsed["places"][0]["sourceUrl"] == "https://trail.example/takao"
+
+
+def test_grounded_response_keeps_interleaved_citation_urls_with_recommendations(monkeypatch) -> None:
+    class FakeBedrock:
+        def converse(self, **_kwargs):
+            return {
+                "output": {
+                    "message": {
+                        "content": [
+                            {"text": "## Where to stay\n- **Central hotel:** Near transit."},
+                            {"citationsContent": {"citations": [{"location": {"web": {"url": "https://stay.example/tokyo"}}}]}},
+                            {"text": "\n## What to see\n- **Mount Takao:** A marked trail."},
+                            {"citationsContent": {"citations": [{"location": {"web": {"url": "https://trail.example/takao"}}}]}},
+                        ]
+                    }
+                }
+            }
+
+    monkeypatch.setattr(trip_pipeline.boto3, "client", lambda *_args, **_kwargs: FakeBedrock())
+
+    text, sources = _grounded_response("Find itinerary recommendations")
+    parsed = _parse_grounded_text(text, "itinerary")
+
+    assert sources == ["https://stay.example/tokyo", "https://trail.example/takao"]
+    assert parsed["stays"][0]["sourceUrl"] == "https://stay.example/tokyo"
+    assert parsed["places"][0]["sourceUrl"] == "https://trail.example/takao"
+
+
+def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
+    all_categories = [
+        {"category": category, "title": category, "detail": "Checked", "severity": "info"}
+        for category in trip_pipeline._REQUIRED_SIGNAL_CATEGORIES
+    ]
+    record = {
+        **_record(),
+        "agent-pipeline-stage-results": {
+            "conditions": {
+                "result": {"signals": all_categories, "preparation": [{"title": "Layers", "detail": "Pack layers."}]},
+                "sources": ["https://weather.example/tokyo"],
+            },
+        },
+    }
+    called: list[str] = []
+    contexts: dict[str, dict[str, object]] = {}
+
+    def fake_stage(_record, stage, _focus, _existing_research=None):
+        called.append(stage)
+        contexts[stage] = _existing_research or {}
+        if stage == "health":
+            return {"preparation": [{"title": "Health kit", "detail": "Pack essentials."}]}, []
+        return {
+            "overview": "Tokyo",
+            "routeSummary": "Transit to each researched area.",
+            "days": [{"date": "2026-09-30", "title": "City day", "detail": "Explore.", "route": "Train", "conditions": "Mild."}],
+            "stays": [{"name": "Central hotel", "sourceUrl": "https://stay.example/tokyo"}],
+            "places": [{"name": "Mount Takao", "sourceUrl": "https://trail.example/takao"}],
+        }, ["https://guide.example/tokyo"]
+
+    monkeypatch.setattr(trip_pipeline, "_run_grounded_stage", fake_stage)
+    persisted: list[str] = []
+
+    async def persist() -> None:
+        persisted.append(str(record.get("agent-pipeline-stage")))
+
+    output = asyncio.run(trip_pipeline._research_trip(record, {}, persist))
+
+    assert called == ["health", "itinerary"]
+    assert contexts["health"]["signals"] == all_categories
+    assert contexts["itinerary"]["preparation"] == [
+        {"title": "Layers", "detail": "Pack layers."},
+        {"title": "Health kit", "detail": "Pack essentials."},
+    ]
+    assert output["stays"] == [{
+        "name": "Central hotel",
+        "area": "Area requires confirmation",
+        "type": "other",
+        "detail": "Verify this lodging option before relying on it.",
+        "safety": "Review current neighborhood and access conditions.",
+        "sourceUrl": "https://stay.example/tokyo",
+    }]
+    assert output["places"][0]["name"] == "Mount Takao"
+    assert output["places"][0]["sourceUrl"] == "https://trail.example/takao"
+    assert persisted[0] == "health and hazards"
+
+
 def test_recommendations_require_both_categories_but_not_source_links() -> None:
     assert not _has_recommendations({"stays": [{"name": "Stay"}]})
     assert not _has_recommendations({
@@ -160,34 +379,37 @@ def test_missing_output_requirements_reports_missing_sections() -> None:
     ]
 
 
-def test_grounded_json_parses_raw_response_without_repair_call(monkeypatch) -> None:
-    calls: list[dict[str, object]] = []
+def test_missing_output_requirements_reports_missing_recommendation_links() -> None:
+    missing = _missing_output_requirements(
+        {
+            "stays": [{"name": "Central hotel", "sourceUrl": None}],
+            "places": [{"name": "Mount Takao", "sourceUrl": "https://trail.example/takao"}],
+        },
+        [],
+    )
 
-    class FakeClient:
-        def converse(self, **kwargs):
-            calls.append(kwargs)
-            return {
-                "output": {"message": {"content": [{
-                    "text": "Grounded text: {\"overview\":\"Tokyo\",\"signals\":[],\"preparation\":[]}",
-                    "citationsContent": {"citations": [{"location": {"web": {"url": "https://source.example"}}}]},
-                }]}},
-            }
+    assert "source links for places to stay" in missing
+    assert "source links for places to see" not in missing
 
-    monkeypatch.setattr(trip_pipeline.boto3, "client", lambda *_, **__: FakeClient())
 
-    parsed, sources = _grounded_json("research")
+def test_recommendation_completion_merges_source_url_into_existing_item() -> None:
+    merged = trip_pipeline._merge_stage_result(
+        {"stays": [{"name": "Central hotel", "detail": "Near transit.", "sourceUrl": None}]},
+        {"stays": [{"name": "Central hotel", "sourceUrl": "https://stay.example/tokyo"}]},
+    )
 
-    assert parsed["overview"] == "Tokyo"
-    assert sources == ["https://source.example"]
-    assert len(calls) == 1
-    assert "toolConfig" in calls[0]
+    assert merged["stays"] == [{
+        "name": "Central hotel",
+        "detail": "Near transit.",
+        "sourceUrl": "https://stay.example/tokyo",
+    }]
 
 
 def test_strands_stage_receives_the_file_backed_prompt_as_system_prompt(monkeypatch) -> None:
     import strands
 
     captured: dict[str, object] = {}
-    raw = json.dumps({"overview": "Tokyo", "signals": [], "preparation": []})
+    raw = "## Overview\nTokyo\n"
 
     class FakeAgent:
         def __init__(self, **kwargs):

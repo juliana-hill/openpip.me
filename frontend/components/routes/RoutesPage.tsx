@@ -32,6 +32,8 @@ import { Input } from "@/components/ui/input";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
 import { useAgentIdentity } from "@/lib/agentIdentity";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { InsightGatheringStatus } from "@/components/dashboard/StudyMeCard";
 import inboxStyles from "@/components/inbox/inbox/InboxTab.module.css";
 import inboxHeaderStyles from "@/components/inbox/inbox/InboxHeader.module.css";
@@ -44,8 +46,8 @@ type Phase = "past" | "current" | "upcoming";
 type AgentPipelineOutput = {
   overview?: string | Record<string, unknown>;
   routeSummary?: string | Record<string, unknown>;
-  stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string; sourceUrl?: string }>;
-  places?: Array<{ name?: string; type?: string; detail?: string; route?: string; sourceUrl?: string }>;
+  stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string; sourceUrl?: string | null }>;
+  places?: Array<{ name?: string; type?: string; detail?: string; route?: string; sourceUrl?: string | null }>;
   days?: Array<{ day?: number; date?: string | null; title?: string; detail?: string; route?: string; conditions?: string }>;
   preparation?: Array<{ title?: string; detail?: string }>;
   signals?: Array<{ category?: string; title?: string; detail?: string; severity?: string }>;
@@ -255,7 +257,7 @@ function PriorityAction({ icon: Icon, tone, title, detail }: { icon: typeof Sun;
 }
 
 function ItineraryDay({ date, title, detail, icon: Icon }: { date: string; title: string; detail: string; icon: typeof Plane }) {
-  return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={date}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
+  return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={date}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{itineraryDayTitle(title)}</h3></div></div><AgentMarkdown className={styles.dayDescription} value={detail} /><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
 }
 
 function placeIconForType(type?: string): typeof MapPin {
@@ -301,6 +303,21 @@ function readableAgentText(value: unknown, fallback = ""): string {
   return fallback;
 }
 
+function itineraryDayTitle(value?: string): string {
+  const title = value?.trim() || "Plan this day";
+  const withoutDate = title.replace(
+    /^(?:day\s+\d+\b|\d{4}-\d{2}-\d{2}\b|(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}(?:,\s*\d{4})?)\s*(?:[—–-]|:\s*)?\s*/i,
+    "",
+  ).trim();
+  return withoutDate || title;
+}
+
+function AgentMarkdown({ value, className }: { value: unknown; className?: string }) {
+  const text = readableAgentText(value);
+  if (!text) return null;
+  return <Markdown className={className} remarkPlugins={[remarkGfm]}>{text}</Markdown>;
+}
+
 function draftFromTrip(trip: TripRecord): PlanDraft {
   const knownActivities = activities.map(({ value }) => value).filter((value) => trip.activities?.includes(value));
   return { id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced", agentOutput: trip["agent-pipeline-output"] };
@@ -311,8 +328,8 @@ function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
   const places = output.places || [];
   if (stays.length === 0 && places.length === 0) return null;
   return <div className={styles.recommendationGrid}>
-    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={`${styles.recommendationRow} ${styles.stayRecommendationRow}`} key={`${stay.name}-${index}`}><div className={styles.stayTile}><Building2 size={22} aria-hidden="true" /><span>{placeTypeLabel(stay.type)}</span></div><div className={styles.stayRecommendationContent}><strong>{stay.name || "Stay option"}</strong><span>{stay.area || "Area to confirm"}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}</div>{stay.sourceUrl && <a className={styles.recommendationSourceLink} href={stay.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div>)}</CardContent></Card>}
-    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={`${styles.recommendationRow} ${styles.placeRecommendationRow}`} key={`${place.name}-${index}`}><span className={styles.placeRecommendationIcon}><PlaceIcon size={26} aria-hidden="true" /></span><div className={styles.placeRecommendationContent}><div className={styles.placeRecommendationTitle}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}>{placeTypeLabel(place.type)}</span></div><p>{place.detail}</p>{place.route && <small>{place.route}</small>}{place.sourceUrl && <a className={styles.recommendationSourceLink} href={place.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div></div>; })}</CardContent></Card>}
+    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={`${styles.recommendationRow} ${styles.stayRecommendationRow}`} key={`${stay.name}-${index}`}><div className={styles.stayTile}><Building2 size={22} aria-hidden="true" /><span>{placeTypeLabel(stay.type)}</span></div><div className={styles.stayRecommendationContent}><strong>{stay.name || "Stay option"}</strong><span>{stay.area || "Area to confirm"}</span><AgentMarkdown className={styles.recommendationMarkdown} value={stay.detail} />{stay.safety && <AgentMarkdown className={styles.recommendationNote} value={stay.safety} />}</div>{stay.sourceUrl && <a className={styles.recommendationSourceLink} href={stay.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div>)}</CardContent></Card>}
+    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={`${styles.recommendationRow} ${styles.placeRecommendationRow}`} key={`${place.name}-${index}`}><span className={styles.placeRecommendationIcon}><PlaceIcon size={26} aria-hidden="true" /></span><div className={styles.placeRecommendationContent}><div className={styles.placeRecommendationTitle}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}>{placeTypeLabel(place.type)}</span></div><AgentMarkdown className={styles.recommendationMarkdown} value={place.detail} />{place.route && <AgentMarkdown className={styles.recommendationNote} value={place.route} />}{place.sourceUrl && <a className={styles.recommendationSourceLink} href={place.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div></div>; })}</CardContent></Card>}
   </div>;
 }
 
@@ -349,7 +366,7 @@ function Workspace({ draft, saved, onBack, onRetry }: { draft: PlanDraft; saved:
     <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{overview ? "Agent research is ready." : "Research is being assembled."}</strong><p>{overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p>{output && <ResearchSources output={output} />}</div></div>
     <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div></div>{preparation.length > 0 ? <div className={styles.priorityGrid}>{preparation.slice(0, 3).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Research-based guidance for this trip."} />)}</div> : <p className={styles.prepEmpty}>The agent did not return preparation details for this plan.</p>}</section>
     {output && <ResearchRecommendations output={output} />}
-    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><Collapsible><CardHeader className={styles.sectionHeader}><div className={styles.itineraryHeaderContent}><p className={styles.eyebrow}>Outline</p><CollapsibleTrigger className={styles.itinerarySummaryTrigger} aria-controls="itinerary-route-summary"><span className={styles.itineraryTitle}>A flexible itinerary</span><ChevronDown size={16} className={styles.itinerarySummaryIcon} /></CollapsibleTrigger><CollapsibleContent id="itinerary-route-summary" className={styles.itinerarySummaryContent}><CardDescription className={styles.sectionDescription}>{routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></CollapsibleContent></div><Badge className={styles.durationBadge} variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || "Plan this day"} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Collapsible></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>What you’ll need</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <p className={styles.prepEmpty}>The agent did not return preparation details for this plan.</p>}</div></CardContent></Card></aside></div>
+    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><Collapsible><CardHeader className={styles.sectionHeader}><div className={styles.itineraryHeaderContent}><p className={styles.eyebrow}>Outline</p><CollapsibleTrigger className={styles.itinerarySummaryTrigger} aria-controls="itinerary-route-summary"><span className={styles.itineraryTitle}>A flexible itinerary</span><ChevronDown size={16} className={styles.itinerarySummaryIcon} /></CollapsibleTrigger><CollapsibleContent id="itinerary-route-summary" className={styles.itinerarySummaryContent}><AgentMarkdown className={styles.sectionDescription} value={routeSummary || "Shape first, then add verified places and route legs."} /></CollapsibleContent></div><Badge className={styles.durationBadge} variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || "Plan this day"} detail={[day.detail, day.conditions, day.route].filter(Boolean).join("\n\n")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Collapsible></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>What you’ll need</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <p className={styles.prepEmpty}>The agent did not return preparation details for this plan.</p>}</div></CardContent></Card></aside></div>
   </div>;
 }
 
@@ -393,7 +410,7 @@ function PlanBuildScreen({ draft, agentName, stage, error, onRetry, onBack }: { 
             </div>;
           })}
         </div>}
-        {failed && onRetry && <Button variant="secondary" onClick={onRetry}>Retry research</Button>}
+        {failed && onRetry && <Button variant="secondary" onClick={onRetry}>Continue research</Button>}
         {failed && <button className={styles.backButton} type="button" onClick={onBack}>Back to trips</button>}
       </CardContent>
     </Card>
@@ -625,7 +642,7 @@ export function RoutesPage({ userName, userImage }: Props) {
       ? <TripPageLoader />
       : draft
         ? planBuilding || planBuildError
-          ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={showOverview} />
+          ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={() => retryPlanBuild(false)} onBack={showOverview} />
           : <Workspace draft={draft} saved={saved} onBack={showOverview} onRetry={() => retryPlanBuild(true)} />
         : <Overview {...overviewProps} />;
   return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{pageContent}</PageShell><FloatingAssistant /></>;

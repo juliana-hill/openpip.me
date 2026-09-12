@@ -15,7 +15,8 @@ The deterministic pipeline builds each Nova Grounding request from
 2. `stage-02-health-and-hazards.md`
 3. `stage-03-itinerary.md`
 
-If the assembled result is missing required signal categories, it makes up to
-four bounded gap-review calls using `gap-review.md` as the focus. The template
-contains two output schemas: the normal conditions/health shape and the richer
-itinerary shape selected when the focus begins with `a practical`.
+Each later stage receives the Python-assembled research from earlier stages and
+is told to investigate only missing or incomplete information. If required
+sections are still missing, the backend issues targeted Markdown completion
+calls; Python merges those responses into the saved aggregate. Nova is never
+asked to return or merge JSON.
