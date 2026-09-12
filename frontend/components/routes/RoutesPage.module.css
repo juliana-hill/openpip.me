@@ -184,6 +184,60 @@
   line-height: 1.45;
 }
 
+.itineraryHeaderContent {
+  min-width: 0;
+}
+
+.itinerarySummaryTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.itineraryTitle {
+  color: var(--color-text);
+  font-size: var(--font-size-base);
+  font-weight: 700;
+}
+
+.itinerarySummaryIcon {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  transition: transform 150ms ease;
+}
+
+.itinerarySummaryTrigger[aria-expanded="true"] .itinerarySummaryIcon {
+  transform: rotate(180deg);
+}
+
+.itinerarySummaryTrigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.itinerarySummaryContent {
+  margin-top: 5px;
+}
+
+.itinerarySummaryContent :global(.cardDescription) {
+  margin-top: 0;
+}
+
+.durationBadge {
+  width: fit-content;
+  max-width: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .sideStack,
 .workspaceRail {
   display: flex;
@@ -795,6 +849,51 @@
   line-height: 1.45;
 }
 
+.researchSources {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.researchSourcesTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.researchSourcesTrigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.researchSourcesIcon {
+  flex: 0 0 auto;
+  transition: transform 150ms ease;
+}
+
+.researchSourcesTrigger[aria-expanded="true"] .researchSourcesIcon {
+  transform: rotate(180deg);
+}
+
+.researchSourcesContent {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.researchSources .sourceLink {
+  margin: 8px 14px 0 0;
+}
+
 .sectionHeading {
   display: flex;
   align-items: flex-end;
@@ -817,7 +916,7 @@
 
 .recommendationGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 24px;
 }
 
@@ -1017,16 +1116,31 @@
 .checklist {
   display: flex;
   flex-direction: column;
-  gap: 13px;
+  gap: 0;
 }
 
 .checklist label {
-  display: flex;
+  display: grid;
+  grid-template-columns: 17px minmax(0, 1fr);
   align-items: flex-start;
-  gap: 9px;
+  column-gap: 9px;
+  padding: 14px 0;
   color: var(--color-text);
   font-size: var(--font-size-sm);
   line-height: 1.4;
+}
+
+.checklist label + label {
+  border-top: 1px solid var(--color-border);
+}
+
+.checklist label > small {
+  grid-column: 2;
+  display: block;
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
 }
 
 .checklist input {

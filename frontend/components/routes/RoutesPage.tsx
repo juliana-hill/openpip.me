@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowRight,
   CalendarDays,
   Check,
   ChevronLeft,
+  ChevronDown,
   CircleHelp,
   Clock3,
   Compass,
@@ -25,6 +26,7 @@ import { AppHeader } from "@/components/app-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
 import { proxyFetch } from "@/lib/proxy";
@@ -109,6 +111,23 @@ function formatRange(start?: string | null, end?: string | null): string {
 
 function initialsFor(name: string): string {
   return name.split(" ").map((part) => part[0]).join("").toUpperCase().slice(0, 2);
+}
+
+function tripIdFromPath(): string | null {
+  const match = window.location.pathname.match(/^\/trips\/([^/]+)$/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function setTripPath(tripId?: string, replace = false): void {
+  const nextPath = tripId ? `/trips/${encodeURIComponent(tripId)}` : "/trips";
+  if (window.location.pathname === nextPath) return;
+  if (replace) window.history.replaceState({}, "", nextPath);
+  else window.history.pushState({}, "", nextPath);
 }
 
 function TripCard({ trip, onOpen }: { trip: TripRecord; onOpen: (trip: TripRecord) => void }) {
@@ -237,7 +256,7 @@ function PriorityAction({ icon: Icon, tone, title, detail }: { icon: typeof Sun;
 }
 
 function ItineraryDay({ day, date, title, detail, icon: Icon }: { day: string; date: string; title: string; detail: string; icon: typeof Plane }) {
-  return <div className={styles.dayRow}><div className={styles.dayRail}><span>{day}</span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div><Icon size={18} className={styles.dayIcon} /></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
+  return <div className={styles.dayRow}><div className={styles.dayRail}><span aria-label={`Day ${day}`}><Icon size={17} aria-hidden="true" /></span><i /></div><div className={styles.dayBody}><div className={styles.dayHeading}><div><span className={styles.dayDate}>{date}</span><h3>{title}</h3></div></div><p>{detail}</p><div className={styles.dayMeta}><span><Clock3 size={14} /> Flexible timing</span><span><MapPin size={14} /> Route details after research</span></div></div></div>;
 }
 
 function draftFromTrip(trip: TripRecord): PlanDraft {
@@ -255,6 +274,15 @@ function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
   </div>;
 }
 
+function ResearchSources({ output }: { output: AgentPipelineOutput }) {
+  const sources = output.sources || [];
+  if (!sources.length) return <div className={styles.researchSources}><p>Nova will show the sources behind current conditions and preparation advice.</p><span className={styles.sourceStatus}><span className={styles.statusDot} /> Sources will appear here</span></div>;
+  return <Collapsible className={styles.researchSources}>
+    <CollapsibleTrigger className={styles.researchSourcesTrigger} aria-controls="research-sources-list"><span>{sources.length} sources attached to this plan.</span><ChevronDown size={16} className={styles.researchSourcesIcon} /></CollapsibleTrigger>
+    <CollapsibleContent id="research-sources-list" className={styles.researchSourcesContent}>{sources.map((source, index) => source.url ? <a key={`${source.url}-${index}`} className={styles.sourceLink} href={source.url} target="_blank" rel="noopener noreferrer">Source {index + 1} <ExternalLink size={12} /></a> : null)}</CollapsibleContent>
+  </Collapsible>;
+}
+
 function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean; onBack: () => void }) {
   const activityLabel = draft.activities.length > 0 ? draft.activities.join(", ") : "a flexible mix of activities";
   const firstDate = formatDate(draft.startDate);
@@ -267,10 +295,10 @@ function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean;
   return <div className={styles.pageStack}>
     <button className={styles.backButton} type="button" onClick={onBack}><ChevronLeft size={16} /> All trips</button>
     <section className={styles.workspaceHeader}><div><p className={styles.eyebrow}>{saved ? "Saved plan" : "Planning draft"}</p><h1>{draft.destination}</h1><div className={styles.workspaceMeta}><span><CalendarDays size={15} /> {draft.startDate || draft.endDate ? `${firstDate} – ${lastDate}` : "Dates to be decided"}</span><span><Compass size={15} /> {activityLabel}</span><Badge variant="muted">{draft.pace} pace</Badge></div></div><Button variant="secondary" onClick={onBack}><Plus size={16} /> New plan</Button></section>
-    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{output?.overview ? "Agent research is source-linked." : "Research stays source-linked."}</strong><p>{output?.overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p></div><Button variant="ghost" size="sm" disabled>Research current conditions</Button></div>
-    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div><Badge variant={output ? "success" : "warning"}>{output ? "Ready" : "Draft"}</Badge></div><div className={styles.priorityGrid}>{(preparation.length > 0 ? preparation.slice(0, 3) : [{ title: "Confirm elevation", detail: "Sleeping altitude will determine acclimatization guidance." }, { title: "Check the exposure", detail: "Weather and UV windows should shape each outdoor day." }, { title: "Build the gear list", detail: `Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.` }]).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Verify before departure."} />)}</div></section>
+    <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{output?.overview ? "Agent research is source-linked." : "Research stays source-linked."}</strong><p>{output?.overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p>{output && <ResearchSources output={output} />}</div><Button variant="ghost" size="sm" disabled>Research current conditions</Button></div>
+    <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div></div><div className={styles.priorityGrid}>{(preparation.length > 0 ? preparation.slice(0, 3) : [{ title: "Confirm elevation", detail: "Sleeping altitude will determine acclimatization guidance." }, { title: "Check the exposure", detail: "Weather and UV windows should shape each outdoor day." }, { title: "Build the gear list", detail: `Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.` }]).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Verify before departure."} />)}</div></section>
     {output && <ResearchRecommendations output={output} />}
-    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Outline</p><CardTitle>A flexible itinerary</CardTitle><CardDescription className={styles.sectionDescription}>{output?.routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></div><Badge variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} day={String(day.day || index + 1).padStart(2, "0")} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || `Day ${index + 1}`} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></>}</div></CardContent></Card><Card className={styles.sourceCard}><CardContent className={styles.sourceContent}><div className={styles.sourceCardTitle}><Sparkles size={16} /> Grounded research</div><p>{output?.sources?.length ? `${output.sources.length} source${output.sources.length === 1 ? "" : "s"} attached to this plan.` : "Nova will show the sources behind current conditions and preparation advice."}</p>{output?.sources?.slice(0, 5).map((source, index) => source.url ? <a key={`${source.url}-${index}`} className={styles.sourceLink} href={source.url} target="_blank" rel="noopener noreferrer">Source {index + 1} <ExternalLink size={12} /></a> : null)}{!output?.sources?.length && <span className={styles.sourceStatus}><span className={styles.statusDot} /> Sources will appear here</span>}</CardContent></Card></aside></div>
+    <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><Collapsible><CardHeader className={styles.sectionHeader}><div className={styles.itineraryHeaderContent}><p className={styles.eyebrow}>Outline</p><CollapsibleTrigger className={styles.itinerarySummaryTrigger} aria-controls="itinerary-route-summary"><span className={styles.itineraryTitle}>A flexible itinerary</span><ChevronDown size={16} className={styles.itinerarySummaryIcon} /></CollapsibleTrigger><CollapsibleContent id="itinerary-route-summary" className={styles.itinerarySummaryContent}><CardDescription className={styles.sectionDescription}>{output?.routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></CollapsibleContent></div><Badge className={styles.durationBadge} variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} day={String(day.day || index + 1).padStart(2, "0")} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || `Day ${index + 1}`} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Collapsible></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></>}</div></CardContent></Card></aside></div>
   </div>;
 }
 
@@ -301,7 +329,8 @@ type Props = Readonly<{ userName: string; userImage: string }>;
 
 export function RoutesPage({ userName, userImage }: Props) {
   const { name: agentName } = useAgentIdentity();
-  const [view, setView] = useState<View>("overview");
+  const [routeTripId, setRouteTripId] = useState<string | null>(() => tripIdFromPath());
+  const [view, setView] = useState<View>(() => routeTripId ? "plan" : "overview");
   const [draft, setDraft] = useState<PlanDraft | null>(null);
   const [saved, setSaved] = useState(false);
   const [planBuilding, setPlanBuilding] = useState(false);
@@ -313,6 +342,7 @@ export function RoutesPage({ userName, userImage }: Props) {
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [studyMeStatus, setStudyMeStatus] = useState<InsightGatheringStatus | null>(null);
   const [studyMeStatusLoading, setStudyMeStatusLoading] = useState(true);
+  const openingTripId = useRef<string | null>(null);
   const initials = useMemo(() => initialsFor(userName), [userName]);
 
   useEffect(() => {
@@ -384,6 +414,9 @@ export function RoutesPage({ userName, userImage }: Props) {
       if (!response.ok) throw new Error("The trip could not be saved. Try again.");
       const payload = await response.json() as { trip?: TripRecord };
       if (!payload.trip) throw new Error("The trip was saved without a usable trip record.");
+      openingTripId.current = payload.trip.id;
+      setTripPath(payload.trip.id);
+      setRouteTripId(payload.trip.id);
       setDraft(draftFromTrip(payload.trip));
       setSaved(true);
       if (await processTripPipeline(payload.trip)) await loadTrips();
@@ -395,6 +428,9 @@ export function RoutesPage({ userName, userImage }: Props) {
   }
 
   async function openTrip(trip: TripRecord) {
+    openingTripId.current = trip.id;
+    setTripPath(trip.id);
+    setRouteTripId(trip.id);
     setDraft(draftFromTrip(trip));
     setSaved(true);
     setPlanBuildError(null);
@@ -406,6 +442,51 @@ export function RoutesPage({ userName, userImage }: Props) {
     setPlanBuilding(true);
     setPlanBuildStage(trip["agent-pipeline-stage"] || "starting");
     await processTripPipeline(trip);
+  }
+
+  useEffect(() => {
+    if (loading || !routeTripId || draft?.id === routeTripId || openingTripId.current === routeTripId) return;
+    const trip = collection.trips.find((candidate) => candidate.id === routeTripId);
+    if (!trip) {
+      setTripPath(undefined, true);
+      setRouteTripId(null);
+      setView("overview");
+      return;
+    }
+    void openTrip(trip);
+  }, [collection, draft?.id, loading, routeTripId]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextTripId = tripIdFromPath();
+      openingTripId.current = null;
+      setRouteTripId(nextTripId);
+      if (!nextTripId) {
+        setDraft(null);
+        setSaved(false);
+        setPlanBuilding(false);
+        setPlanBuildError(null);
+        setPlanBuildStage(undefined);
+        setView("overview");
+        return;
+      }
+      const trip = collection.trips.find((candidate) => candidate.id === nextTripId);
+      if (trip) void openTrip(trip);
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [collection]);
+
+  function showOverview() {
+    openingTripId.current = null;
+    setTripPath();
+    setRouteTripId(null);
+    setDraft(null);
+    setSaved(false);
+    setPlanBuilding(false);
+    setPlanBuildError(null);
+    setPlanBuildStage(undefined);
+    setView("overview");
   }
 
   async function processTripPipeline(trip: TripRecord): Promise<boolean> {
@@ -453,5 +534,5 @@ export function RoutesPage({ userName, userImage }: Props) {
   }
 
   const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding || planBuildError ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={() => { setPlanBuilding(false); setPlanBuildError(null); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding || planBuildError ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={showOverview} /> : <Workspace draft={draft} saved={saved} onBack={showOverview} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
 }
