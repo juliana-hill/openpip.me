@@ -103,6 +103,7 @@ Altitude also increases cold, low-humidity, and UV exposure. A high-altitude war
 - dates or a flexible date window;
 - activity types: city, road trip, hiking/backcountry, camping, cycling, water activity, skiing/snow, or custom;
 - transport preference and maximum travel time per day;
+- optional trip-purpose context, including business travel, inferred from the user’s indexed work and travel signals when available;
 - desired pace, accessibility needs, and “must see” / “avoid” constraints;
 - optional passport country and transit countries for document checks; and
 - optional health-context checkboxes for the current session only, such as pregnancy, children, or prior altitude illness. Do not require or persist a diagnosis.
@@ -133,6 +134,12 @@ The top of the trip should show only the most important actions, for example: �
 A detected-trip card should show the destination, date range, local time zone, evidence label (for example, “Calendar + Gmail”), confidence (`confirmed`, `likely`, or `needs review`), links back to the source records, and a clear **Build preparation plan** action. The overview should keep **Plan another trip** prominent below or beside the detected-trip list.
 
 The distinction must remain visible in the copy and data model: a detected trip is a read-only import of user-provided context; a scratch plan is a new itinerary request. Neither is a booking workflow.
+
+### Task — infer business travel from indexed context
+
+Once Study Me reports `completed`, have the travel-planning agent inspect the completed `insights_gathering` index for business-travel signals before building the preparation plan. Use index-only metadata and evidence such as conference or offsite labels, client or office locations, work-related calendar blocks, and travel confirmations associated with work events; do not re-fetch private message bodies or send them to Nova Grounding.
+
+The task should classify the trip purpose as `business`, `leisure`, `mixed`, or `unknown`, retain the supporting source references and confidence, and pass the result into itinerary planning. For business trips, account for fixed meeting windows, workday availability, proximity to the relevant office or venue, reliable transit, connectivity, and appropriate work gear while still preparing the destination-specific health, hazard, weather, and route guidance. If the evidence is weak or conflicting, show it as a suggestion for user confirmation rather than silently labeling the trip.
 
 ### Read-only trip extraction from the completed index
 
