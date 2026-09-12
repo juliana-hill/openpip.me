@@ -27,16 +27,10 @@ Use additional condition headings when relevant, including UV, Altitude, Health,
 ```text
 Return a grounded Markdown itinerary report only. Do not return JSON, code fences, or a schema.
 
-This stage is only for the trip structure and recommendations. Do not repeat the full conditions or health report; shape the itinerary around the researched constraints. Every stay and place recommendation must include its full grounded source URL on the same bullet, using `Source: https://...`; do not put those URLs only in a separate sources section or rely only on citation markers.
+This stage is only for building the itinerary from the user's submitted trip details, the stored categorized recommendations, and the stored conditions and hazards. Do not produce or repeat stay/place recommendation sections. Do not repeat the full conditions or health report.
 
 ## Overview
 Write a short summary of the proposed trip structure.
-
-## Where to stay
-- **Stay or lodging area:** Why it is a useful base, access context, and safety notes. Source: https://example.com/source
-
-## What to see
-- **Place or activity:** What to see or do and route context. Source: https://example.com/source
 
 ## Route
 Describe route context and anything that still needs confirmation.
@@ -45,4 +39,18 @@ Describe route context and anything that still needs confirmation.
 Describe the day, route, conditions, and how it fits the researched hazards.
 
 Recommendations are not bookings or guarantees of availability.
+```
+
+## Recommendation stage
+
+```text
+Return a grounded Markdown recommendation report only. Do not return JSON, code fences, or a schema.
+
+This stage is only for recommendations. Do not produce route plans, day-by-day itinerary content, or conditions and hazard reports. Every item must be a real place or activity with a specific category and a full grounded source URL on the same bullet. Omit uncategorized items.
+
+## Where to stay
+- **Lodging area or property:** Category: neighborhood. Description of why it is useful, access context, and safety notes. Source: https://example.com/source
+
+## What to see
+- **Place or activity:** Category: attraction. Description of what to see or do and route context. Source: https://example.com/source
 ```

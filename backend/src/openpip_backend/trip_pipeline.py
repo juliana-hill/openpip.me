@@ -35,6 +35,7 @@ if not _PROMPTS_DIR.exists():
 _STAGE_PROMPT_FILES = {
     "conditions": "stage-01-conditions.md",
     "health": "stage-02-health-and-hazards.md",
+    "recommendations": "stage-03-recommendations.md",
     "itinerary": "stage-03-itinerary.md",
     "gap": "gap-review.md",
 }
@@ -216,9 +217,25 @@ def _render_trip_prompt(
         raise RuntimeError("trip-research-template.md must contain a fenced prompt block")
     template = blocks[0]
     markdown_formats = _prompt_blocks("markdown-output-format.md")
-    if len(markdown_formats) < 2:
-        raise RuntimeError("markdown-output-format.md must contain conditions and itinerary blocks")
+    if len(markdown_formats) < 3:
+        raise RuntimeError("markdown-output-format.md must contain conditions, itinerary, and recommendation blocks")
     rendered_focus = str(focus or "").strip()
+    recommendations_stage = stage == "recommendations"
+    itinerary_stage = stage == "itinerary" or (stage is None and rendered_focus.startswith("a practical"))
+    trip_submission = {
+        key: record.get(key)
+        for key in ("destination", "startDate", "endDate", "activities", "pace")
+    }
+    structured_stage = recommendations_stage or itinerary_stage
+    existing_context = (
+        json.dumps(
+            {"tripSubmission": trip_submission, "research": existing_research or {}},
+            ensure_ascii=False,
+            indent=2,
+        )
+        if structured_stage
+        else _render_existing_research(existing_research)
+    )
     replacements = {
         "{{destination}}": str(record.get("destination") or "").strip(),
         "{{start_date}}": str(record.get("startDate") or "flexible"),
@@ -226,19 +243,27 @@ def _render_trip_prompt(
         "{{activities}}": ", ".join(str(value) for value in record.get("activities") or []) or "general travel",
         "{{pace}}": str(record.get("pace") or "Balanced"),
         "{{focus}}": rendered_focus,
-        "{{existing_research}}": _render_existing_research(existing_research),
+        "{{existing_research}}": existing_context,
     }
     rendered = template
     for token, value in replacements.items():
         rendered = rendered.replace(token, value)
-    itinerary_stage = stage == "itinerary" or (stage is None and rendered_focus.startswith("a practical"))
     stage_boundary = (
-        "This is the itinerary stage. Produce only the itinerary and recommendation sections below; do not repeat the full conditions, health, or hazard report."
+        "This is the itinerary stage. Produce only the day-by-day itinerary and route sections. The already-parsed stay and place JSON in the existing research is authoritative; do not produce, repeat, or modify stay/place recommendation sections. Do not repeat the full conditions, health, or hazard report."
         if itinerary_stage
+        else "This is the recommendation stage. Produce only the stay and place recommendation sections below. Do not produce route plans, day-by-day itinerary content, or condition and hazard reports."
+        if recommendations_stage
         else "This is a conditions, health, or gap-review stage. Produce only the conditions, hazards, safety, and preparation sections below; do not produce lodging, attractions, route plans, or day-by-day itinerary content."
     )
-    markdown_format = markdown_formats[1] if itinerary_stage else markdown_formats[0]
-    return f"{rendered}\n\n{stage_boundary}\n\n{markdown_format}"
+    markdown_format = markdown_formats[1] if itinerary_stage else markdown_formats[2] if recommendations_stage else markdown_formats[0]
+    structured_inputs = (
+        "\n\nThe JSON above is authoritative. Query and return only categorized stay/place recommendations from the user's trip submission and parsed conditions/hazards."
+        if recommendations_stage
+        else "\n\nThe JSON above is authoritative. Build only the day-by-day itinerary and route from the user's trip submission and the parsed research objects."
+        if itinerary_stage
+        else ""
+    )
+    return f"{rendered}\n\n{stage_boundary}{structured_inputs}\n\n{markdown_format}"
 
 
 def _trip_prompt(
@@ -285,18 +310,19 @@ def _gap_focus(missing_categories: list[str], missing_requirements: list[str] | 
 
 def _itinerary_completion_focus(missing_requirements: list[str]) -> str:
     requirements = ", ".join(missing_requirements) or "the missing itinerary details"
-    source_link_requirements = [
-        requirement for requirement in missing_requirements if requirement.startswith("source links for ")
-    ]
-    source_link_instruction = (
-        " For each existing recommendation missing a link, repeat only that recommendation with its exact existing name and add a full grounded URL on the same bullet using `Source: https://...`; do not add a new recommendation or invent a URL."
-        if source_link_requirements
-        else ""
-    )
     return (
         f"{_stage_focus('itinerary')}\n\n"
         f"This is a completion pass. The Python aggregate already contains the itinerary content that was found. "
-        f"Produce only the missing itinerary requirements: {requirements}. Do not repeat existing days, stays, places, or route content unless repeating one existing recommendation is necessary to attach its missing source URL.{source_link_instruction} Return Markdown only."
+        f"Produce only the missing itinerary requirements: {requirements}. Do not produce or repeat stays or places. Return Markdown only."
+    )
+
+
+def _recommendations_completion_focus(missing_requirements: list[str]) -> str:
+    requirements = ", ".join(missing_requirements) or "the missing recommendation details"
+    return (
+        f"{_stage_focus('recommendations')}\n\n"
+        f"This is a completion pass. Produce only the missing recommendation requirements: {requirements}. "
+        "Return only categorized stay/place bullets with their parsed fields and source URLs; do not produce route plans or day-by-day itinerary content. Return Markdown only."
     )
 
 
@@ -1003,6 +1029,7 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
 _RESEARCH_STAGE_PLAN = (
     ("conditions", "conditions"),
     ("health", "health and hazards"),
+    ("recommendations", "recommendations"),
     ("itinerary", "itinerary"),
 )
 
@@ -1013,12 +1040,13 @@ def _empty_research_assembly() -> dict[str, Any]:
 
 def _append_stage_result(assembled: dict[str, Any], stage: str, result: dict[str, Any], sources: list[str]) -> None:
     """Append one parsed Markdown result in Python; no model merges stage data."""
-    if stage == "itinerary":
+    if stage == "recommendations":
+        assembled["stays"].extend(result.get("stays") or [])
+        assembled["places"].extend(result.get("places") or [])
+    elif stage == "itinerary":
         assembled["days"].extend(result.get("days") or [])
         assembled["routeSummary"] = result.get("routeSummary")
         assembled["overview"] = result.get("overview")
-        assembled["stays"].extend(result.get("stays") or [])
-        assembled["places"].extend(result.get("places") or [])
         if result.get("routeSummary"):
             assembled["signals"].append({
                 "category": "route",
@@ -1150,13 +1178,16 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any], persist) -
         elif any(
             requirement in missing_requirements
             for requirement in (
-                "itinerary days",
                 "places to stay",
                 "places to see",
                 "source links for places to stay",
                 "source links for places to see",
             )
         ):
+            next_stage = "recommendations"
+            next_focus = _recommendations_completion_focus(missing_requirements)
+            display_stage = "recommendations completion: " + ", ".join(missing_requirements[:3])
+        elif "itinerary days" in missing_requirements:
             next_stage = "itinerary"
             next_focus = _itinerary_completion_focus(missing_requirements)
             display_stage = "itinerary completion: " + ", ".join(missing_requirements[:3])
