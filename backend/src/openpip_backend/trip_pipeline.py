@@ -16,6 +16,7 @@ import os
 import re
 from datetime import UTC, date, datetime
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
 
 import boto3
@@ -53,6 +54,8 @@ _SIGNAL_CATEGORY_ALIASES = {
     "personal safety": "security", "travel advisory": "security", "conflict": "security", "hostage": "kidnapping",
     "kidnapping risk": "kidnapping", "abduction": "kidnapping",
 }
+_TRACKING_QUERY_PREFIXES = ("utm_",)
+_TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
 
 
 def _signal_category(value: Any) -> str:
@@ -114,12 +117,41 @@ def _http_url(value: Any) -> str | None:
     return url[:2000]
 
 
+def _url_key(value: Any) -> str | None:
+    url = _http_url(value)
+    if not url:
+        return None
+    try:
+        parsed = urlsplit(url)
+    except ValueError:
+        return None
+    hostname = (parsed.hostname or "").casefold()
+    if hostname.startswith("www."):
+        hostname = hostname[4:]
+    if not hostname:
+        return None
+    port = parsed.port
+    if port in {80, 443}:
+        port = None
+    netloc = hostname if port is None else f"{hostname}:{port}"
+    query = urlencode(sorted(
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if not key.casefold().startswith(_TRACKING_QUERY_PREFIXES) and key.casefold() not in _TRACKING_QUERY_KEYS
+    ))
+    path = parsed.path.rstrip("/") or "/"
+    return urlunsplit((parsed.scheme.casefold(), netloc, path, query, ""))
+
+
 def _grounded_item_url(item: dict[str, Any], source_urls: list[str]) -> str | None:
     candidate = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
     if not candidate:
         return None
-    source_by_key = {url.rstrip("/"): url for url in source_urls}
-    return source_by_key.get(candidate.rstrip("/"))
+    candidate_key = _url_key(candidate)
+    if not candidate_key:
+        return None
+    source_by_key = {_url_key(url): url for url in source_urls if _url_key(url)}
+    return source_by_key.get(candidate_key)
 
 
 def _read_index_records(files: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
@@ -472,7 +504,11 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
             break
         itinerary_needed = any(label in missing_requirements for label in ("itinerary days", "source-linked places to stay", "source-linked places to see"))
         if itinerary_needed:
-            focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements)
+            recommendation_needed = any(label in missing_requirements for label in ("source-linked places to stay", "source-linked places to see"))
+            if recommendation_needed:
+                focus = "a practical real-trip proposal focused on source-linked lodging and activities. Explicitly supply these missing output sections: " + ", ".join(missing_requirements) + ". Every stay and place must include sourceUrl copied exactly from a Nova Grounding citation; omit any item that cannot be cited."
+            else:
+                focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements)
         else:
             focus = "explicitly fill these missing required outputs: " + ", ".join(missing_requirements)
         job["stage"] = "gap review: " + ", ".join(missing_requirements[:4])

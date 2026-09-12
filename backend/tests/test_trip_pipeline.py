@@ -19,6 +19,20 @@ def test_normalize_output_keeps_only_recommendations_with_grounded_source_urls()
     assert output["places"][0]["sourceUrl"] == "https://place.example"
 
 
+def test_grounded_source_matching_ignores_canonical_url_variants() -> None:
+    output = _normalize_output(
+        {
+            "stays": [{"name": "Verified stay", "sourceUrl": "https://www.stay.example/lodging/?utm_source=nova#hotel"}],
+            "places": [{"name": "Verified place", "sourceUrl": "https://place.example/trail/"}],
+        },
+        ["https://stay.example/lodging", "https://place.example/trail"],
+        {"destination": "Tokyo, Japan"},
+    )
+
+    assert output["stays"][0]["sourceUrl"] == "https://stay.example/lodging"
+    assert output["places"][0]["sourceUrl"] == "https://place.example/trail"
+
+
 def test_source_linked_recommendations_require_both_categories() -> None:
     assert not _has_source_linked_recommendations({"stays": [{"sourceUrl": "https://stay.example"}]})
     assert not _has_source_linked_recommendations({"stays": [{"sourceUrl": "https://stay.example"}], "places": [{"name": "Missing link"}]})
