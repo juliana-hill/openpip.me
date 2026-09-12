@@ -409,7 +409,7 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
     record = files.get(trip_id)
     if not isinstance(record, dict) or not record.get("destination"):
         raise KeyError(trip_id)
-    if record.get("agent-pipeline") == "complete":
+    if record.get("agent-pipeline") == "complete" and record.get("agent-pipeline-output"):
         return {"id": None, "status": "complete", "trip": _public_trip(record)}
 
     current_run_id = str(record.get("agent-pipeline-run-id") or "")

@@ -198,17 +198,17 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
   const studyMeReady = studyMeStatus?.state === "completed";
   const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
   const gateTitle = studyMeReady
-    ? collection.trips.length > 0 ? "Your trip library is ready" : "Build your trip library"
+    ? collection.trips.length > 0 ? "Your trip library is ready" : "Map your trip history"
     : studyMeRunning
-      ? "Plan from scratch while Study Me finishes"
-      : "Plan a trip from scratch";
+      ? "Waiting for Study Me to finish"
+      : "Map your trip history";
   const gateCopy = studyMeReady
     ? collection.trips.length > 0
-      ? "Review your saved trips, or start a new plan with current preparation context."
-      : "Use the completed Study Me index to organize previous trips, or start a new plan now."
+      ? "Review and record past, current, and upcoming trips from your indexed history."
+      : "Use the completed Study Me index to find and record past, current, and upcoming trips."
     : studyMeStatusLoading
-      ? "You can start a new plan now. Your indexed trip history will be available when Study Me is ready."
-      : "Start a new plan now. Only the indexed trip library waits for Study Me to finish.";
+      ? "Checking whether your indexed history is ready to map into your trip library."
+      : "Your indexed history will be mapped into past, current, and upcoming trips when Study Me finishes.";
   return <div className={styles.pageStack}>
     <div className={inboxHeaderStyles.row}>
       <div className={inboxHeaderStyles.left}><h2 className={inboxHeaderStyles.title}>Travel Planning</h2></div>
@@ -220,7 +220,7 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
         <p className={inboxStyles.triageCopy}>{gateCopy}</p>
       </div>
       <div className={inboxStyles.triageActions}>
-        {studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <button type="button" className={inboxStyles.triageRunBtn} onClick={() => document.getElementById("plan-another-trip")?.scrollIntoView({ behavior: "smooth", block: "start" })}>Plan another trip</button>}
+        {studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <button type="button" className={inboxStyles.triageRunBtn} disabled>{studyMeStatusLoading ? "Checking Study Me" : "Waiting for Study Me"}</button>}
       </div>
     </section>}
     <div className={styles.entryGrid}>
