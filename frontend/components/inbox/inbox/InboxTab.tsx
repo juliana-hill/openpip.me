@@ -107,7 +107,6 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
     const loadStudyMeStatus = async () => {
       try {
@@ -119,9 +118,6 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
         const next = await response.json() as InsightGatheringStatus;
         if (cancelled) return;
         setStudyMeStatus(next);
-        if (next.state === "queued" || next.state === "running") {
-          timer = window.setTimeout(() => { void loadStudyMeStatus(); }, 1000);
-        }
       } catch {
         if (!cancelled) setStudyMeStatus(null);
       } finally {
@@ -132,7 +128,6 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
     void loadStudyMeStatus();
     return () => {
       cancelled = true;
-      if (timer) window.clearTimeout(timer);
     };
   }, []);
 

@@ -189,7 +189,6 @@ function TripLibrary({ collection, loading, syncing, syncMessage, onSync, onOpen
 function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync, onOpen, onCreatePlan }: { agentName: string; studyMeStatus: InsightGatheringStatus | null; studyMeStatusLoading: boolean; collection: TripCollection; loading: boolean; syncing: boolean; syncMessage: string | null; onSync: () => void; onOpen: (trip: TripRecord) => void; onCreatePlan: (draft: PlanDraft) => void }) {
   const studyMeReady = studyMeStatus?.state === "completed";
   const studyMeRunning = studyMeStatus?.state === "queued" || studyMeStatus?.state === "running";
-  const studyMeProgress = Math.max(0, Math.min(100, studyMeStatus?.progress ?? 0));
   const gateTitle = studyMeRunning
     ? `Waiting for ${agentName} to finish studying you…`
     : studyMeStatusLoading
@@ -215,15 +214,10 @@ function Overview({ agentName, studyMeStatus, studyMeStatusLoading, collection, 
         <p className={inboxStyles.triageKicker}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
         <h3 className={inboxStyles.triageTitle}>{gateTitle}</h3>
         <p className={inboxStyles.triageCopy}>{gateCopy}</p>
-        {studyMeRunning && <p className={inboxStyles.triageCapabilities}>{studyMeStatus?.progress == null ? "Studying your history…" : `${studyMeProgress}% complete`} · Trip planning is waiting</p>}
       </div>
       <div className={inboxStyles.triageActions}>
         {studyMeRunning || studyMeStatusLoading ? <span className={inboxStyles.triageTrust}>{studyMeRunning ? "Waiting for Study Me" : "Checking Study Me…"}</span> : studyMeReady ? <button type="button" className={inboxStyles.triageRunBtn} onClick={onSync} disabled={syncing}>{syncing ? "Building…" : collection.trips.length > 0 ? "Refresh trip library" : "Build trip library"}</button> : <span className={inboxStyles.triageTrust}>Waiting for Study Me</span>}
       </div>
-      {studyMeRunning && <div className={inboxStyles.triageProgress}>
-        <div className={inboxStyles.triageLabel}><span>Study Me in progress</span><span>{studyMeProgress}% complete</span></div>
-        <div className={inboxStyles.triageTrack} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={studyMeProgress} aria-label="Study Me progress"><div className={inboxStyles.triageFill} style={{ width: `${studyMeProgress}%` }} /></div>
-      </div>}
     </section>}
     <div className={styles.entryGrid}>
       <Card className={`${styles.startCard} ${styles.primaryStart}`}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Start from scratch</p><CardTitle>Plan another trip</CardTitle><CardDescription className={styles.sectionDescription}>Give us the shape of the trip. We’ll help you fill in the preparation details.</CardDescription></div></CardHeader><CardContent><PlanForm onSubmit={onCreatePlan} /></CardContent></Card>
@@ -271,8 +265,6 @@ export function RoutesPage({ userName, userImage }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
     const loadStudyMeStatus = async () => {
       try {
         const response = await proxyFetch("/agent/insights/gather/login-status");
@@ -283,9 +275,6 @@ export function RoutesPage({ userName, userImage }: Props) {
         const next = await response.json() as InsightGatheringStatus;
         if (cancelled) return;
         setStudyMeStatus(next);
-        if (next.state === "queued" || next.state === "running") {
-          timer = window.setTimeout(() => { void loadStudyMeStatus(); }, 1000);
-        }
       } catch {
         if (!cancelled) setStudyMeStatus(null);
       } finally {
@@ -296,7 +285,6 @@ export function RoutesPage({ userName, userImage }: Props) {
     void loadStudyMeStatus();
     return () => {
       cancelled = true;
-      if (timer) window.clearTimeout(timer);
     };
   }, []);
 
