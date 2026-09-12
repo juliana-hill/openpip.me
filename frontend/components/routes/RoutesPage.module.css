@@ -370,6 +370,12 @@
 .libraryCard {
   padding: 0;
   overflow: hidden;
+  transition: none;
+}
+
+.libraryCard:hover {
+  transform: none;
+  box-shadow: var(--shadow-md);
 }
 
 .libraryContent {
