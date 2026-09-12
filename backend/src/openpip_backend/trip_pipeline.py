@@ -535,14 +535,17 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
         if not missing_requirements:
             break
         itinerary_needed = any(label in missing_requirements for label in ("itinerary days", "source-linked places to stay", "source-linked places to see"))
+        category_focus = ""
+        if missing_categories:
+            category_focus = " Return at least one grounded signal object for every exact missing category, using the lowercase category value verbatim (do not substitute a synonym): " + ", ".join(missing_categories) + "."
         if itinerary_needed:
             recommendation_needed = any(label in missing_requirements for label in ("source-linked places to stay", "source-linked places to see"))
             if recommendation_needed:
-                focus = "a practical real-trip proposal focused on source-linked lodging and activities. Explicitly supply these missing output sections: " + ", ".join(missing_requirements) + ". Every stay and place must include sourceUrl copied exactly from a Nova Grounding citation; omit any item that cannot be cited."
+                focus = "a practical real-trip proposal focused on source-linked lodging and activities. Explicitly supply these missing output sections: " + ", ".join(missing_requirements) + ". Return at least three stays and three places when grounded sources support them. Every stay and place must include sourceUrl copied exactly from a Nova Grounding citation; omit any item that cannot be cited." + category_focus
             else:
-                focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements)
+                focus = "a practical real-trip proposal that explicitly supplies the missing output sections: " + ", ".join(missing_requirements) + "." + category_focus
         else:
-            focus = "explicitly fill these missing required outputs: " + ", ".join(missing_requirements)
+            focus = "explicitly fill these missing required outputs: " + ", ".join(missing_requirements) + "." + category_focus
         job["stage"] = "gap review: " + ", ".join(missing_requirements[:4])
         result, sources = await asyncio.to_thread(_grounded_json, _trip_prompt(record, focus))
         if itinerary_needed:
@@ -565,37 +568,41 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
 
 async def _run_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str) -> None:
     job = _agent_pipeline_jobs[run_id]
-    try:
-        job["status"] = "running"
-        files = await list_json_files(access_token, _OUTPUT_FOLDER)
-        record = files.get(trip_id)
-        if not isinstance(record, dict) or not record.get("destination"):
-            raise KeyError(trip_id)
-        record["agent-pipeline"] = "running"
-        record["agent-pipeline-stage"] = "starting"
-        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-        output = await _research_trip(record, job)
-        record["agent-pipeline-output"] = output
-        record["agent-pipeline"] = "complete"
-        record["agent-pipeline-stage"] = "complete"
-        record["agent-pipeline-completed-at"] = datetime.now(UTC).isoformat()
-        await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-        job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
-    except Exception as error:
-        _logger.exception("Travel-planning pipeline failed for trip %s", trip_id)
-        job.update({"status": "failed", "stage": "failed", "error": str(error)[:500]})
+    job["status"] = "running"
+    files = await list_json_files(access_token, _OUTPUT_FOLDER)
+    record = files.get(trip_id)
+    if not isinstance(record, dict) or not record.get("destination"):
+        raise KeyError(trip_id)
+    record["agent-pipeline"] = "running"
+    record["agent-pipeline-stage"] = "starting"
+    await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+
+    attempt = 0
+    while True:
+        attempt += 1
         try:
-            files = await list_json_files(access_token, _OUTPUT_FOLDER)
-            record = files.get(trip_id)
-            if isinstance(record, dict):
-                record["agent-pipeline"] = "failed"
-                record["agent-pipeline-stage"] = "failed"
-                record["agent-pipeline-error"] = str(error)[:500]
+            output = await _research_trip(record, job)
+            record["agent-pipeline-output"] = output
+            record["agent-pipeline"] = "complete"
+            record["agent-pipeline-stage"] = "complete"
+            record.pop("agent-pipeline-error", None)
+            record["agent-pipeline-completed-at"] = datetime.now(UTC).isoformat()
+            await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
+            job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
+            job["finishedAt"] = datetime.now(UTC).isoformat()
+            return
+        except Exception as error:
+            message = str(error)[:500]
+            _logger.exception("Travel-planning pipeline attempt %s failed for trip %s; retrying", attempt, trip_id)
+            job.update({"status": "running", "stage": "retrying", "error": message, "attempt": attempt})
+            record["agent-pipeline"] = "running"
+            record["agent-pipeline-stage"] = "retrying"
+            record["agent-pipeline-error"] = message
+            try:
                 await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-        except Exception:
-            pass
-    finally:
-        job["finishedAt"] = datetime.now(UTC).isoformat()
+            except Exception:
+                _logger.exception("Could not persist travel-planning retry state for trip %s", trip_id)
+            await asyncio.sleep(min(60, 2 ** min(attempt - 1, 5)))
 
 
 async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str, Any]:

@@ -30,6 +30,18 @@ This means:
 
 Nova Web Grounding requires the supported AWS region/inference-profile setup, the `bedrock:InvokeTool` permission, and citation display in the product. It also has additional model/tool cost and may take materially longer than a normal model call, so the UI should show a research/loading state and allow stale-source refresh rather than appearing frozen.
 
+### Travel planning must be a Strands agentic run
+
+The travel planner must be implemented as a Strands `Agent` run backed by Nova, not as a fixed sequence of direct Bedrock API calls disguised as a pipeline. The pipeline wrapper may own durable run state, polling, persistence, and recovery, but the Strands agent must own the research loop:
+
+- inspect the current trip context and the output already assembled;
+- use Nova Grounding for current conditions, source-linked places to stay, and source-linked things to see;
+- identify missing or weakly supported categories and decide what research/tool call is needed next;
+- continue researching and revising the structured trip output until the required itinerary, preparation, safety, and recommendation fields are complete; and
+- stop only after validation confirms the output is complete and every stay/place recommendation is backed by a returned grounding citation.
+
+The agent must be able to recover from malformed model JSON: first parse the returned object with the host-language JSON parser, then call a separate ungrounded Nova JSON-repair function only when parsing fails. The repair call must preserve the original data and must not add grounding citations; citations from the original grounded turn remain attached to the research result. A failed tool call, incomplete response, or validation gap should return control to the Strands agent for another attempt with backoff, while the durable run remains pollable. Do not model this as an unconditional chain of three research calls or as a deterministic fallback that fabricates missing travel facts.
+
 ### Study Me is the prerequisite
 
 Do not create a second pipeline that re-reads the user’s whole life. The existing Study Me pipeline owns collection and writes its metadata-only index under `OpenPip/memory/insights_gathering/manifest`. A downstream trip pass may start only when Study Me reports `completed`.
