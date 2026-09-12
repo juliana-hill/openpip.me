@@ -107,6 +107,21 @@ def _source(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _http_url(value: Any) -> str | None:
+    url = str(value or "").strip()
+    if not url.startswith(("https://", "http://")):
+        return None
+    return url[:2000]
+
+
+def _grounded_item_url(item: dict[str, Any], source_urls: list[str]) -> str | None:
+    candidate = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
+    if not candidate:
+        return None
+    source_by_key = {url.rstrip("/"): url for url in source_urls}
+    return source_by_key.get(candidate.rstrip("/"))
+
+
 def _read_index_records(files: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for filename, payload in files.items():
@@ -204,6 +219,18 @@ def _public_trip(record: dict[str, Any]) -> dict[str, Any]:
     } | {"phase": _phase(start_date, end_date)}
 
 
+def _has_source_linked_recommendations(output: Any) -> bool:
+    if not isinstance(output, dict):
+        return False
+    stays = [item for item in (output.get("stays") or []) if isinstance(item, dict)]
+    places = [item for item in (output.get("places") or []) if isinstance(item, dict)]
+    recommendations = [
+        item
+        for item in stays + places
+    ]
+    return bool(stays) and bool(places) and all(_http_url(item.get("sourceUrl")) for item in recommendations)
+
+
 async def list_trips(access_token: str) -> dict[str, Any]:
     files = await list_json_files(access_token, _OUTPUT_FOLDER)
     trips = [_public_trip(record) for record in files.values() if isinstance(record, dict) and record.get("destination")]
@@ -290,7 +317,7 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
     schema = (
         '{"overview":"short summary","signals":[{"category":"weather|temperature|uv|altitude|health|disease|animals|water|fire|volcanic_activity|earthquake|tsunami|air_quality|gear|route|security|kidnapping","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
         if not is_itinerary_stage
-        else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","stays":[{"name":"...","area":"...","type":"hotel|hostel|camping|other","detail":"why this is a useful base","safety":"access and safety notes"}],"places":[{"name":"...","type":"attraction|trail|viewpoint|museum|other","detail":"what to see or do","route":"how it fits the route"}],"days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
+        else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","stays":[{"name":"...","area":"...","type":"hotel|hostel|camping|other","detail":"why this is a useful base","safety":"access and safety notes","sourceUrl":"exact URL from a grounded citation supporting this stay"}],"places":[{"name":"...","type":"attraction|trail|viewpoint|museum|other","detail":"what to see or do","route":"how it fits the route","sourceUrl":"exact URL from a grounded citation supporting this place"}],"days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
     )
     return (
         "You are a stage in a travel-planning agent pipeline. Use Nova web "
@@ -319,8 +346,10 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
         "For a real trip proposal, research several source-verifiable places to stay "
         "or safe lodging areas and several things to see or do. Give reasons, access "
         "context, and safety notes; these are recommendations only, never bookings or "
-        "guarantees of availability. If a place or route cannot be verified, say so and "
-        "do not invent it.\n\n"
+        "guarantees of availability. Every stay and place must include a sourceUrl copied "
+        "exactly from one of the Nova Grounding citations that supports that specific item. "
+        "If a place or route cannot be verified by a citation, omit it rather than inventing "
+        "it or returning an uncited recommendation.\n\n"
         "Return JSON only. Do not book, purchase, or invent availability. Do not "
         "use private email, calendar, passport, or medical data. Tie warnings to "
         "grounded sources and describe uncertainty. This is preparation guidance, "
@@ -330,6 +359,7 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
 
 
 def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[str, Any]) -> dict[str, Any]:
+    grounded_sources = list(dict.fromkeys(url for url in (_http_url(value) for value in sources) if url))
     days = output.get("days") if isinstance(output.get("days"), list) else []
     normalized_days = []
     for index, item in enumerate(days[:7], start=1):
@@ -357,26 +387,32 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
     ]
     stays = output.get("stays") if isinstance(output.get("stays"), list) else []
     normalized_stays = [
-        {
+        normalized
+        for item in stays[:8]
+        if isinstance(item, dict)
+        for normalized in [{
             "name": str(item.get("name") or "Unverified stay option")[:160],
             "area": str(item.get("area") or "Area requires confirmation")[:120],
             "type": str(item.get("type") or "other")[:40],
             "detail": str(item.get("detail") or "Verify this lodging option before relying on it.")[:500],
             "safety": str(item.get("safety") or "Review current neighborhood and access conditions.")[:400],
-        }
-        for item in stays[:8]
-        if isinstance(item, dict)
+            "sourceUrl": _grounded_item_url(item, grounded_sources),
+        }]
+        if normalized["sourceUrl"]
     ]
     places = output.get("places") if isinstance(output.get("places"), list) else []
     normalized_places = [
-        {
+        normalized
+        for item in places[:12]
+        if isinstance(item, dict)
+        for normalized in [{
             "name": str(item.get("name") or "Unverified place")[:160],
             "type": str(item.get("type") or "other")[:40],
             "detail": str(item.get("detail") or "Verify this place before relying on it.")[:500],
             "route": str(item.get("route") or "Route context requires confirmation.")[:400],
-        }
-        for item in places[:12]
-        if isinstance(item, dict)
+            "sourceUrl": _grounded_item_url(item, grounded_sources),
+        }]
+        if normalized["sourceUrl"]
     ]
     return {
         "overview": str(output.get("overview") or f"Preparation plan for {record.get('destination')}.")[:800],
@@ -386,7 +422,7 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
         "days": normalized_days,
         "preparation": normalized_preparation,
         "signals": normalized_signals,
-        "sources": [{"url": url, "retrievedAt": datetime.now(UTC).isoformat()} for url in sources[:20]],
+        "sources": [{"url": url, "retrievedAt": datetime.now(UTC).isoformat()} for url in grounded_sources[:20]],
     }
 
 
@@ -471,7 +507,7 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
     record = files.get(trip_id)
     if not isinstance(record, dict) or not record.get("destination"):
         raise KeyError(trip_id)
-    if record.get("agent-pipeline") == "complete" and record.get("agent-pipeline-output"):
+    if record.get("agent-pipeline") == "complete" and _has_source_linked_recommendations(record.get("agent-pipeline-output")):
         return {"id": None, "status": "complete", "trip": _public_trip(record)}
 
     current_run_id = str(record.get("agent-pipeline-run-id") or "")

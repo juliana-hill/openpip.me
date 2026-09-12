@@ -980,15 +980,86 @@
   line-height: 1.45;
 }
 
-.recommendationRow .recommendationType {
+.placeRecommendationRow {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+}
+
+.placeRecommendationRow:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.placeRecommendationIcon {
+  display: grid !important;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-top: 0 !important;
+  border-radius: 15px;
+  background: var(--color-accent-light);
+  color: var(--color-accent) !important;
+  line-height: 1;
+}
+
+.placeRecommendationContent {
+  min-width: 0;
+}
+
+.placeRecommendationTitle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.placeRecommendationTitle strong {
+  margin: 0;
+}
+
+.placeRecommendationTitle .recommendationType {
+  display: inline-flex;
+  align-items: center;
+  margin: 0;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 24%, var(--color-border));
+  border-radius: 999px;
+  background: var(--color-accent-light);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: capitalize;
+}
+
+.recommendationSourceLink {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  width: fit-content;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-decoration: none;
+  transition: border-color 150ms ease, background 150ms ease;
 }
 
-.recommendationType svg {
-  flex: 0 0 auto;
-  color: var(--color-accent);
+.recommendationSourceLink:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-light);
+}
+
+.recommendationSourceLink:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 35%, transparent);
+  outline-offset: 2px;
 }
 
 .recommendationRow p {

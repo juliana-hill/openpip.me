@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ArrowRight,
+  Building2,
   CalendarDays,
   Check,
   ChevronLeft,
@@ -43,8 +44,8 @@ type Phase = "past" | "current" | "upcoming";
 type AgentPipelineOutput = {
   overview?: string;
   routeSummary?: string;
-  stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string }>;
-  places?: Array<{ name?: string; type?: string; detail?: string; route?: string }>;
+  stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string; sourceUrl?: string }>;
+  places?: Array<{ name?: string; type?: string; detail?: string; route?: string; sourceUrl?: string }>;
   days?: Array<{ day?: number; date?: string | null; title?: string; detail?: string; route?: string; conditions?: string }>;
   preparation?: Array<{ title?: string; detail?: string }>;
   signals?: Array<{ category?: string; title?: string; detail?: string; severity?: string }>;
@@ -262,8 +263,14 @@ function ItineraryDay({ day, date, title, detail, icon: Icon }: { day: string; d
 function placeIconForType(type?: string): typeof MapPin {
   const normalized = type?.toLowerCase() || "";
   if (normalized.includes("trail") || normalized.includes("hike")) return Mountain;
-  if (normalized.includes("museum")) return Sparkles;
+  if (normalized.includes("museum")) return Building2;
   return MapPin;
+}
+
+function hasSourceLinkedRecommendations(output?: AgentPipelineOutput): boolean {
+  const stays = output?.stays || [];
+  const places = output?.places || [];
+  return stays.length > 0 && places.length > 0 && [...stays, ...places].every((item) => /^https?:\/\//i.test(item.sourceUrl || ""));
 }
 
 function draftFromTrip(trip: TripRecord): PlanDraft {
@@ -276,8 +283,8 @@ function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
   const places = output.places || [];
   if (stays.length === 0 && places.length === 0) return null;
   return <div className={styles.recommendationGrid}>
-    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={styles.recommendationRow} key={`${stay.name}-${index}`}><strong>{stay.name || "Stay option"}</strong><span>{[stay.type, stay.area].filter(Boolean).join(" · ")}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}</div>)}</CardContent></Card>}
-    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={styles.recommendationRow} key={`${place.name}-${index}`}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}><PlaceIcon size={14} aria-hidden="true" /> {place.type || "Activity"}</span><p>{place.detail}</p>{place.route && <small>{place.route}</small>}</div>; })}</CardContent></Card>}
+    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={styles.recommendationRow} key={`${stay.name}-${index}`}><strong>{stay.name || "Stay option"}</strong><span>{[stay.type, stay.area].filter(Boolean).join(" · ")}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}{stay.sourceUrl && <a className={styles.recommendationSourceLink} href={stay.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div>)}</CardContent></Card>}
+    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => { const PlaceIcon = placeIconForType(place.type); return <div className={`${styles.recommendationRow} ${styles.placeRecommendationRow}`} key={`${place.name}-${index}`}><span className={styles.placeRecommendationIcon}><PlaceIcon size={26} aria-hidden="true" /></span><div className={styles.placeRecommendationContent}><div className={styles.placeRecommendationTitle}><strong>{place.name || "Place to verify"}</strong><span className={styles.recommendationType}>{place.type || "Activity"}</span></div><p>{place.detail}</p>{place.route && <small>{place.route}</small>}{place.sourceUrl && <a className={styles.recommendationSourceLink} href={place.sourceUrl} target="_blank" rel="noopener noreferrer">View source <ExternalLink size={12} /></a>}</div></div>; })}</CardContent></Card>}
   </div>;
 }
 
@@ -442,7 +449,7 @@ export function RoutesPage({ userName, userImage }: Props) {
     setSaved(true);
     setPlanBuildError(null);
     setView("plan");
-    if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"]) {
+    if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"] && hasSourceLinkedRecommendations(trip["agent-pipeline-output"])) {
       setPlanBuilding(false);
       return;
     }
