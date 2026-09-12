@@ -41,6 +41,8 @@ type Phase = "past" | "current" | "upcoming";
 type AgentPipelineOutput = {
   overview?: string;
   routeSummary?: string;
+  stays?: Array<{ name?: string; area?: string; type?: string; detail?: string; safety?: string }>;
+  places?: Array<{ name?: string; type?: string; detail?: string; route?: string }>;
   days?: Array<{ day?: number; date?: string | null; title?: string; detail?: string; route?: string; conditions?: string }>;
   preparation?: Array<{ title?: string; detail?: string }>;
   signals?: Array<{ category?: string; title?: string; detail?: string; severity?: string }>;
@@ -243,6 +245,16 @@ function draftFromTrip(trip: TripRecord): PlanDraft {
   return { id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced", agentOutput: trip["agent-pipeline-output"] };
 }
 
+function ResearchRecommendations({ output }: { output: AgentPipelineOutput }) {
+  const stays = output.stays || [];
+  const places = output.places || [];
+  if (stays.length === 0 && places.length === 0) return null;
+  return <div className={styles.recommendationGrid}>
+    {stays.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Places to stay</p><CardTitle>Suggested bases</CardTitle><CardDescription className={styles.sectionDescription}>Research-backed suggestions, not reservations.</CardDescription></div><Compass size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{stays.map((stay, index) => <div className={styles.recommendationRow} key={`${stay.name}-${index}`}><strong>{stay.name || "Stay option"}</strong><span>{[stay.type, stay.area].filter(Boolean).join(" · ")}</span><p>{stay.detail}</p>{stay.safety && <small>{stay.safety}</small>}</div>)}</CardContent></Card>}
+    {places.length > 0 && <Card className={styles.recommendationCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>What to see</p><CardTitle>Verified places and activities</CardTitle><CardDescription className={styles.sectionDescription}>Source-linked ideas that fit the trip route.</CardDescription></div><MapPin size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.recommendationList}>{places.map((place, index) => <div className={styles.recommendationRow} key={`${place.name}-${index}`}><strong>{place.name || "Place to verify"}</strong><span>{place.type || "Activity"}</span><p>{place.detail}</p>{place.route && <small>{place.route}</small>}</div>)}</CardContent></Card>}
+  </div>;
+}
+
 function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean; onBack: () => void }) {
   const activityLabel = draft.activities.length > 0 ? draft.activities.join(", ") : "a flexible mix of activities";
   const firstDate = formatDate(draft.startDate);
@@ -257,27 +269,30 @@ function Workspace({ draft, saved, onBack }: { draft: PlanDraft; saved: boolean;
     <section className={styles.workspaceHeader}><div><p className={styles.eyebrow}>{saved ? "Saved plan" : "Planning draft"}</p><h1>{draft.destination}</h1><div className={styles.workspaceMeta}><span><CalendarDays size={15} /> {draft.startDate || draft.endDate ? `${firstDate} – ${lastDate}` : "Dates to be decided"}</span><span><Compass size={15} /> {activityLabel}</span><Badge variant="muted">{draft.pace} pace</Badge></div></div><Button variant="secondary" onClick={onBack}><Plus size={16} /> New plan</Button></section>
     <div className={styles.researchNotice}><Sparkles size={18} /><div><strong>{output?.overview ? "Agent research is source-linked." : "Research stays source-linked."}</strong><p>{output?.overview || "Current weather, health, hazard, and route signals will be checked before you rely on this plan."}</p></div><Button variant="ghost" size="sm" disabled>Research current conditions</Button></div>
     <section className={styles.prioritySection}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>Before you go</p><h2>Start with the important parts</h2></div><Badge variant={output ? "success" : "warning"}>{output ? "Ready" : "Draft"}</Badge></div><div className={styles.priorityGrid}>{(preparation.length > 0 ? preparation.slice(0, 3) : [{ title: "Confirm elevation", detail: "Sleeping altitude will determine acclimatization guidance." }, { title: "Check the exposure", detail: "Weather and UV windows should shape each outdoor day." }, { title: "Build the gear list", detail: `Starting from ${draft.pace.toLowerCase()} days and ${activityLabel}.` }]).map((item, index) => <PriorityAction key={`${item.title}-${index}`} icon={priorityIcons[index] || ListChecks} tone={["coralTone", "goldTone", "blueTone"][index] || "blueTone"} title={item.title || "Preparation item"} detail={item.detail || "Verify before departure."} />)}</div></section>
+    {output && <ResearchRecommendations output={output} />}
     <div className={styles.workspaceGrid}><Card className={styles.itineraryCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Outline</p><CardTitle>A flexible itinerary</CardTitle><CardDescription className={styles.sectionDescription}>{output?.routeSummary || "Shape first, then add verified places and route legs."}</CardDescription></div><Badge variant="muted">{generatedDays.length || 3} days</Badge></CardHeader><CardContent className={styles.timeline}>{generatedDays.length > 0 ? generatedDays.map((day, index) => <ItineraryDay key={`${day.day}-${index}`} day={String(day.day || index + 1).padStart(2, "0")} date={day.date ? formatDate(day.date) : index === 0 ? firstDate : `Day ${index + 1}`} title={day.title || `Day ${index + 1}`} detail={[day.detail, day.conditions, day.route].filter(Boolean).join(" ")} icon={index === 0 ? Plane : dayTwoIcon} />) : <><ItineraryDay day="01" date={firstDate} title="Arrive & get oriented" detail={`Settle in around ${draft.destination}. Keep the first block light while you confirm local conditions and logistics.`} icon={Plane} /><ItineraryDay day="02" date={draft.startDate ? "Next day" : "Day 2"} title="Make space for the main activity" detail={`A good day for ${activityLabel}. The planner will attach conditions, route details, and what to bring.`} icon={dayTwoIcon} /><ItineraryDay day="03" date={lastDate} title="Buffer & head home" detail="Keep a flexible buffer for weather, closures, recovery, or a slower route back." icon={Clock3} /></>}</CardContent></Card><aside className={styles.workspaceRail}><Card className={styles.prepCard}><CardHeader className={styles.sectionHeader}><div><p className={styles.eyebrow}>Preparation list</p><CardTitle>Things to verify</CardTitle></div><ListChecks size={19} className={styles.mutedIcon} /></CardHeader><CardContent className={styles.prepContent}><div className={styles.checklist}>{preparation.length > 0 ? preparation.map((item, index) => <label key={`${item.title}-${index}`}><input type="checkbox" /> {item.title || "Preparation item"}{item.detail ? <small>{item.detail}</small> : null}</label>) : <><label><input type="checkbox" /> Confirm destination and dates</label><label><input type="checkbox" /> Check entry or vaccination requirements</label><label><input type="checkbox" /> Pack for weather, UV, and terrain</label><label><input type="checkbox" /> Save an offline route and emergency contact</label></>}</div></CardContent></Card><Card className={styles.sourceCard}><CardContent className={styles.sourceContent}><div className={styles.sourceCardTitle}><Sparkles size={16} /> Grounded research</div><p>{output?.sources?.length ? `${output.sources.length} source${output.sources.length === 1 ? "" : "s"} attached to this plan.` : "Nova will show the sources behind current conditions and preparation advice."}</p>{output?.sources?.slice(0, 5).map((source, index) => source.url ? <a key={`${source.url}-${index}`} className={styles.sourceLink} href={source.url} target="_blank" rel="noopener noreferrer">Source {index + 1} <ExternalLink size={12} /></a> : null)}{!output?.sources?.length && <span className={styles.sourceStatus}><span className={styles.statusDot} /> Sources will appear here</span>}</CardContent></Card></aside></div>
   </div>;
 }
 
-function PlanBuildScreen({ draft, agentName, stage, onBack }: { draft: PlanDraft; agentName: string; stage?: string; onBack: () => void }) {
+function PlanBuildScreen({ draft, agentName, stage, error, onRetry, onBack }: { draft: PlanDraft; agentName: string; stage?: string; error?: string | null; onRetry?: () => void; onBack: () => void }) {
+  const failed = Boolean(error);
   const stageLabel = stage ? stage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "Starting";
   return <div className={styles.planBuildPage} aria-live="polite">
     <Card className={styles.planBuildCard}>
       <CardContent>
         <div className={styles.planBuildIcon}><Sparkles size={22} aria-hidden="true" /></div>
         <p className={styles.eyebrow}><span aria-hidden="true">✦</span> {agentName} travel planning</p>
-        <h1>Building your preparation plan</h1>
-        <p className={styles.planBuildCopy}>The agent is shaping your itinerary for {draft.destination}, then preparing the conditions and safety details you’ll want before you go.</p>
-        <p className={styles.planBuildStage}>Current stage: {stageLabel}</p>
-        <div className={styles.planBuildSteps}>
+        <h1>{failed ? "Travel research could not finish" : "Building your preparation plan"}</h1>
+        <p className={styles.planBuildCopy}>{failed ? `The agent did not produce a complete, source-linked trip for ${draft.destination}.` : `The agent is shaping your itinerary for ${draft.destination}, then preparing the conditions and safety details you’ll want before you go.`}</p>
+        <p className={styles.planBuildStage}>{failed ? "Pipeline status: Failed" : `Current stage: ${stageLabel}`}</p>
+        {failed ? <p className={styles.planBuildError} role="alert">{error}</p> : <div className={styles.planBuildSteps}>
           <div className={styles.planBuildStep}><span className={styles.planBuildSpinner} aria-hidden="true" /><div><strong>Building the trip shape</strong><span>{draft.startDate || draft.endDate ? formatRange(draft.startDate, draft.endDate) : "Flexible dates"} · {draft.pace} pace</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Preparing current-condition research</strong><span>Weather, UV, altitude, health, water, and route context</span></div></div>
           <div className={styles.planBuildStep}><span className={styles.planBuildDot} aria-hidden="true" /><div><strong>Assembling the itinerary output</strong><span>Source-linked preparation prompts for review</span></div></div>
-        </div>
+        </div>}
         <p className={styles.planBuildNote}>This may take a moment. Nothing is booked or purchased.</p>
-        <Button variant="secondary" onClick={onBack}>Back to trips</Button>
+        {failed && onRetry ? <Button variant="secondary" onClick={onRetry}>Retry research</Button> : <Button variant="secondary" onClick={onBack}>Back to trips</Button>}
+        {failed && <button className={styles.backButton} type="button" onClick={onBack}>Back to trips</button>}
       </CardContent>
     </Card>
   </div>;
@@ -292,6 +307,7 @@ export function RoutesPage({ userName, userImage }: Props) {
   const [saved, setSaved] = useState(false);
   const [planBuilding, setPlanBuilding] = useState(false);
   const [planBuildStage, setPlanBuildStage] = useState<string | undefined>();
+  const [planBuildError, setPlanBuildError] = useState<string | null>(null);
   const [collection, setCollection] = useState<TripCollection>(emptyCollection);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
@@ -360,22 +376,20 @@ export function RoutesPage({ userName, userImage }: Props) {
   async function submitDraft(next: PlanDraft) {
     setDraft(next);
     setSaved(false);
+    setPlanBuildError(null);
     setPlanBuilding(true);
     setPlanBuildStage("starting");
     setView("plan");
     try {
       const response = await proxyFetch("/agent/trips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "scratch", destination: next.destination, startDate: next.startDate || null, endDate: next.endDate || null, activities: next.activities, pace: next.pace }) });
-      if (response.ok) {
-        const payload = await response.json() as { trip?: TripRecord };
-        if (payload.trip) {
-          setDraft(draftFromTrip(payload.trip));
-          setSaved(true);
-          await processTripPipeline(payload.trip);
-          await loadTrips();
-        }
-      }
-    } catch {
-      // Keep the draft visible; it is not presented as saved when Drive is unavailable.
+      if (!response.ok) throw new Error("The trip could not be saved. Try again.");
+      const payload = await response.json() as { trip?: TripRecord };
+      if (!payload.trip) throw new Error("The trip was saved without a usable trip record.");
+      setDraft(draftFromTrip(payload.trip));
+      setSaved(true);
+      if (await processTripPipeline(payload.trip)) await loadTrips();
+    } catch (error) {
+      setPlanBuildError(error instanceof Error ? error.message : "The trip could not be prepared.");
     } finally {
       setPlanBuilding(false);
     }
@@ -384,6 +398,7 @@ export function RoutesPage({ userName, userImage }: Props) {
   async function openTrip(trip: TripRecord) {
     setDraft(draftFromTrip(trip));
     setSaved(true);
+    setPlanBuildError(null);
     setView("plan");
     if (trip["agent-pipeline"] === "complete" && trip["agent-pipeline-output"]) {
       setPlanBuilding(false);
@@ -394,33 +409,50 @@ export function RoutesPage({ userName, userImage }: Props) {
     await processTripPipeline(trip);
   }
 
-  async function processTripPipeline(trip: TripRecord) {
+  async function processTripPipeline(trip: TripRecord): Promise<boolean> {
+    setPlanBuildError(null);
     try {
       const response = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline`, { method: "POST" });
-      if (response.ok) {
-        const payload = await response.json() as { id?: string | null; status?: string; stage?: string; trip?: TripRecord; error?: string };
-        if (payload.trip) setDraft(draftFromTrip(payload.trip));
-        setPlanBuildStage(payload.stage || payload.trip?.["agent-pipeline-stage"] || payload.status);
-        if (payload.id && payload.status !== "complete") {
-            let status = payload.status;
-            while (status !== "complete" && status !== "failed") {
-            await new Promise((resolve) => window.setTimeout(resolve, 500));
-            const pollResponse = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline/${encodeURIComponent(payload.id)}`);
-            if (!pollResponse.ok) break;
-            const next = await pollResponse.json() as { status?: string; stage?: string; trip?: TripRecord; error?: string };
-            status = next.status || "queued";
-            setPlanBuildStage(next.stage || next.trip?.["agent-pipeline-stage"] || status);
-            if (next.trip) setDraft(draftFromTrip(next.trip));
-          }
-        }
+      if (!response.ok) throw new Error("The travel-planning pipeline could not be started.");
+      const payload = await response.json() as { id?: string | null; status?: string; stage?: string; trip?: TripRecord; error?: string };
+      if (payload.trip) setDraft(draftFromTrip(payload.trip));
+      setPlanBuildStage(payload.stage || payload.trip?.["agent-pipeline-stage"] || payload.status);
+      if (!payload.id) {
+        if (payload.status === "complete" && payload.trip?.["agent-pipeline-output"]) return true;
+        throw new Error(payload.error || "The pipeline returned no run to poll.");
       }
-    } catch {
-      // Keep the saved trip visible if the pipeline cannot be reached.
+
+      let status = payload.status || "queued";
+      let latest = payload;
+      while (status !== "complete" && status !== "failed") {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const pollResponse = await proxyFetch(`/agent/trips/${encodeURIComponent(trip.id)}/pipeline/${encodeURIComponent(payload.id)}`);
+        if (!pollResponse.ok) throw new Error("The travel-planning pipeline status could not be read.");
+        latest = await pollResponse.json() as { status?: string; stage?: string; trip?: TripRecord; error?: string };
+        status = latest.status || "queued";
+        setPlanBuildStage(latest.stage || latest.trip?.["agent-pipeline-stage"] || status);
+        if (latest.trip) setDraft(draftFromTrip(latest.trip));
+      }
+      if (status !== "complete" || !latest.trip?.["agent-pipeline-output"]) {
+        throw new Error(latest.error || "The pipeline stopped before producing a complete trip plan.");
+      }
+      return true;
+    } catch (error) {
+      setPlanBuildError(error instanceof Error ? error.message : "The travel-planning pipeline could not finish.");
+      return false;
     } finally {
       setPlanBuilding(false);
     }
   }
 
+  function retryPlanBuild() {
+    if (!draft?.id) return;
+    setPlanBuildError(null);
+    setPlanBuilding(true);
+    setPlanBuildStage("retrying");
+    void processTripPipeline({ id: draft.id, kind: draft.kind, destination: draft.destination, startDate: draft.startDate, endDate: draft.endDate, activities: draft.activities, pace: draft.pace, phase: "current" });
+  }
+
   const overviewProps = { agentName, studyMeStatus, studyMeStatusLoading, collection, loading, syncing, syncMessage, onSync: () => void syncTrips(), onOpen: openTrip, onCreatePlan: (next: PlanDraft) => void submitDraft(next) };
-  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} onBack={() => { setPlanBuilding(false); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
+  return <><AppHeader userImage={userImage} userName={userName} initials={initials} pageTitle="Trips" /><PageShell>{view === "overview" ? <Overview {...overviewProps} /> : draft ? planBuilding || planBuildError ? <PlanBuildScreen draft={draft} agentName={agentName} stage={planBuildStage} error={planBuildError} onRetry={retryPlanBuild} onBack={() => { setPlanBuilding(false); setPlanBuildError(null); setView("overview"); }} /> : <Workspace draft={draft} saved={saved} onBack={() => setView("overview")} /> : <Overview {...overviewProps} />}</PageShell><FloatingAssistant /></>;
 }

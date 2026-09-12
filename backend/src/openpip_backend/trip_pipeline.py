@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import re
 from datetime import UTC, date, datetime
@@ -25,6 +26,7 @@ from .insight_gathering import get_insight_gathering_login_status
 _INPUT_FOLDER = "OpenPip/memory/insights_gathering/manifest"
 _OUTPUT_FOLDER = "OpenPip/travel/trips"
 _RUN_FOLDER = "OpenPip/travel/trips/manifest"
+_logger = logging.getLogger(__name__)
 
 _TRIP_TERMS = {
     "airport", "boarding", "car rental", "check-in", "confirmation", "flight",
@@ -258,10 +260,11 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
     destination = str(record.get("destination") or "").strip()
     dates = f"{record.get('startDate') or 'flexible'} to {record.get('endDate') or 'flexible'}"
     activities = ", ".join(str(value) for value in record.get("activities") or []) or "general travel"
+    is_itinerary_stage = focus.startswith("a practical")
     schema = (
         '{"overview":"short summary","signals":[{"category":"weather|temperature|uv|altitude|health|disease|animals|water|fire|volcanic_activity|earthquake|tsunami|air_quality|gear|route|security|kidnapping","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
-        if focus != "a practical day-by-day itinerary and route context for the stated activities"
-        else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
+        if not is_itinerary_stage
+        else '{"overview":"short summary","routeSummary":"route context and what still needs confirmation","stays":[{"name":"...","area":"...","type":"hotel|hostel|camping|other","detail":"why this is a useful base","safety":"access and safety notes"}],"places":[{"name":"...","type":"attraction|trail|viewpoint|museum|other","detail":"what to see or do","route":"how it fits the route"}],"days":[{"date":"YYYY-MM-DD or null","title":"...","detail":"...","route":"...","conditions":"..."}],"signals":[{"category":"gear|route","title":"...","detail":"...","severity":"info|caution|urgent"}],"preparation":[{"title":"...","detail":"..."}]}'
     )
     return (
         "You are a stage in a travel-planning agent pipeline. Use Nova web "
@@ -287,6 +290,11 @@ def _trip_prompt(record: dict[str, Any], focus: str) -> str:
         "marked or maintained trail from an official land manager or reputable trail "
         "source; explicitly check for drainage systems, washes, gullies, service roads, "
         "and informal paths that could be misidentified.\n\n"
+        "For a real trip proposal, research several source-verifiable places to stay "
+        "or safe lodging areas and several things to see or do. Give reasons, access "
+        "context, and safety notes; these are recommendations only, never bookings or "
+        "guarantees of availability. If a place or route cannot be verified, say so and "
+        "do not invent it.\n\n"
         "Return JSON only. Do not book, purchase, or invent availability. Do not "
         "use private email, calendar, passport, or medical data. Tie warnings to "
         "grounded sources and describe uncertainty. This is preparation guidance, "
@@ -321,9 +329,34 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
         for item in signals[:16]
         if isinstance(item, dict)
     ]
+    stays = output.get("stays") if isinstance(output.get("stays"), list) else []
+    normalized_stays = [
+        {
+            "name": str(item.get("name") or "Unverified stay option")[:160],
+            "area": str(item.get("area") or "Area requires confirmation")[:120],
+            "type": str(item.get("type") or "other")[:40],
+            "detail": str(item.get("detail") or "Verify this lodging option before relying on it.")[:500],
+            "safety": str(item.get("safety") or "Review current neighborhood and access conditions.")[:400],
+        }
+        for item in stays[:8]
+        if isinstance(item, dict)
+    ]
+    places = output.get("places") if isinstance(output.get("places"), list) else []
+    normalized_places = [
+        {
+            "name": str(item.get("name") or "Unverified place")[:160],
+            "type": str(item.get("type") or "other")[:40],
+            "detail": str(item.get("detail") or "Verify this place before relying on it.")[:500],
+            "route": str(item.get("route") or "Route context requires confirmation.")[:400],
+        }
+        for item in places[:12]
+        if isinstance(item, dict)
+    ]
     return {
         "overview": str(output.get("overview") or f"Preparation plan for {record.get('destination')}.")[:800],
         "routeSummary": str(output.get("routeSummary") or "Confirm the route and save an offline fallback before departure.")[:500],
+        "stays": normalized_stays,
+        "places": normalized_places,
         "days": normalized_days,
         "preparation": normalized_preparation,
         "signals": normalized_signals,
@@ -333,11 +366,11 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
 
 async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[str, Any]:
     """Run separate grounded stages and validate the assembled output."""
-    combined: dict[str, Any] = {"days": [], "preparation": [], "signals": [], "sources": []}
+    combined: dict[str, Any] = {"days": [], "preparation": [], "signals": [], "sources": [], "stays": [], "places": []}
     stages = [
         ("conditions", "weather, extreme heat and cold, wind chill, frostbite, heat stroke, hyperthermia, hypothermia, UV, altitude, water availability, wildfire, volcanic activity, ash and volcanic gas such as SO2, earthquakes, tsunami risk and alerts, air quality, and official closures or exclusion zones"),
         ("health and hazards", "vaccination and entry guidance, disease exposure, animals and wildlife deterrence such as bear spray or bear bells where relevant and lawful, heat stroke and hyperthermia precautions, hypothermia and cold-exposure precautions, volcanic-ash and gas health precautions, earthquake and tsunami preparedness, neighborhood-level crime and personal safety around hotels and hostels, tourist-targeted pickpocketing and theft hotspots near transit hubs and attractions, current official travel advisories for U.S. citizens including Do Not Travel or higher-risk designations, conflict, terrorism, kidnapping and hostage-taking risks for hikers and rock-climbers, arbitrary detention, sanctions, entry constraints, permits, escorts, route restrictions, security, and emergency considerations"),
-        ("itinerary", "a practical day-by-day itinerary, route context, and activity-specific gear requirements; verify real marked hiking trails using official park or land-manager maps, trailhead information, and a reputable trail dataset; do not mistake a drainage channel, wash, gully, service road, social path, or terrain line that merely looks like a trail for a maintained route, and flag any route that cannot be verified; for camping assess water carrying and tent conditions, moisture-wicking layers, warm layers, and water-resistant clothing; for hiking or climbing assess hiking gloves and route-specific equipment such as cable or exposed-rock sections, using Half Dome in Yosemite only as an example and never assuming it applies without verifying the route; where wildlife risk warrants it, include bear spray, bear bells, food storage, and local rules rather than assuming those items are universally appropriate"),
+        ("itinerary", "a practical real-trip proposal with a day-by-day itinerary, route context, several source-verifiable places to stay or safe lodging areas, and several verified things to see or do; propose recommendations only, never bookings; verify real marked hiking trails using official park or land-manager maps, trailhead information, and a reputable trail dataset; do not mistake a drainage channel, wash, gully, service road, social path, or terrain line that merely looks like a trail for a maintained route, and flag any route that cannot be verified; for camping assess water carrying and tent conditions, moisture-wicking layers, warm layers, and water-resistant clothing; for hiking or climbing assess hiking gloves and route-specific equipment such as cable or exposed-rock sections, using Half Dome in Yosemite only as an example and never assuming it applies without verifying the route; where wildlife risk warrants it, include bear spray, bear bells, food storage, and local rules rather than assuming those items are universally appropriate"),
     ]
     for stage, focus in stages:
         job["stage"] = stage
@@ -346,6 +379,8 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
             combined["days"].extend(result.get("days") or [])
             combined["routeSummary"] = result.get("routeSummary")
             combined["overview"] = result.get("overview")
+            combined["stays"].extend(result.get("stays") or [])
+            combined["places"].extend(result.get("places") or [])
         combined["preparation"].extend(result.get("preparation") or [])
         combined["signals"].extend(result.get("signals") or [])
         combined["sources"].extend(sources)
@@ -364,7 +399,7 @@ async def _research_trip(record: dict[str, Any], job: dict[str, Any]) -> dict[st
     output = _normalize_output(combined, list(dict.fromkeys(combined["sources"])), record)
     categories = {str(item.get("category") or "").strip().casefold() for item in output["signals"] if isinstance(item, dict)}
     missing = sorted(_REQUIRED_SIGNAL_CATEGORIES - categories)
-    if not output["days"] or not output["preparation"] or not output["signals"] or not output["sources"] or missing:
+    if not output["days"] or not output["preparation"] or not output["signals"] or not output["sources"] or not output["stays"] or not output["places"] or missing:
         raise ValueError("Travel-planning pipeline is missing required categories: " + ", ".join(missing))
     return output
 
@@ -388,6 +423,7 @@ async def _run_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str)
         await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
         job.update({"status": "complete", "stage": "complete", "trip": _public_trip(record)})
     except Exception as error:
+        _logger.exception("Travel-planning pipeline failed for trip %s", trip_id)
         job.update({"status": "failed", "stage": "failed", "error": str(error)[:500]})
         try:
             files = await list_json_files(access_token, _OUTPUT_FOLDER)
@@ -422,7 +458,7 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
     record["agent-pipeline-run-id"] = run_id
     record["agent-pipeline-started-at"] = datetime.now(UTC).isoformat()
     await write_json_file(access_token, _OUTPUT_FOLDER, f"{trip_id}.json", record)
-    job = {"id": run_id, "tripId": trip_id, "status": "queued"}
+    job = {"id": run_id, "tripId": trip_id, "status": "queued", "stage": "queued", "trip": _public_trip(record)}
     _agent_pipeline_jobs[run_id] = job
     job["task"] = asyncio.create_task(_run_trip_agent_pipeline(access_token, trip_id, run_id))
     return {key: value for key, value in {**job, "trip": _public_trip(record)}.items() if key != "task"}
@@ -430,14 +466,14 @@ async def queue_trip_agent_pipeline(access_token: str, trip_id: str) -> dict[str
 
 async def get_trip_agent_pipeline(access_token: str, trip_id: str, run_id: str) -> dict[str, Any]:
     """Return the current status for one queued travel-planning run."""
+    job = _agent_pipeline_jobs.get(run_id)
+    if job is not None:
+        return {key: value for key, value in job.items() if key != "task"}
     files = await list_json_files(access_token, _OUTPUT_FOLDER)
     record = files.get(trip_id)
     if not isinstance(record, dict) or not record.get("destination"):
         raise KeyError(trip_id)
-    job = _agent_pipeline_jobs.get(run_id)
-    if job is None:
-        return {"id": run_id, "tripId": trip_id, "status": record.get("agent-pipeline", "queued"), "trip": _public_trip(record)}
-    return {key: value for key, value in {**job, "trip": job.get("trip") or _public_trip(record)}.items() if key != "task"}
+    return {"id": run_id, "tripId": trip_id, "status": record.get("agent-pipeline", "queued"), "trip": _public_trip(record)}
 
 
 async def sync_trip_library(access_token: str) -> dict[str, Any]:

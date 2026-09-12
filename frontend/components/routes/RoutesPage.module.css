@@ -480,6 +480,24 @@
   font-size: var(--font-size-xs);
 }
 
+.planBuildError {
+  max-width: 520px;
+  margin: 18px auto 20px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #c94b4b 30%, var(--color-border));
+  border-radius: 12px;
+  background: color-mix(in srgb, #c94b4b 8%, var(--color-surface));
+  color: #9f3030;
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  text-align: left;
+}
+
+.planBuildCard .backButton {
+  display: block;
+  margin: 16px auto 0;
+}
+
 @keyframes planBuildPulse {
   50% { transform: scale(1.06); box-shadow: 0 8px 24px color-mix(in srgb, var(--color-accent) 20%, transparent); }
 }
@@ -797,6 +815,57 @@
   gap: 12px;
 }
 
+.recommendationGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.recommendationCard {
+  padding: 0;
+  overflow: hidden;
+}
+
+.recommendationList {
+  display: grid;
+  gap: 0;
+  padding: 0 24px 24px;
+}
+
+.recommendationRow {
+  padding: 14px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.recommendationRow:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.recommendationRow strong,
+.recommendationRow span,
+.recommendationRow p,
+.recommendationRow small {
+  display: block;
+}
+
+.recommendationRow strong {
+  font-size: var(--font-size-sm);
+}
+
+.recommendationRow span,
+.recommendationRow p,
+.recommendationRow small {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+}
+
+.recommendationRow p {
+  margin-bottom: 0;
+}
+
 .priorityAction {
   display: flex;
   align-items: flex-start;
@@ -1020,7 +1089,8 @@
 
 @media (max-width: 820px) {
   .entryGrid,
-  .workspaceGrid {
+  .workspaceGrid,
+  .recommendationGrid {
     grid-template-columns: 1fr;
   }
 
