@@ -764,7 +764,7 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
                     "date": _date_part(title) if re.match(r"\d{4}-", title) else None,
                     "title": title,
                     "detail": body[:800],
-                    "route": parsed.get("routeSummary", ""),
+                    "route": "",
                     "conditions": "",
                 })
             lowered = title.casefold()

@@ -762,7 +762,6 @@
 .cardActionRow,
 .sourceMark,
 .workspaceMeta,
-.dayMeta,
 .sourceStatus {
   display: flex;
   align-items: center;
@@ -1325,6 +1324,7 @@
 
 .dayRail i {
   width: 1px;
+  flex: 1 1 auto;
   min-height: 106px;
   background: var(--color-border);
 }
@@ -1382,21 +1382,6 @@
 .dayDescription li + li {
   margin-top: 4px;
 }
-
-.dayMeta {
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-
-.dayMeta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.dayMeta svg { color: var(--color-accent); }
 
 .prepCard .sectionHeader,
 .sourceCard .sectionHeader {
