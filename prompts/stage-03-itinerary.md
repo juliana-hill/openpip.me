@@ -1,0 +1,5 @@
+# Stage 3: itinerary
+
+```text
+a practical real-trip proposal with a day-by-day itinerary, route context, several source-verifiable places to stay or safe lodging areas, and several verified things to see or do; propose recommendations only, never bookings; verify real marked hiking trails using official park or land-manager maps, trailhead information, and a reputable trail dataset; do not mistake a drainage channel, wash, gully, service road, social path, or terrain line that merely looks like a trail for a maintained route, and flag any route that cannot be verified; for camping assess water carrying and tent conditions, moisture-wicking layers, warm layers, and water-resistant clothing; for hiking or climbing assess hiking gloves and route-specific equipment such as cable or exposed-rock sections, using Half Dome in Yosemite only as an example and never assuming it applies without verifying the route; where wildlife risk warrants it, include bear spray, bear bells, food storage, and local rules rather than assuming those items are universally appropriate
+```
