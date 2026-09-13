@@ -2,9 +2,9 @@
   "plugin": "devpost-hackathon",
   "version": 2,
   "hackathon": {
-    "slug": "agentsforhumans",
-    "name": "Agents for Humans Hackathon",
-    "url": "https://agentsforhumans.devpost.com",
+    "slug": "call-e",
+    "name": "CALL-E: Your Code Is Calling",
+    "url": "https://call-e.devpost.com",
     "selected": true,
     "source": "known"
   },
@@ -20,7 +20,6 @@
   },
   "completed_stages": [
     "review-hackathon-rules",
-    "resources",
     "submit-project"
   ],
   "rules_acknowledged": true,
@@ -34,12 +33,9 @@
   "submission": {
     "draft_file": "devpost-submission.md",
     "status": "submitted",
-    "project_slug": "openpip",
-    "project_url": "https://devpost.com/software/openpip",
-    "submitted_at": "2026-09-10T23:46:41.614-04:00",
-    "artifacts": {
-      "architecture_diagram": "docs/agents-for-humans/openpip-agents-for-humans-architecture.pdf"
-    }
+    "project_slug": "openpip-open-performance-improvement-plan-qkdloj",
+    "project_url": "https://devpost.com/software/openpip-open-performance-improvement-plan-qkdloj",
+    "submission_id": 1146791
   },
   "current_stage": "submit-project",
   "next_command": "hackathon-map"

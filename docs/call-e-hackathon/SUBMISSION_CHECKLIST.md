@@ -22,14 +22,15 @@ a dedicated real account and connected data.
 
 ## ⚠️ The part that's easy to get wrong
 
-- [ ] **Open a pull request against CALL-E's shared repo, not your own.** Target: `https://github.com/CALLE-AI/awesome-phone-call-agents`. Your own OpenPip repo is where the real build lives — the PR is a separate, reusable contribution (the "confirm/reschedule appointment via call" skill) added under the Contribution Area their README specifies (`Agent Skills` is the likely fit).
-- [ ] Read that repo's README before opening the PR — follow its folder structure / format exactly.
+- [x] **Open a pull request against CALL-E's shared repo, not your own.** Target: `https://github.com/CALLE-AI/awesome-phone-call-agents`. Your own OpenPip repo is where the real build lives — the PR is a separate, reusable contribution (the "confirm/reschedule appointment via call" skill) added under the Contribution Area their README specifies (`Agent Skills` is the likely fit). Open PR: https://github.com/CALLE-AI/awesome-phone-call-agents/pull/520
+- [x] Read that repo's README before opening the PR — follow its folder structure / format exactly.
 
 ## Devpost submission form
 
 - [x] Project name — **OpenPip - Open Performance Improvement Plan**
 - [x] Elevator pitch
 - [x] Project story (Inspiration / What it does / How we built it / Challenges / What's next)
+- [x] Devpost About updated with the original OpenPip introduction plus detailed CALL-E execution flow and the public demo's no-login/no-call boundary
 - [x] Built-with tags (CALL-E, Strands-Agents-SDK, MCP, TypeScript)
 - [x] "Try it out" link — `demo.openpip.me`
 - [x] Submitter type — Individual
@@ -37,13 +38,13 @@ a dedicated real account and connected data.
 - [x] "Which best describes the primary use case" — Appointment scheduling & confirmation
 - [x] One-sentence real-world task description
 - [x] Eligibility checkboxes (age of majority, eligible jurisdiction, not a sponsor employee)
-- [ ] **Project submission pull request URL** (required) — currently holds `https://github.com/juliana-hill/openpip.me` (wrong — that's a repo link, not a PR; auto-filled, not typed). Replace with the actual PR URL once opened against `CALLE-AI/awesome-phone-call-agents`.
-- [ ] **⚠️ Verify:** "Email address associated with your CALL-E account" currently shows `hello@openpip.me` — confirm this is the email your actual CALL-E account is registered under.
-- [ ] **⚠️ Replace:** "Testing instructions for application" currently has placeholder-looking text (`testing@testing.com` / `testing@testing.com`) — needs real instructions once `demo.openpip.me` exists (or "no login required" if it doesn't need one).
-- [ ] **Video demo link** (required, **max 3 minutes** — shorter cap than AWS's 5, judges aren't required to watch past 3:00) — must show footage of the project actually working, uploaded publicly to YouTube or Vimeo
+- [x] **Project submission pull request URL** (required) — updated in the Devpost form to `https://github.com/CALLE-AI/awesome-phone-call-agents/pull/520`.
+- [x] **Email address associated with your CALL-E account** — confirmed as `hello@openpip.me`.
+- [x] **Testing instructions for application** — updated to explain the no-login public demo and approval-gated live CALL-E path.
+- [x] **Video demo link** (required, **max 3 minutes** — shorter cap than AWS's 5, judges aren't required to watch past 3:00) — trimmed to 2:58 in YouTube Editor
 - [ ] Optional: URL to functional demo app — already set to `demo.openpip.me`
-- [ ] Final Terms & Conditions agreement checkbox
-- [ ] **Submit** (only after the PR, email, and testing instructions above are all real)
+- [x] Final Terms & Conditions agreement checkbox
+- [x] **Submit** — Devpost returned `Submitted` and the public project read-back succeeded.
 
 ## Optional bonus
 
