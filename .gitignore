@@ -36,4 +36,7 @@ backend/data/
 .DS_Store
 *.log
 *.mp4
+output/
+tmp/
+backend/src/openpip_backend/data/
 client_secret_*
