@@ -225,7 +225,7 @@ def _render_existing_research(research: dict[str, Any] | None) -> str:
     days = research.get("days") if isinstance(research.get("days"), list) else []
     if days:
         lines.append("### Existing itinerary days")
-        for item in days[:7]:
+        for item in days:
             if not isinstance(item, dict):
                 continue
             title = _context_value(item.get("title"), 120) or "Itinerary day"
@@ -445,6 +445,15 @@ def _date_part(value: Any) -> str | None:
         except ValueError:
             return None
     return None
+
+
+def _itinerary_day_limit(record: dict[str, Any]) -> int:
+    """Keep the full inclusive trip range, including the departure date."""
+    start = _date_part(record.get("startDate"))
+    end = _date_part(record.get("endDate"))
+    if not start or not end:
+        return 7
+    return max(1, (date.fromisoformat(end) - date.fromisoformat(start)).days + 1)
 
 
 def _tokens(text: str) -> set[str]:
@@ -1202,7 +1211,7 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
     grounded_sources = list(dict.fromkeys(url for url in (_http_url(value) for value in sources) if url))
     days = output.get("days") if isinstance(output.get("days"), list) else []
     normalized_days = []
-    for index, item in enumerate(days[:7], start=1):
+    for index, item in enumerate(days[:_itinerary_day_limit(record)], start=1):
         if not isinstance(item, dict):
             continue
         normalized_days.append({

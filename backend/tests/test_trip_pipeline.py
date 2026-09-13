@@ -233,6 +233,24 @@ def test_normalize_output_filters_recommendations_without_required_fields() -> N
     assert _has_recommendations(output)
 
 
+def test_normalize_output_keeps_inclusive_departure_day() -> None:
+    days = [
+        {"date": f"2026-10-{day:02d}", "title": f"Day {day}", "detail": "Explore."}
+        for day in range(1, 8)
+    ]
+    days.insert(0, {"date": "2026-09-30", "title": "Arrival", "detail": "Arrive."})
+
+    normalized = _normalize_output(
+        {"days": days},
+        [],
+        {"destination": "Tokyo, Japan", "startDate": "2026-09-30", "endDate": "2026-10-07"},
+    )
+
+    assert len(normalized["days"]) == 8
+    assert normalized["days"][0]["date"] == "2026-09-30"
+    assert normalized["days"][-1]["date"] == "2026-10-07"
+
+
 def test_normalize_output_preserves_item_urls_without_citation_metadata() -> None:
     output = _normalize_output(
         {
