@@ -287,6 +287,17 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
 
   const load = useCallback(() => fetchPage(1), [fetchPage]);
 
+  const refreshAfterTagManagement = useCallback((updatedTags?: Tag[]) => {
+    // Tag CRUD is performed in Gmail. Refresh both the label list and the
+    // message page after the modal closes so a rename/delete cannot leave a
+    // stale local label projection visible until a full page reload.
+    if (updatedTags) {
+      tagsRef.current = updatedTags;
+      onTagsLoaded(updatedTags);
+    }
+    void loadTags().then(() => load());
+  }, [load, loadTags, onTagsLoaded]);
+
   useEffect(() => {
     const initialLoad = window.setTimeout(() => { void load(); void loadTags(); }, 0);
     return () => window.clearTimeout(initialLoad);
@@ -566,7 +577,7 @@ export function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveT
         tagObjects={visibleTags}
         active={activeTag}
         onChange={onActiveTagChange}
-        onManageTags={loadTags}
+        onManageTags={refreshAfterTagManagement}
         selectedEmails={emails.filter((e) => selected.has(e.id))}
         onArchive={() => handleArchive(Array.from(selected))}
         onDelete={() => handleDelete(Array.from(selected))}

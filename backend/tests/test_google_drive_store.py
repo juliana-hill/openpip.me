@@ -70,6 +70,8 @@ def test_read_migrates_the_pre_rename_filename_instead_of_orphaning_it(monkeypat
     assert not create_calls
     assert len(files) == 1
     assert files["file-1"]["name"] == gds._APP_DATA_FILE
+    assert "tags" not in data
+    assert "messageTags" not in data
 
 
 def test_write_creates_the_new_filename_when_no_file_exists_yet(monkeypatch) -> None:
@@ -79,7 +81,14 @@ def test_write_creates_the_new_filename_when_no_file_exists_yet(monkeypatch) -> 
     monkeypatch.setattr(httpx.AsyncClient, "send", _fake_drive(files, rename_calls, create_calls))
 
     import asyncio
-    asyncio.run(gds.write_drive_app_data("token", {"userData": {"agentName": "Nova"}}))
+    saved = asyncio.run(gds.write_drive_app_data("token", {
+        "tags": [{"id": "local-tag"}],
+        "messageTags": {"gmail-message": ["local-tag"]},
+        "userData": {"agentName": "Nova"},
+    }))
 
     assert create_calls == [gds._APP_DATA_FILE]
     assert not rename_calls
+    assert saved == {"version": 1, "userData": {"agentName": "Nova"}, "contacts": {}}
+    assert "tags" not in json.loads(files["file-1"]["content"])
+    assert "messageTags" not in json.loads(files["file-1"]["content"])

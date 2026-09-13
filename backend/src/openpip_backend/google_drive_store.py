@@ -105,11 +105,17 @@ async def _find_and_migrate_legacy_file(client: httpx.AsyncClient, access_token:
 
 
 async def read_drive_app_data(access_token: str) -> dict[str, Any]:
-    """Read OpenPip's JSON document from the signed-in user's app-data space."""
+    """Read OpenPip settings/tracking data from the user's app-data space.
+
+    Gmail labels and their message membership are intentionally not part of
+    this document. Inbox reads them from Gmail and inbox writes use
+    ``messages.modify`` directly, so a stale Drive projection cannot make the
+    UI disagree with Gmail.
+    """
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         file_id = await _find_file(client, access_token)
         if not file_id:
-            return {"version": 1, "tags": [], "messageTags": {}, "userData": {}}
+            return {"version": 1, "userData": {}, "contacts": {}}
         response = await _request(
             client,
             "GET",
@@ -122,11 +128,9 @@ async def read_drive_app_data(access_token: str) -> dict[str, Any]:
     except ValueError:
         payload = {}
     if not isinstance(payload, dict):
-        return {"version": 1, "tags": [], "messageTags": {}, "userData": {}}
+        return {"version": 1, "userData": {}, "contacts": {}}
     return {
         "version": 1,
-        "tags": payload.get("tags") if isinstance(payload.get("tags"), list) else [],
-        "messageTags": payload.get("messageTags") if isinstance(payload.get("messageTags"), dict) else {},
         "userData": payload.get("userData") if isinstance(payload.get("userData"), dict) else {},
         # Keyed by Google People resourceName (e.g. "people/c123...") — this
         # is only the small tracking index. Per-contact CRM wrapper fields are
@@ -137,11 +141,13 @@ async def read_drive_app_data(access_token: str) -> dict[str, Any]:
 
 
 async def write_drive_app_data(access_token: str, data: dict[str, Any]) -> dict[str, Any]:
-    """Create or replace OpenPip's app-data JSON document."""
+    """Create or replace OpenPip's settings/tracking app-data document.
+
+    Do not add Gmail labels or message-to-label mappings here. Those are
+    provider-owned state and must be changed through the Gmail API.
+    """
     payload = {
         "version": 1,
-        "tags": data.get("tags") if isinstance(data.get("tags"), list) else [],
-        "messageTags": data.get("messageTags") if isinstance(data.get("messageTags"), dict) else {},
         "userData": data.get("userData") if isinstance(data.get("userData"), dict) else {},
         "contacts": data.get("contacts") if isinstance(data.get("contacts"), dict) else {},
     }

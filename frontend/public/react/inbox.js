@@ -412,9 +412,9 @@ function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTags, sele
       TagManagerModal,
       {
         tags: tagObjects,
-        onClose: () => {
+        onClose: (updatedTags) => {
           setManaging(false);
-          onManageTags();
+          onManageTags(updatedTags);
         }
       }
     )
@@ -580,20 +580,34 @@ function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onDelete, 
   const assignedTags = tags.filter((t) => assignedNames.has(t.name));
   const handleAssign = async (tag) => {
     setTagOpen(false);
-    const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: email.id, tagId: tag.id })
-    });
-    if (res.ok) onTagsChanged?.({ ...email, tags: [...email.tags, tag.name] });
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, tagId: tag.id })
+      });
+      if (!res.ok) return;
+      const result = await res.json();
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      const nextTags = labelIds ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name) : [...email.tags, tag.name];
+      onTagsChanged?.({ ...email, tags: nextTags });
+    } catch {
+    }
   };
   const handleRemove = async (tag) => {
-    const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: email.id, tagId: tag.id })
-    });
-    if (res.ok) onTagsChanged?.({ ...email, tags: email.tags.filter((n) => n !== tag.name) });
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, tagId: tag.id })
+      });
+      if (!res.ok) return;
+      const result = await res.json();
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      const nextTags = labelIds ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name) : email.tags.filter((name) => name !== tag.name);
+      onTagsChanged?.({ ...email, tags: nextTags });
+    } catch {
+    }
   };
   return /* @__PURE__ */ (0, import_jsx_runtime7.jsxs)("div", { className: `${EmailRow_default.row} ${selected ? EmailRow_default.selected : ""} ${indented ? EmailRow_default.indented : ""}`, onClick: onView, children: [
     /* @__PURE__ */ (0, import_jsx_runtime7.jsx)(
@@ -1163,33 +1177,46 @@ function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBlockSender
   }, [currentEmail.body, currentEmail.id, currentEmail.snippet, renderedEmailSpeechText]);
   const canReadEmailAloud = Boolean(currentEmail.body && (!isHtml(currentEmail.body) || emailSpeechText.trim()));
   const handleAssignTag = async (tagId) => {
-    const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: currentEmail.id, tagId })
-    });
-    if (res.ok) {
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: currentEmail.id, tagId })
+      });
+      if (!res.ok) return;
+      const result = await res.json();
       const tag = tags.find((t) => t.id === tagId);
       if (tag) {
-        const updated = { ...currentEmail, tags: [...currentEmail.tags, tag.name] };
+        const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+        const nextTags = labelIds ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name) : [...currentEmail.tags, tag.name];
+        const updated = { ...currentEmail, tags: nextTags };
         setCurrentEmail(updated);
         onTagsChanged?.(updated);
       }
+    } catch {
+    } finally {
+      setTagDropdownOpen(false);
     }
-    setTagDropdownOpen(false);
   };
   const handleRemoveTag = async (tagId) => {
     const tag = tags.find((t) => t.id === tagId);
     if (!tag) return;
-    const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: currentEmail.id, tagId })
-    });
-    if (res.ok) {
-      const updated = { ...currentEmail, tags: currentEmail.tags.filter((n) => n !== tag.name) };
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: currentEmail.id, tagId })
+      });
+      if (!res.ok) return;
+      const result = await res.json();
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      const updated = {
+        ...currentEmail,
+        tags: labelIds ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name) : currentEmail.tags.filter((n) => n !== tag.name)
+      };
       setCurrentEmail(updated);
       onTagsChanged?.(updated);
+    } catch {
     }
   };
   const handleMarkUnread = async () => {
@@ -1702,6 +1729,13 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     setLoading(false);
   }, [activeTag, initialMessageId, loadTags, onEmailsLoaded]);
   const load = (0, import_react8.useCallback)(() => fetchPage(1), [fetchPage]);
+  const refreshAfterTagManagement = (0, import_react8.useCallback)((updatedTags) => {
+    if (updatedTags) {
+      tagsRef.current = updatedTags;
+      onTagsLoaded(updatedTags);
+    }
+    void loadTags().then(() => load());
+  }, [load, loadTags, onTagsLoaded]);
   (0, import_react8.useEffect)(() => {
     const initialLoad = window.setTimeout(() => {
       void load();
@@ -1949,7 +1983,7 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         tagObjects: visibleTags,
         active: activeTag,
         onChange: onActiveTagChange,
-        onManageTags: loadTags,
+        onManageTags: refreshAfterTagManagement,
         selectedEmails: emails.filter((e) => selected.has(e.id)),
         onArchive: () => handleArchive(Array.from(selected)),
         onDelete: () => handleDelete(Array.from(selected)),

@@ -918,10 +918,16 @@ async def modify_gmail_message_labels(
     *,
     add_label_ids: list[str] | None = None,
     remove_label_ids: list[str] | None = None,
-) -> None:
-    """Add/remove Gmail labels on a message (the Gmail source of truth)."""
+) -> dict[str, Any]:
+    """Add/remove Gmail labels on a message and return Gmail's new state.
+
+    The response is the Gmail ``Message`` resource returned by
+    ``messages.modify``.  Keeping that response available makes it explicit
+    that callers are mutating Gmail itself, rather than updating a local tag
+    projection and assuming the operation succeeded.
+    """
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
-        await _request_json(
+        return await _request_json(
             client,
             "POST",
             f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{quote(message_id, safe='')}/modify",

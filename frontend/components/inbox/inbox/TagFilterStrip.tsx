@@ -8,7 +8,7 @@ type Props = {
   tagObjects: Tag[];
   active: string;
   onChange: (tag: string) => void;
-  onManageTags: () => void;
+  onManageTags: (updatedTags?: Tag[]) => void;
   selectedEmails?: Email[];
   onArchive?: () => void;
   onDelete?: () => void;
@@ -100,7 +100,7 @@ export function TagFilterStrip({ tags, tagObjects, active, onChange, onManageTag
       {managing && (
         <TagManagerModal
           tags={tagObjects}
-          onClose={() => { setManaging(false); onManageTags(); }}
+          onClose={(updatedTags) => { setManaging(false); onManageTags(updatedTags); }}
         />
       )}
     </>

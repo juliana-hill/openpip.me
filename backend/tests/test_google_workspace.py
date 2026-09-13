@@ -7,7 +7,13 @@ import httpx
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import app
-from openpip_backend.google_workspace import _extract_gmail_content, _get_json, create_gmail_draft, update_google_calendar_event
+from openpip_backend.google_workspace import (
+    _extract_gmail_content,
+    _get_json,
+    create_gmail_draft,
+    modify_gmail_message_labels,
+    update_google_calendar_event,
+)
 
 
 def test_google_reads_require_an_oauth_token() -> None:
@@ -308,6 +314,66 @@ def test_inbox_tags_use_gmail_labels_and_message_modify(monkeypatch) -> None:
     listed = client.get("/agent/inbox/tags", headers=headers)
     assert listed.status_code == 200
     assert listed.json() == labels
+
+
+def test_gmail_message_label_modify_uses_the_gmail_messages_endpoint(monkeypatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def fake_request(self, method, url, **kwargs):
+        calls.append({"method": method, "url": url, **kwargs})
+        return httpx.Response(
+            200,
+            json={"id": "message-1", "labelIds": ["INBOX", "Label_2"]},
+            request=httpx.Request(method, url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "request", fake_request)
+
+    modified = asyncio.run(modify_gmail_message_labels(
+        "oauth-token",
+        "message-1",
+        add_label_ids=["Label_2"],
+    ))
+
+    assert modified == {"id": "message-1", "labelIds": ["INBOX", "Label_2"]}
+    assert calls == [{
+        "method": "POST",
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/message-1/modify",
+        "json": {"addLabelIds": ["Label_2"], "removeLabelIds": []},
+        "headers": {"Authorization": "Bearer oauth-token"},
+    }]
+
+
+def test_inbox_tag_route_returns_gmail_label_state_without_drive_wrapper(monkeypatch) -> None:
+    async def fake_labels(_token: str):
+        return [{"id": "Label_2", "name": "Needs reply"}]
+
+    async def fake_modify(_token: str, message_id: str, *, add_label_ids=None, remove_label_ids=None):
+        assert message_id == "message-1"
+        assert add_label_ids == ["Label_2"]
+        assert remove_label_ids is None
+        return {"id": "message-1", "labelIds": ["INBOX", "Label_2"]}
+
+    async def fail_drive(*_args, **_kwargs):
+        raise AssertionError("inbox tag assignment must not use Drive app data")
+
+    monkeypatch.setattr("openpip_backend.app.fetch_gmail_labels", fake_labels)
+    monkeypatch.setattr("openpip_backend.app.modify_gmail_message_labels", fake_modify)
+    monkeypatch.setattr("openpip_backend.app.read_drive_app_data", fail_drive)
+    monkeypatch.setattr("openpip_backend.app.write_drive_app_data", fail_drive)
+
+    response = TestClient(app).post(
+        "/agent/inbox/messages/assign-tag",
+        headers={"x-google-token": "oauth-token"},
+        json={"messageId": "gmail_message-1", "tagId": "Label_2"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "messageId": "gmail_message-1",
+        "labelIds": ["INBOX", "Label_2"],
+    }
 
 
 def test_agent_user_data_is_stored_in_drive_app_data(monkeypatch) -> None:

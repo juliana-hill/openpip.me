@@ -58,21 +58,40 @@ export function EmailRow({ email, tags, selected, onToggleSelect, onArchive, onD
 
   const handleAssign = async (tag: Tag) => {
     setTagOpen(false);
-    const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: email.id, tagId: tag.id }),
-    });
-    if (res.ok) onTagsChanged?.({ ...email, tags: [...email.tags, tag.name] });
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, tagId: tag.id }),
+      });
+      if (!res.ok) return;
+      const result = await res.json() as { labelIds?: unknown };
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      // Use the label IDs returned by Gmail's messages.modify response for
+      // the local render. The row is a cache of provider state, never the
+      // place where that state is stored.
+      const nextTags = labelIds
+        ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name)
+        : [...email.tags, tag.name];
+      onTagsChanged?.({ ...email, tags: nextTags });
+    } catch { /* the provider state was not changed */ }
   };
 
   const handleRemove = async (tag: Tag) => {
-    const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: email.id, tagId: tag.id }),
-    });
-    if (res.ok) onTagsChanged?.({ ...email, tags: email.tags.filter((n) => n !== tag.name) });
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: email.id, tagId: tag.id }),
+      });
+      if (!res.ok) return;
+      const result = await res.json() as { labelIds?: unknown };
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      const nextTags = labelIds
+        ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name)
+        : email.tags.filter((name) => name !== tag.name);
+      onTagsChanged?.({ ...email, tags: nextTags });
+    } catch { /* the provider state was not changed */ }
   };
 
   return (

@@ -1194,7 +1194,7 @@ async def delete_inbox_tag(tag_id: str, token: str = Depends(get_google_token)):
     return {"ok": True}
 
 
-async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool) -> dict[str, bool]:
+async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool) -> dict[str, Any]:
     message_id = str(payload.get("messageId", "")).strip()
     tag_id = str(payload.get("tagId", "")).strip()
     if not message_id or not tag_id:
@@ -1206,7 +1206,7 @@ async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool)
         labels = await fetch_gmail_labels(token)
         if not any(str(label.get("id")) == tag_id for label in labels):
             raise HTTPException(status_code=404, detail="Gmail label not found")
-        await modify_gmail_message_labels(
+        modified = await modify_gmail_message_labels(
             token,
             raw_message_id,
             remove_label_ids=[tag_id] if remove else None,
@@ -1214,10 +1214,18 @@ async def _set_message_tag(payload: dict[str, Any], token: str, *, remove: bool)
         )
     except GoogleApiError as error:
         raise _google_error(error) from error
-    return {"ok": True}
+    # Return the label IDs Gmail reports after the mutation. The browser may
+    # update its rendered row after this succeeds, but Gmail remains the
+    # source of truth and a later inbox load derives tags from these IDs.
+    return {
+        "ok": True,
+        "messageId": message_id,
+        "labelIds": [str(label_id) for label_id in (modified or {}).get("labelIds", []) if label_id],
+    }
 
 
 @app.post("/agent/inbox/messages/assign-tag")
+@app.post("/api/google/gmail/messages/assign-tag")
 async def assign_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
     return await _set_message_tag(payload, token, remove=False)
 
@@ -1263,6 +1271,7 @@ async def mark_inbox_messages_unread(payload: dict[str, Any], token: str = Depen
 
 
 @app.post("/agent/inbox/messages/remove-tag")
+@app.post("/api/google/gmail/messages/remove-tag")
 async def remove_inbox_tag(payload: dict[str, Any], token: str = Depends(get_google_token)):
     return await _set_message_tag(payload, token, remove=True)
 

@@ -116,8 +116,9 @@ for (const providerPath of [
   "/api/google/calendars",
   "/api/google/notebook/pages",
   "/api/google/drive/files",
-  "/api/google/gmail/messages",
-  "/api/google/gmail/count",
+  // All Gmail reads and writes, including label CRUD and messages.modify,
+  // must cross the OAuth token boundary before reaching FastAPI.
+  "/api/google/gmail",
 ]) {
   app.use(providerPath, (req, res) => proxy(req, res, authAgentUpstream));
 }

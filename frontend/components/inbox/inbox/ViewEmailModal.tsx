@@ -113,35 +113,49 @@ export function ViewEmailModal({ email, tags, onClose, onReply, onDelete, onBloc
   const canReadEmailAloud = Boolean(currentEmail.body && (!isHtml(currentEmail.body) || emailSpeechText.trim()));
 
   const handleAssignTag = async (tagId: string) => {
-    const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: currentEmail.id, tagId }),
-    });
-    if (res.ok) {
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/assign-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: currentEmail.id, tagId }),
+      });
+      if (!res.ok) return;
+      const result = await res.json() as { labelIds?: unknown };
       const tag = tags.find((t) => t.id === tagId);
       if (tag) {
-        const updated = { ...currentEmail, tags: [...currentEmail.tags, tag.name] };
+        const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+        const nextTags = labelIds
+          ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name)
+          : [...currentEmail.tags, tag.name];
+        const updated = { ...currentEmail, tags: nextTags };
         setCurrentEmail(updated);
         onTagsChanged?.(updated);
       }
-    }
-    setTagDropdownOpen(false);
+    } catch { /* the provider state was not changed */ }
+    finally { setTagDropdownOpen(false); }
   };
 
   const handleRemoveTag = async (tagId: string) => {
     const tag = tags.find((t) => t.id === tagId);
     if (!tag) return;
-    const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId: currentEmail.id, tagId }),
-    });
-    if (res.ok) {
-      const updated = { ...currentEmail, tags: currentEmail.tags.filter((n) => n !== tag.name) };
+    try {
+      const res = await proxyFetch("/agent/inbox/messages/remove-tag", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId: currentEmail.id, tagId }),
+      });
+      if (!res.ok) return;
+      const result = await res.json() as { labelIds?: unknown };
+      const labelIds = Array.isArray(result.labelIds) ? new Set(result.labelIds.map(String)) : null;
+      const updated = {
+        ...currentEmail,
+        tags: labelIds
+          ? tags.filter((item) => labelIds.has(item.id)).map((item) => item.name)
+          : currentEmail.tags.filter((n) => n !== tag.name),
+      };
       setCurrentEmail(updated);
       onTagsChanged?.(updated);
-    }
+    } catch { /* the provider state was not changed */ }
   };
 
   const handleMarkUnread = async () => {
