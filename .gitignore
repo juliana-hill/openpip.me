@@ -35,4 +35,5 @@ backend/data/
 /data/
 .DS_Store
 *.log
+*.mp4
 client_secret_*
