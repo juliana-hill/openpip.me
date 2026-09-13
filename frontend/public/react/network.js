@@ -7,10 +7,10 @@ import {
   require_react,
   useRouter,
   useThemeSync
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // react-entries/network.tsx
 var import_client = __toESM(require_client());

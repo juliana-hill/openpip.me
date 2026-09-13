@@ -609,6 +609,22 @@
   color: var(--color-text-muted);
   margin-left: auto;
 }
+.DashboardPage_tripCounts {
+  display: flex;
+  gap: 8px;
+  margin: 2px 0 4px;
+}
+.DashboardPage_tripCounts span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+.DashboardPage_tripCounts b {
+  color: var(--color-text);
+  font-size: 1rem;
+}
 .DashboardPage_compareLink {
   font-size: var(--font-size-xs);
   color: var(--color-accent);

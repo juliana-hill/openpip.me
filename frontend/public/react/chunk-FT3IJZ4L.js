@@ -2,7 +2,7 @@ import {
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-2MTXSAZN.js";
+} from "./chunk-5Y7KWAY6.js";
 import {
   ArrowRight,
   ArrowUp,
@@ -39,10 +39,10 @@ import {
   require_jsx_runtime,
   require_react,
   useRouter
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // components/ui/ReadAloudButton.tsx
 var import_react = __toESM(require_react());

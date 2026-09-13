@@ -1,6 +1,6 @@
 import {
   TrippyIcon
-} from "./chunk-PLF3LMV2.js";
+} from "./chunk-ZMZ4VIHE.js";
 import {
   idbAddNotification,
   idbGetUserPrefs,
@@ -14,19 +14,19 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   PageShell
-} from "./chunk-PIVCWVBE.js";
+} from "./chunk-SXZ55IXU.js";
 import {
   Button_default
 } from "./chunk-QLVTPJOM.js";
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-AIOOHO65.js";
+} from "./chunk-FT3IJZ4L.js";
 import {
   AppHeader,
   Markdown,
   remarkGfm
-} from "./chunk-2MTXSAZN.js";
+} from "./chunk-5Y7KWAY6.js";
 import "./chunk-OHWNV7E6.js";
 import {
   CalendarDays,
@@ -44,10 +44,10 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // react-entries/tasks.tsx
 var import_client = __toESM(require_client());

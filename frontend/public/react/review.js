@@ -3,12 +3,12 @@ import {
 } from "./chunk-VGRKXESR.js";
 import {
   FloatingAssistant
-} from "./chunk-AIOOHO65.js";
+} from "./chunk-FT3IJZ4L.js";
 import {
   AppHeader,
   Link,
   useAgentIdentity
-} from "./chunk-2MTXSAZN.js";
+} from "./chunk-5Y7KWAY6.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -17,10 +17,10 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // react-entries/review.tsx
 var import_client = __toESM(require_client());

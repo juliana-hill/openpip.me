@@ -9,14 +9,14 @@ import {
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-AIOOHO65.js";
+} from "./chunk-FT3IJZ4L.js";
 import {
   AppHeader,
   Link,
   Markdown,
   remarkGfm,
   useAgentIdentity
-} from "./chunk-2MTXSAZN.js";
+} from "./chunk-5Y7KWAY6.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -25,10 +25,10 @@ import {
   require_client,
   require_jsx_runtime,
   require_react
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // react-entries/index.tsx
 var import_client = __toESM(require_client());
@@ -114,6 +114,7 @@ var DashboardPage_default = {
   routeDest: "DashboardPage_routeDest",
   routeArrow: "DashboardPage_routeArrow",
   routeMeta: "DashboardPage_routeMeta",
+  tripCounts: "DashboardPage_tripCounts",
   compareLink: "DashboardPage_compareLink",
   skeleton: "DashboardPage_skeleton",
   shimmer: "DashboardPage_shimmer",
@@ -310,6 +311,7 @@ function DashboardPage({ userName, userImage }) {
   const [eventsTotal, setEventsTotal] = (0, import_react3.useState)(0);
   const [unreadCount, setUnreadCount] = (0, import_react3.useState)(null);
   const [route, setRoute] = (0, import_react3.useState)(null);
+  const [tripCounts, setTripCounts] = (0, import_react3.useState)(null);
   const [scheduledPlan, setScheduledPlan] = (0, import_react3.useState)(null);
   const [pipelineActions, setPipelineActions] = (0, import_react3.useState)([]);
   const [latestPipelineAction, setLatestPipelineAction] = (0, import_react3.useState)(null);
@@ -545,11 +547,25 @@ function DashboardPage({ userName, userImage }) {
       } catch {
       }
     }
+    async function loadTripCounts() {
+      try {
+        const response = await proxyFetch("/agent/trips");
+        if (!response.ok) return;
+        const data = await response.json();
+        setTripCounts({
+          past: data.groups?.past?.length ?? 0,
+          current: data.groups?.current?.length ?? 0,
+          upcoming: data.groups?.upcoming?.length ?? 0
+        });
+      } catch {
+      }
+    }
     async function init() {
       try {
         const [{ briefTasks, briefEvents }] = await Promise.all([
           loadTasks(),
           loadRoute(),
+          loadTripCounts(),
           refreshScheduledActions()
         ]);
         if (!briefFetchedRef.current) {
@@ -681,7 +697,31 @@ function DashboardPage({ userName, userImage }) {
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Travel planning" }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardArrow, children: "\u2192" })
         ] }),
-        scheduledPlan && scheduledPlan.type === "trip_plan" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+        tripCounts ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: "Your trip library" }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.tripCounts, "aria-label": "Saved trip counts", children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: tripCounts.past }),
+              " Past"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: tripCounts.current }),
+              " Current"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+              /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: tripCounts.upcoming }),
+              " Upcoming"
+            ] })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("span", { children: [
+              tripCounts.past + tripCounts.current + tripCounts.upcoming,
+              " saved trip",
+              tripCounts.past + tripCounts.current + tripCounts.upcoming === 1 ? "" : "s"
+            ] }),
+            /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("b", { children: "Open library" })
+          ] })
+        ] }) : scheduledPlan && scheduledPlan.type === "trip_plan" ? /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(import_jsx_runtime4.Fragment, { children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeMetric, children: scheduledPlan.title }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.outcomeDescription, children: scheduledPlan.status === "queued" ? "Queued in Scheduled Actions. The agent will start it shortly." : "The agent is working from your approved proposal." }),
           /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.outcomeFooter, children: [

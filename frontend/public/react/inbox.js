@@ -1,15 +1,19 @@
 import {
+  InboxHeader_default,
+  InboxTab_default
+} from "./chunk-GIUJGCQJ.js";
+import {
   Dialog_default
 } from "./chunk-VGRKXESR.js";
 import {
   FloatingAssistant,
   ReadAloudButton
-} from "./chunk-AIOOHO65.js";
+} from "./chunk-FT3IJZ4L.js";
 import {
   AppHeader,
   Link,
   useAgentIdentity
-} from "./chunk-2MTXSAZN.js";
+} from "./chunk-5Y7KWAY6.js";
 import "./chunk-OHWNV7E6.js";
 import {
   X,
@@ -20,10 +24,10 @@ import {
   require_react,
   require_react_dom,
   useSearchParams
-} from "./chunk-D4E7FHL5.js";
+} from "./chunk-CJP2RCVW.js";
 import {
   __toESM
-} from "./chunk-4VNS5WPM.js";
+} from "./chunk-U67V476Y.js";
 
 // react-entries/inbox.tsx
 var import_client = __toESM(require_client());
@@ -33,36 +37,6 @@ var import_react14 = __toESM(require_react());
 
 // components/inbox/inbox/InboxTab.tsx
 var import_react8 = __toESM(require_react());
-
-// components/inbox/inbox/InboxTab.module.css
-var InboxTab_default = {
-  triage: "InboxTab_triage",
-  "triage-enter": "InboxTab_triage-enter",
-  triageContent: "InboxTab_triageContent",
-  triageKicker: "InboxTab_triageKicker",
-  triageTitle: "InboxTab_triageTitle",
-  triageCopy: "InboxTab_triageCopy",
-  triageCapabilities: "InboxTab_triageCapabilities",
-  triageTrust: "InboxTab_triageTrust",
-  triageSummary: "InboxTab_triageSummary",
-  triageActions: "InboxTab_triageActions",
-  triageHistoryLink: "InboxTab_triageHistoryLink",
-  triageProgress: "InboxTab_triageProgress",
-  triageLabel: "InboxTab_triageLabel",
-  triageRunBtn: "InboxTab_triageRunBtn",
-  triageReviewBtn: "InboxTab_triageReviewBtn",
-  triageTrack: "InboxTab_triageTrack",
-  triageFill: "InboxTab_triageFill"
-};
-
-// components/inbox/inbox/InboxHeader.module.css
-var InboxHeader_default = {
-  row: "InboxHeader_row",
-  left: "InboxHeader_left",
-  title: "InboxHeader_title",
-  unreadPill: "InboxHeader_unreadPill",
-  composeBtn: "InboxHeader_composeBtn"
-};
 
 // components/inbox/inbox/InboxHeader.tsx
 var import_jsx_runtime = __toESM(require_jsx_runtime());
@@ -1589,7 +1563,6 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
   tagsRef.current = tags;
   (0, import_react8.useEffect)(() => {
     let cancelled = false;
-    let timer = null;
     const loadStudyMeStatus = async () => {
       try {
         const response = await proxyFetch("/agent/insights/gather/login-status");
@@ -1600,11 +1573,6 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
         const next = await response.json();
         if (cancelled) return;
         setStudyMeStatus(next);
-        if (next.state === "queued" || next.state === "running") {
-          timer = window.setTimeout(() => {
-            void loadStudyMeStatus();
-          }, 1e3);
-        }
       } catch {
         if (!cancelled) setStudyMeStatus(null);
       } finally {
@@ -1614,7 +1582,6 @@ function InboxTab({ onUnreadChange, onCompose, tags, activeTag, onActiveTagChang
     void loadStudyMeStatus();
     return () => {
       cancelled = true;
-      if (timer) window.clearTimeout(timer);
     };
   }, []);
   const loadTags = (0, import_react8.useCallback)(async () => {
