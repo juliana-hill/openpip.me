@@ -17,7 +17,7 @@ Describe the current weather or seasonal condition and what it means for this tr
 Describe temperature-related exposure or illness risk when relevant.
 
 ## Preparation
-- **Preparation title:** Practical preparation detail.
+- **Specific preparation title:** Practical preparation detail. Never use `Preparation item`, `Item`, or another generic schema label; the title must name the thing the traveler needs to pack, check, download, review, or arrange.
 
 Use additional condition headings when relevant, including UV, Altitude, Health, Disease, Animals, Water, Fire, Volcanic Activity, Earthquake, Tsunami, Air Quality, Gear, Security, and Kidnapping. Put source URLs directly in the relevant Markdown section. This stage must end after conditions, hazards, and preparation guidance.
 ```
@@ -48,9 +48,13 @@ Return a grounded Markdown recommendation report only. Do not return JSON, code 
 
 This stage is only for recommendations. Do not produce route plans, day-by-day itinerary content, or conditions and hazard reports. Every item must be a real place or activity with a specific category and a full grounded source URL on the same bullet. Omit uncategorized items.
 
+Every `Where to stay` item must be an actual accommodation property (hotel, hostel, inn, ryokan, guesthouse, bath house, apartment, resort, or campsite), never a neighborhood or lodging area. Use the actual property name as the bold bullet title, never `Accommodation property`. Every stay must explicitly include `Category`, `Neighborhood`, `Description`, and `Source`. `Downtown` is acceptable as the Neighborhood value, as is the city or town name when a small place has no distinct neighborhoods. If Category, Neighborhood, Description, or Source is absent, omit the item. `Other` is never a valid category.
+
+Every `What to see` item must use the actual place/activity name as the bold bullet title, never `Place or activity`, and must explicitly include a valid place/activity Category, Description, and Source. If Category, Description, or Source is absent, omit the item. Do not infer a category from the title or description.
+
 ## Where to stay
-- **Lodging area or property:** Category: neighborhood. Description of why it is useful, access context, and safety notes. Source: https://example.com/source
+- **Keio Plaza Hotel Tokyo:** Category: hotel. Neighborhood: Shinjuku. Description: Why it is useful, access context, and safety notes. Source: https://example.com/source
 
 ## What to see
-- **Place or activity:** Category: attraction. Description of what to see or do and route context. Source: https://example.com/source
+- **Senso-ji Temple:** Category: temple. Description: What to see or do and route context. Source: https://example.com/source
 ```

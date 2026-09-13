@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import re
+import textwrap
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -77,8 +78,53 @@ _SIGNAL_CATEGORY_ALIASES = {
 }
 _TRACKING_QUERY_PREFIXES = ("utm_",)
 _TRACKING_QUERY_KEYS = {"fbclid", "gclid", "mc_cid", "mc_eid"}
-_STAY_TYPES = {"hotel", "hostel", "apartment", "camping", "neighborhood"}
+_STAY_TYPES = {"hotel", "hostel", "inn", "ryokan", "guesthouse", "bath_house", "apartment", "resort", "camping"}
 _PLACE_TYPES = {"attraction", "hiking_trail", "viewpoint", "museum", "temple", "shrine", "park", "market"}
+_GENERIC_RECOMMENDATION_NAMES = {
+    "accommodation property",
+    "lodging property",
+    "place or activity",
+    "place/activity",
+    "recommendation",
+    "stay recommendation",
+    "unverified stay option",
+    "unverified place",
+}
+
+_GENERIC_PREPARATION_TITLES = {
+    "item",
+    "preparation",
+    "preparation item",
+    "what you'll need",
+    "what you’ll need",
+}
+_RECOMMENDATION_CATEGORY_ALIASES = {
+    "hotel": "hotel",
+    "hostel": "hostel",
+    "inn": "inn",
+    "ryokan": "ryokan",
+    "guesthouse": "guesthouse",
+    "guest house": "guesthouse",
+    "bath house": "bath_house",
+    "bathhouse": "bath_house",
+    "apartment": "apartment",
+    "resort": "resort",
+    "camping": "camping",
+    "campsite": "camping",
+    "attraction": "attraction",
+    "activity": "attraction",
+    "landmark": "attraction",
+    "hiking": "hiking_trail",
+    "hike": "hiking_trail",
+    "trail": "hiking_trail",
+    "hiking trail": "hiking_trail",
+    "viewpoint": "viewpoint",
+    "museum": "museum",
+    "temple": "temple",
+    "shrine": "shrine",
+    "park": "park",
+    "market": "market",
+}
 
 
 def _prompt_blocks(filename: str) -> tuple[str, ...]:
@@ -125,7 +171,7 @@ def _render_existing_research(research: dict[str, Any] | None) -> str:
                 continue
             category = _context_value(item.get("category"), 60) or "signal"
             title = _context_value(item.get("title"), 120) or "Existing finding"
-            detail = _context_value(item.get("detail"), 500)
+            detail = _context_value(item.get("description") or item.get("detail"), 500)
             severity = _context_value(item.get("severity"), 20)
             source = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
             suffix = f" Source: {source}" if source else ""
@@ -138,8 +184,10 @@ def _render_existing_research(research: dict[str, Any] | None) -> str:
         for item in preparation[:12]:
             if not isinstance(item, dict):
                 continue
-            title = _context_value(item.get("title"), 120) or "Preparation item"
-            detail = _context_value(item.get("detail"), 500)
+            detail = _context_value(item.get("description") or item.get("detail"), 500)
+            title = _preparation_title(_context_value(item.get("title"), 120), detail)
+            if not title or not detail:
+                continue
             lines.append(f"- {title}: {detail}")
 
     route_summary = _context_value(research.get("routeSummary"), 500)
@@ -154,12 +202,12 @@ def _render_existing_research(research: dict[str, Any] | None) -> str:
                 continue
             name = _context_value(item.get("name"), 160) or "Stay recommendation"
             detail = _context_value(item.get("detail"), 500)
-            area = _context_value(item.get("area"), 120)
+            neighborhood = _context_value(item.get("neighborhood") or item.get("area"), 120)
             safety = _context_value(item.get("safety"), 400)
             source = _http_url(item.get("sourceUrl") or item.get("source_url") or item.get("url"))
             suffix = f" Source: {source}" if source else ""
             safety_text = f" Safety: {safety}" if safety else ""
-            lines.append(f"- {name} ({area}): {detail}{safety_text}{suffix}")
+            lines.append(f"- {name} ({neighborhood}): {detail}{safety_text}{suffix}")
 
     places = research.get("places") if isinstance(research.get("places"), list) else []
     if places:
@@ -530,8 +578,8 @@ def _public_trip(record: dict[str, Any]) -> dict[str, Any]:
 def _has_recommendations(output: Any) -> bool:
     if not isinstance(output, dict):
         return False
-    stays = [item for item in (output.get("stays") or []) if isinstance(item, dict)]
-    places = [item for item in (output.get("places") or []) if isinstance(item, dict)]
+    stays = [item for item in (output.get("stays") or []) if _valid_stay_item(item, [])]
+    places = [item for item in (output.get("places") or []) if _valid_place_item(item, [])]
     return bool(stays) and bool(places)
 
 
@@ -562,6 +610,49 @@ def _missing_output_requirements(output: dict[str, Any], missing_categories: lis
     if missing_categories:
         missing.append("signal categories: " + ", ".join(missing_categories))
     return missing
+
+
+_INVALID_NEIGHBORHOODS = {"area requires confirmation", "area to confirm", "unknown", "n/a", "none"}
+
+
+def _stay_neighborhood(item: dict[str, Any]) -> str | None:
+    value = str(item.get("neighborhood") or item.get("area") or "").strip()
+    if not value or value.casefold() in _INVALID_NEIGHBORHOODS:
+        return None
+    return value[:120]
+
+
+def _stay_type(item: dict[str, Any]) -> str:
+    return str(item.get("type") or "").strip().casefold().replace("-", "_")
+
+
+def _recommendation_name(item: dict[str, Any]) -> str | None:
+    value = str(item.get("name") or "").strip()
+    if not value or _is_generic_recommendation_name(value):
+        return None
+    return value[:160]
+
+
+def _recommendation_description(item: dict[str, Any]) -> str | None:
+    value = str(item.get("description") or item.get("detail") or "").strip()
+    return value[:500] if value else None
+
+
+def _valid_stay_item(item: Any, grounded_sources: list[str]) -> bool:
+    if not isinstance(item, dict) or _stay_type(item) not in _STAY_TYPES:
+        return False
+    if not _recommendation_name(item) or not _stay_neighborhood(item) or not _recommendation_description(item):
+        return False
+    return bool(_grounded_item_url(item, grounded_sources))
+
+
+def _valid_place_item(item: Any, grounded_sources: list[str]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    item_type = str(item.get("type") or "").strip().casefold().replace("-", "_")
+    if item_type not in _PLACE_TYPES or not _recommendation_name(item) or not _recommendation_description(item):
+        return False
+    return bool(_grounded_item_url(item, grounded_sources))
 
 
 async def list_trips(access_token: str) -> dict[str, Any]:
@@ -717,6 +808,96 @@ def _bullet_items(text: str) -> list[str]:
     return [part.strip() for part in re.split(r"\n\s*\n", text) if part.strip()]
 
 
+def _canonical_recommendation_category(value: str | None) -> str | None:
+    normalized = re.sub(r"\s+", " ", str(value or "").casefold().replace("_", " ").replace("-", " ")).strip()
+    return _RECOMMENDATION_CATEGORY_ALIASES.get(normalized)
+
+
+def _clean_recommendation_field(value: str) -> str:
+    cleaned = re.sub(r"\s+", " ", str(value or "")).strip()
+    cleaned = re.sub(r"^[*_\-–\s]+", "", cleaned)
+    cleaned = re.sub(r"[*_\s]+$", "", cleaned)
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+        cleaned = cleaned[1:-1].strip()
+    return cleaned
+
+
+def _preparation_title(title: str | None, detail: str | None) -> str:
+    """Turn schema labels or imperative guidance into a useful checklist title."""
+    supplied_title = _clean_recommendation_field(str(title or ""))
+    if supplied_title and supplied_title.casefold() not in _GENERIC_PREPARATION_TITLES:
+        return supplied_title[:120]
+
+    guidance = _clean_recommendation_field(str(detail or "")).rstrip(".")
+    if not guidance:
+        return ""
+
+    patterns = (
+        r"^pack\s+(.+?)(?=\s+for\b|\s+during\b|[.;]|$)",
+        r"^download\s+(.+?)(?=\s+for\b|\s+to\b|[.;]|$)",
+        r"^check\s+(.+?)(?=\s+before\b|\s+for\b|[.;]|$)",
+        r"^review\s+(.+?)(?=\s+for\b|\s+and\b|[.;]|$)",
+        r"^stay informed about\s+(.+?)(?=\s+and potential\b|[.;]|$)",
+        r"^ensure\s+(.+?)(?=\s+covers?\b|[.;]|$)",
+        r"^(?:bring|carry|wear|use|keep|confirm|arrange)\s+(.+?)(?=\s+for\b|\s+before\b|[.;]|$)",
+    )
+    candidate = ""
+    for pattern in patterns:
+        match = re.match(pattern, guidance, flags=re.IGNORECASE)
+        if match:
+            candidate = match.group(1).strip(" -–:;")
+            break
+    if not candidate:
+        candidate = guidance.split(";", 1)[0].strip(" -–:;")
+    if not candidate:
+        return ""
+    return candidate[0].upper() + candidate[1:]
+
+
+def _is_generic_recommendation_name(value: Any) -> bool:
+    return str(value or "").strip().casefold() in _GENERIC_RECOMMENDATION_NAMES
+
+
+def _title_from_description(description: str) -> str | None:
+    candidate = re.split(r"\s*,\s*|\s+is\s+|\s+located\s+", description, maxsplit=1, flags=re.IGNORECASE)[0]
+    candidate = re.sub(r"^(?:historic|the|a|an)\s+", "", candidate.strip(), flags=re.IGNORECASE)
+    candidate = candidate.strip(" .:;-–")
+    if not candidate or len(candidate) > 100 or len(candidate.split()) > 12:
+        return None
+    if any(marker in candidate.casefold() for marker in ("centrally located", "cozy guesthouse", "traditional japanese inn")):
+        return None
+    return candidate
+
+
+def _title_from_source(source_url: str | None) -> str | None:
+    if not source_url:
+        return None
+    try:
+        hostname = (urlsplit(source_url).hostname or "").casefold()
+    except ValueError:
+        return None
+    parts = [part for part in hostname.split(".") if part and part not in {"www", "co", "or", "ne", "ac", "com", "net", "org", "travel", "jp"}]
+    if not parts:
+        return None
+    title = " ".join(re.sub(r"[-_]+", " ", part) for part in parts)
+    return re.sub(r"\s+", " ", title).strip().title()[:100] or None
+
+
+def _resolve_recommendation_title(item: dict[str, Any], kind: str) -> str:
+    name = str(item.get("name") or "").strip()
+    if not _is_generic_recommendation_name(name):
+        return name[:160]
+    description = str(item.get("description") or "").strip()
+    if kind == "place":
+        title = _title_from_description(description)
+        if title:
+            return title[:160]
+    title = _title_from_source(str(item.get("sourceUrl") or "").strip())
+    if title:
+        return title[:160]
+    return name[:160]
+
+
 def _recommendation_items(text: str) -> list[dict[str, Any]]:
     """Parse only top-level recommendation bullets into structured items.
 
@@ -725,13 +906,20 @@ def _recommendation_items(text: str) -> list[dict[str, Any]]:
     recommendations. Keep the grouping deterministic here instead of asking
     the model to emit JSON.
     """
+    text = textwrap.dedent(text)
     grouped: list[str] = []
     current: list[str] = []
     for line in text.splitlines():
-        if re.match(r"^(?:[-*•]|\d+[.)])\s+", line):
+        bullet = re.match(r"^\s*(?:[-*•]|\d+[.)])\s+", line)
+        nested_field = re.match(
+            r"^\s*(?:[-*•]|\d+[.)])\s+(?:\*\*)?(?:Category|Neighborhood|Neighbourhood|Description|Why it is a useful base|Safety notes|What to see or do|Route context|Source)(?:\*\*)?\s*:",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if bullet and not nested_field:
             if current:
                 grouped.append("\n".join(current).strip())
-            current = [re.sub(r"^(?:[-*•]|\d+[.)])\s+", "", line).strip()]
+            current = [line[bullet.end():].strip()]
         elif current and line.strip():
             current.append(line.strip())
     if current:
@@ -759,23 +947,58 @@ def _recommendation_items(text: str) -> list[dict[str, Any]]:
         detail = re.sub(r"\s*\*\*Source\*\*\s*:? *$", "", detail, flags=re.IGNORECASE)
         detail = re.sub(r"\s*Source\s*:? *$", "", detail, flags=re.IGNORECASE)
         detail = detail.strip(" -–:;")
+        category_match = re.search(
+            r"\bCategory\s*:\s*(hotel|hostel|inn|ryokan|guesthouse|bath[ _-]?houses?|apartment|resort|camping|campsite|attraction|activity|landmark|hiking[ _-]?trail|hiking|hike|trail|viewpoint|museum|temple|shrine|park|market)\b",
+            detail,
+            flags=re.IGNORECASE,
+        )
+        category = _canonical_recommendation_category(category_match.group(1)) if category_match else None
+        if category:
+            detail = re.sub(r"\s*Category\s*:\s*" + re.escape(category_match.group(1)) + r"\s*", " ", detail, count=1, flags=re.IGNORECASE).strip()
+
+        neighborhood_match = re.search(
+            r"(?:^|\s)(?:-\s*)?(?:\*\*)?(?:Neighborhood|Neighbourhood)(?:\*\*)?\s*:\s*(.*?)(?=\s+(?:-\s*)?(?:\*\*)?(?:Description|Why it is a useful base|Safety notes|What to see or do|Route context|Source)(?:\*\*)?\s*:|$)",
+            detail,
+            flags=re.IGNORECASE,
+        )
+        neighborhood = _clean_recommendation_field(neighborhood_match.group(1)).strip(" .,-–:;") if neighborhood_match else ""
+        if neighborhood_match:
+            detail = (detail[:neighborhood_match.start()] + " " + detail[neighborhood_match.end():]).strip()
         item = {"name": name[:160] or "Recommendation", "detail": detail[:500]}
         if url:
             item["sourceUrl"] = url
+        if category:
+            item["_category"] = category
+        if neighborhood:
+            item["_neighborhood"] = neighborhood[:120]
 
         # Convert nested Markdown fields into the JSON fields used by the UI.
         # This also prevents labels such as "Source" from becoming item names.
         fields: dict[str, str] = {}
-        for label in ("Why it is a useful base", "Safety notes", "What to see or do", "Route context"):
+        field_labels = (
+            "Description",
+            "Why it is a useful base",
+            "Safety notes",
+            "What to see or do",
+            "Route context",
+        )
+        field_boundary = r"(?:Category|Neighborhood|Neighbourhood|Description|Why it is a useful base|Safety notes|What to see or do|Route context|Source)"
+        for label in field_labels:
             field_match = re.search(
-                rf"(?:^|\s)(?:-\s*)?\*\*{re.escape(label)}\s*:?\*\*\s*:?\s*(.*?)(?=\s+-\s*\*\*[^*]+?(?::\*\*|\*\*:)\s*|$)",
+                rf"(?:^|\s)(?:-\s*)?(?:\*\*)?{re.escape(label)}(?:\*\*)?\s*:?\s*(.*?)(?=\s+(?:-\s*)?(?:\*\*)?{field_boundary}(?:\*\*)?\s*:|$)",
                 detail,
                 flags=re.IGNORECASE,
             )
             if field_match:
-                fields[label.casefold()] = field_match.group(1).strip()
+                fields[label.casefold()] = _clean_recommendation_field(field_match.group(1))
         if fields:
-            item["detail"] = fields.get("why it is a useful base", fields.get("what to see or do", detail))[:500]
+            description = _clean_recommendation_field(fields.get("description", ""))
+            if description:
+                item["description"] = description[:500]
+                item["detail"] = description[:500]
+                item.pop("detail", None)
+            else:
+                item["detail"] = fields.get("why it is a useful base", fields.get("what to see or do", detail))[:500]
             if "safety notes" in fields:
                 item["safety"] = fields["safety notes"][:400]
             if "route context" in fields:
@@ -791,10 +1014,16 @@ def _recommendation_type(name: str, detail: str, kind: str) -> str | None:
         for marker, category in (
             ("hotel", "hotel"),
             ("hostel", "hostel"),
+            ("bath house", "bath_house"),
+            ("bathhouse", "bath_house"),
+            ("onsen", "bath_house"),
+            ("ryokan", "ryokan"),
+            ("guesthouse", "guesthouse"),
+            ("guest house", "guesthouse"),
+            ("inn", "inn"),
             ("apartment", "apartment"),
+            ("resort", "resort"),
             ("camp", "camping"),
-            ("neighborhood", "neighborhood"),
-            ("area", "neighborhood"),
         ):
             if marker in text:
                 return category
@@ -841,7 +1070,10 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
                 if match:
                     item_title, detail = match.groups()
                 else:
-                    item_title, detail = "Preparation item", item
+                    item_title, detail = "", item
+                item_title = _preparation_title(item_title, detail)
+                if not item_title or not detail.strip():
+                    continue
                 parsed["preparation"].append({"title": item_title[:120], "detail": detail[:500]})
                 for category in _heading_categories(item_title):
                     parsed["signals"].append({
@@ -855,10 +1087,40 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
         if stage == "itinerary" and any(word in lowered for word in ("route", "overview")):
             parsed["routeSummary"] = body[:500]
 
-    if stage == "itinerary":
-        parsed.setdefault("routeSummary", "")
+    if stage == "recommendations":
         parsed["stays"] = []
         parsed["places"] = []
+        for title, body in sections:
+            lowered = title.casefold()
+            if any(word in lowered for word in ("stay", "accommodation", "lodging", "hotel", "hostel")):
+                for item in _recommendation_items(body):
+                    item_type = item.pop("_category", None)
+                    neighborhood = item.pop("_neighborhood", None)
+                    item["name"] = _resolve_recommendation_title(item, "stay")
+                    # A stay is valid only when the model supplied the required
+                    # accommodation category, neighborhood, and description
+                    # fields explicitly.
+                    if item_type not in _STAY_TYPES or not neighborhood or not item.get("description") or not item.get("sourceUrl"):
+                        continue
+                    item.update({
+                        "neighborhood": neighborhood,
+                        "type": item_type,
+                    })
+                    parsed["stays"].append(item)
+            if any(word in lowered for word in ("see", "do", "attraction", "place", "trail", "activity", "museum")):
+                for item in _recommendation_items(body):
+                    item_type = item.pop("_category", None)
+                    item["name"] = _resolve_recommendation_title(item, "place")
+                    # Places also require an explicit category; do not infer one
+                    # from a name or description.
+                    if item_type not in _PLACE_TYPES or not item.get("description") or not item.get("sourceUrl"):
+                        continue
+                    item.update({
+                        "type": item_type,
+                    })
+                    parsed["places"].append(item)
+    elif stage == "itinerary":
+        parsed.setdefault("routeSummary", "")
         parsed["days"] = []
         for title, body in sections:
             if _DATE_HEADING_RE.match(title.strip()):
@@ -869,28 +1131,6 @@ def _parse_markdown_research(text: str, stage: str) -> dict[str, Any]:
                     "route": "",
                     "conditions": "",
                 })
-            lowered = title.casefold()
-            if any(word in lowered for word in ("stay", "accommodation", "lodging", "hotel", "hostel")):
-                for item in _recommendation_items(body):
-                    item_type = _recommendation_type(item["name"], item.get("detail", ""), "stay")
-                    if item_type not in _STAY_TYPES:
-                        continue
-                    item.update({
-                        "area": "",
-                        "type": item_type,
-                        "safety": item.get("safety", ""),
-                    })
-                    parsed["stays"].append(item)
-            if any(word in lowered for word in ("see", "do", "attraction", "place", "trail", "activity", "museum")):
-                for item in _recommendation_items(body):
-                    item_type = _recommendation_type(item["name"], item.get("detail", ""), "place")
-                    if item_type not in _PLACE_TYPES:
-                        continue
-                    item.update({
-                        "type": item_type,
-                        "route": item.get("route", ""),
-                    })
-                    parsed["places"].append(item)
         if not parsed["overview"]:
             parsed["overview"] = next((body for title, body in sections if title.casefold() == "overview"), "")[:800]
     return parsed
@@ -974,11 +1214,15 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
             "conditions": str(item.get("conditions") or "Current conditions will be checked before departure.")[:500],
         })
     preparation = output.get("preparation") if isinstance(output.get("preparation"), list) else []
-    normalized_preparation = [
-        {"title": str(item.get("title") or "Preparation item")[:120], "detail": str(item.get("detail") or "Verify before departure.")[:500]}
-        for item in preparation[:12]
-        if isinstance(item, dict)
-    ]
+    normalized_preparation = []
+    for item in preparation[:12]:
+        if not isinstance(item, dict):
+            continue
+        detail = _clean_recommendation_field(str(item.get("detail") or ""))
+        title = _preparation_title(str(item.get("title") or ""), detail)
+        if not title or not detail:
+            continue
+        normalized_preparation.append({"title": title[:120], "detail": detail[:500]})
     signals = output.get("signals") if isinstance(output.get("signals"), list) else []
     normalized_signals = [
         {"category": _signal_category(item.get("category")) or "travel conditions", "title": str(item.get("title") or "Review current conditions")[:120], "detail": str(item.get("detail") or "Verify this signal with the linked source.")[:500], "severity": str(item.get("severity") or "info")[:20]}
@@ -986,34 +1230,49 @@ def _normalize_output(output: dict[str, Any], sources: list[str], record: dict[s
         if isinstance(item, dict)
     ]
     stays = output.get("stays") if isinstance(output.get("stays"), list) else []
-    normalized_stays = [
-        normalized
-        for item in stays[:8]
-        if isinstance(item, dict)
-        and str(item.get("type") or "").strip().casefold().replace("-", "_") in _STAY_TYPES
-        for normalized in [{
-            "name": str(item.get("name") or "Unverified stay option")[:160],
-            "area": str(item.get("area") or "Area requires confirmation")[:120],
-            "type": str(item.get("type"))[:40],
-            "detail": str(item.get("detail") or "Verify this lodging option before relying on it.")[:500],
-            "safety": str(item.get("safety") or "Review current neighborhood and access conditions.")[:400],
-            "sourceUrl": _grounded_item_url(item, grounded_sources),
-        }]
-    ]
+    normalized_stays = []
+    for item in stays[:8]:
+        if not _valid_stay_item(item, grounded_sources):
+            continue
+        assert isinstance(item, dict)
+        source_url = _grounded_item_url(item, grounded_sources)
+        neighborhood = _stay_neighborhood(item)
+        name = _recommendation_name(item)
+        description = _recommendation_description(item)
+        if not source_url or not neighborhood or not name or not description:
+            continue
+        normalized_stay = {
+            "name": name,
+            "neighborhood": neighborhood,
+            "type": _stay_type(item)[:40],
+            "description": description,
+            "sourceUrl": source_url,
+        }
+        safety = str(item.get("safety") or "").strip()
+        if safety:
+            normalized_stay["safety"] = safety[:400]
+        normalized_stays.append(normalized_stay)
     places = output.get("places") if isinstance(output.get("places"), list) else []
-    normalized_places = [
-        normalized
-        for item in places[:12]
-        if isinstance(item, dict)
-        and str(item.get("type") or "").strip().casefold().replace("-", "_") in _PLACE_TYPES
-        for normalized in [{
-            "name": str(item.get("name") or "Unverified place")[:160],
+    normalized_places = []
+    for item in places[:12]:
+        if not _valid_place_item(item, grounded_sources):
+            continue
+        assert isinstance(item, dict)
+        source_url = _grounded_item_url(item, grounded_sources)
+        name = _recommendation_name(item)
+        description = _recommendation_description(item)
+        if not source_url or not name or not description:
+            continue
+        normalized_place = {
+            "name": name,
             "type": str(item.get("type"))[:40],
-            "detail": str(item.get("detail") or "Verify this place before relying on it.")[:500],
-            "route": str(item.get("route") or "Route context requires confirmation.")[:400],
-            "sourceUrl": _grounded_item_url(item, grounded_sources),
-        }]
-    ]
+            "description": description,
+            "sourceUrl": source_url,
+        }
+        route = str(item.get("route") or "").strip()
+        if route:
+            normalized_place["route"] = route[:400]
+        normalized_places.append(normalized_place)
     return {
         "overview": str(output.get("overview") or f"Preparation plan for {record.get('destination')}.")[:800],
         "routeSummary": str(output.get("routeSummary") or "Confirm the route and save an offline fallback before departure.")[:500],

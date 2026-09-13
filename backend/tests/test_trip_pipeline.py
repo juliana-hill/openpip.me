@@ -42,7 +42,7 @@ def test_prompt_files_render_the_production_stage_inputs() -> None:
     assert "Return a grounded Markdown itinerary report only." in itinerary_prompt
     assert markdown_formats[1] in itinerary_prompt
     assert "This is the itinerary stage." in itinerary_prompt
-    assert "do not repeat the full conditions" in itinerary_prompt
+    assert "Do not repeat the full conditions" in itinerary_prompt
     assert "Return JSON" not in itinerary_prompt
     assert "Use this exact output shape" not in itinerary_prompt
 
@@ -101,14 +101,14 @@ def test_gap_completion_is_another_llm_call_not_a_validation_error(monkeypatch) 
         },
     }
     gap_calls: list[tuple[str, dict[str, object]]] = []
-    itinerary_calls: list[tuple[str, dict[str, object]]] = []
+    recommendation_calls: list[tuple[str, dict[str, object]]] = []
 
     def fake_stage(_record, stage, focus, existing_research=None):
-        if stage == "itinerary":
-            itinerary_calls.append((focus, existing_research or {}))
+        if stage == "recommendations":
+            recommendation_calls.append((focus, existing_research or {}))
             return {
-                "stays": [{"name": "Central hotel", "sourceUrl": "https://stay.example/tokyo"}],
-                "places": [{"name": "Mount Takao", "sourceUrl": "https://trail.example/takao"}],
+                "stays": [{"name": "Central hotel", "type": "hotel", "neighborhood": "Shinjuku", "description": "Near transit.", "sourceUrl": "https://stay.example/tokyo"}],
+                "places": [{"name": "Mount Takao", "type": "hiking_trail", "description": "A marked trail.", "sourceUrl": "https://trail.example/takao"}],
             }, []
         assert stage == "gap"
         gap_calls.append((focus, existing_research or {}))
@@ -125,7 +125,7 @@ def test_gap_completion_is_another_llm_call_not_a_validation_error(monkeypatch) 
     categories = {signal["category"] for signal in output["signals"]}
     assert missing <= categories
     assert len(gap_calls) == 3
-    assert len(itinerary_calls) == 1
+    assert len(recommendation_calls) == 1
     assert "## Altitude" in gap_calls[0][0]
     existing_categories = {signal["category"] for signal in gap_calls[0][1]["signals"]}
     assert {signal["category"] for signal in present} <= existing_categories
@@ -169,6 +169,27 @@ def test_preparation_bullets_can_supply_missing_signal_categories() -> None:
     assert {signal["category"] for signal in parsed["signals"]} == {"uv", "altitude", "fire"}
 
 
+def test_preparation_schema_labels_become_specific_titles() -> None:
+    parsed = _parse_grounded_text(
+        """
+        ## Preparation
+        - **Preparation item:** Pack layers for variable temperatures and rain gear for typhoon season.
+        - **Preparation item:** Download local emergency apps for real-time earthquake, tsunami, and volcanic alerts.
+        - **Preparation item:** Check air quality before prolonged outdoor activity; carry a mask if sensitive.
+        - **Travel Insurance:** Covering natural disaster disruptions and medical needs.
+        """,
+        "conditions",
+    )
+
+    assert [item["title"] for item in parsed["preparation"]] == [
+        "Layers",
+        "Local emergency apps",
+        "Air quality",
+        "Travel Insurance",
+    ]
+    assert all(item["title"].casefold() != "preparation item" for item in parsed["preparation"])
+
+
 def test_grounded_parser_extracts_markdown_signals_preparation_and_urls() -> None:
     raw = """
     ## Weather
@@ -178,13 +199,13 @@ def test_grounded_parser_extracts_markdown_signals_preparation_and_urls() -> Non
     - **Rain shell:** Bring waterproof clothing.
 
     ## Where to stay
-    - **Verified hotel:** Central and near transit. https://stay.example/tokyo
+    - **Verified hotel:** Category: hotel. Neighborhood: Shinjuku. Description: Central and near transit. https://stay.example/tokyo
 
     ## What to see
-    - **Verified trail:** Check the official route. https://trail.example/takao
+    - **Verified trail:** Category: hiking trail. Description: Check the official route. https://trail.example/takao
     """
 
-    parsed = _parse_grounded_text(raw, "itinerary")
+    parsed = _parse_grounded_text(raw, "recommendations")
 
     assert parsed["signals"][0]["category"] == "weather"
     assert parsed["preparation"] == [{"title": "Rain shell", "detail": "Bring waterproof clothing."}]
@@ -192,20 +213,21 @@ def test_grounded_parser_extracts_markdown_signals_preparation_and_urls() -> Non
     assert parsed["places"][0]["sourceUrl"] == "https://trail.example/takao"
 
 
-def test_normalize_output_keeps_recommendations_without_source_links() -> None:
+def test_normalize_output_filters_recommendations_without_required_fields() -> None:
     output = _normalize_output(
         {
             "stays": [
-                {"name": "Verified stay", "type": "hotel", "sourceUrl": "https://www.stay.example/lodging/?utm_source=nova#hotel"},
-                {"name": "Uncited stay", "type": "hotel"},
+                {"name": "Verified stay", "type": "hotel", "neighborhood": "Shinjuku", "description": "Near transit.", "sourceUrl": "https://www.stay.example/lodging/?utm_source=nova#hotel"},
+                {"name": "Uncited stay", "type": "hotel", "neighborhood": "Shinjuku"},
             ],
-            "places": [{"name": "Verified place", "type": "hiking_trail", "sourceUrl": "https://place.example/trail/"}],
+            "places": [{"name": "Verified place", "type": "hiking_trail", "description": "A marked trail.", "sourceUrl": "https://place.example/trail/"}, {"name": "Uncited place", "type": "museum"}],
         },
         ["https://stay.example/lodging", "https://place.example/trail"],
         {"destination": "Tokyo, Japan"},
     )
 
-    assert [item["name"] for item in output["stays"]] == ["Verified stay", "Uncited stay"]
+    assert [item["name"] for item in output["stays"]] == ["Verified stay"]
+    assert output["stays"][0]["neighborhood"] == "Shinjuku"
     assert output["stays"][0]["sourceUrl"] == "https://stay.example/lodging"
     assert output["places"][0]["sourceUrl"] == "https://place.example/trail"
     assert _has_recommendations(output)
@@ -214,8 +236,8 @@ def test_normalize_output_keeps_recommendations_without_source_links() -> None:
 def test_normalize_output_preserves_item_urls_without_citation_metadata() -> None:
     output = _normalize_output(
         {
-            "stays": [{"name": "Stay", "type": "hotel", "sourceUrl": "https://stay.example/tokyo"}],
-            "places": [{"name": "Place", "type": "hiking_trail", "sourceUrl": "https://place.example/takao"}],
+            "stays": [{"name": "Stay", "type": "hotel", "neighborhood": "Downtown", "description": "Near transit.", "sourceUrl": "https://stay.example/tokyo"}],
+            "places": [{"name": "Place", "type": "hiking_trail", "description": "A marked trail.", "sourceUrl": "https://place.example/takao"}],
         },
         [],
         {"destination": "Tokyo, Japan"},
@@ -225,7 +247,7 @@ def test_normalize_output_preserves_item_urls_without_citation_metadata() -> Non
     assert output["places"][0]["sourceUrl"] == "https://place.example/takao"
 
 
-def test_markdown_recommendations_keep_items_without_urls() -> None:
+def test_markdown_recommendations_require_explicit_categories_and_sources() -> None:
     parsed = _parse_grounded_text(
         """
         ## Where to stay
@@ -234,67 +256,99 @@ def test_markdown_recommendations_keep_items_without_urls() -> None:
         ## What to see
         - **Mount Takao:** A marked trail with a direct train connection.
         """,
-        "itinerary",
+        "recommendations",
     )
 
-    assert parsed["stays"] == [{
-        "name": "Central hotel",
-        "detail": "Near transit and useful for city days.",
-        "area": "",
-        "type": "hotel",
-        "safety": "",
-    }]
-    assert parsed["places"] == [{
-        "name": "Mount Takao",
-        "detail": "A marked trail with a direct train connection.",
-        "type": "hiking_trail",
-        "route": "",
-    }]
+    assert parsed["stays"] == []
+    assert parsed["places"] == []
 
 
 def test_markdown_recommendations_group_nested_fields_under_one_item() -> None:
     parsed = _parse_grounded_text(
         """
         ## Where to stay
-        - **Shinjuku Area**
+        - **Park Hyatt Tokyo**
+          Category: Hotel
+          Neighborhood: Shinjuku
+          - **Description:** Central, well-connected, and close to transit.
           - **Why it is a useful base:** Central, well-connected, and close to transit.
           - **Safety notes:** Stay aware in crowded areas. Source: https://stay.example/shinjuku
 
         ## What to see
         - **Mount Takao Trails**
+          Category: Hiking trail
+          - **Description:** Hike the marked trails.
           - **What to see or do:** Hike the marked trails.
           - **Route context:** Start at Takao Station. Source: https://trail.example/takao
         """,
-        "itinerary",
+        "recommendations",
     )
 
     assert parsed["stays"] == [{
-        "name": "Shinjuku Area",
-        "detail": "Central, well-connected, and close to transit.",
+        "name": "Park Hyatt Tokyo",
+        "description": "Central, well-connected, and close to transit.",
         "sourceUrl": "https://stay.example/shinjuku",
-        "area": "",
-        "type": "neighborhood",
+        "neighborhood": "Shinjuku",
+        "type": "hotel",
         "safety": "Stay aware in crowded areas.",
     }]
     assert parsed["places"] == [{
         "name": "Mount Takao Trails",
-        "detail": "Hike the marked trails.",
+        "description": "Hike the marked trails.",
         "sourceUrl": "https://trail.example/takao",
         "type": "hiking_trail",
         "route": "Start at Takao Station.",
     }]
 
 
+def test_generic_schema_titles_do_not_collapse_recommendations() -> None:
+    parsed = _parse_grounded_text(
+        """
+        ## Where to stay
+        - **Accommodation property:**
+          - Category: Hotel
+          - Neighborhood: Shinjuku
+          - Description: Centrally located hotel near transit.
+          - Source: https://www.keio.plaza-hotel.co.jp/en/
+        - **Accommodation property:**
+          - Category: Ryokan
+          - Neighborhood: Asakusa
+          - Description: Traditional Japanese inn near Senso-ji.
+          - Source: https://www.hankyu-hotel.com/asakusa/
+
+        ## What to see
+        - **Place or activity:**
+          - Category: Temple
+          - Description: Historic Senso-ji Temple.
+          - Source: https://place.example/sensoji
+        - **Place or activity:**
+          - Category: Hiking
+          - Description: Mount Takao hiking trails.
+          - Source: https://place.example/takao
+        - **Place or activity:**
+          - Category: Landmark
+          - Description: Shibuya Crossing.
+          - Source: https://place.example/shibuya
+        """,
+        "recommendations",
+    )
+
+    assert [item["name"] for item in parsed["stays"]] == ["Keio Plaza Hotel", "Hankyu Hotel"]
+    assert [item["name"] for item in parsed["places"]] == ["Senso-ji Temple", "Mount Takao hiking trails", "Shibuya Crossing"]
+    assert parsed["stays"][0]["description"] == "Centrally located hotel near transit."
+    assert [item["type"] for item in parsed["places"]] == ["temple", "hiking_trail", "attraction"]
+
+
 def test_markdown_recommendations_keep_source_url_on_the_same_item() -> None:
     parsed = _parse_grounded_text(
         """
         ## Where to stay
-        - **Central hotel:** Near transit. Source: https://stay.example/tokyo
+        - **Central hotel:** Category: hotel. Neighborhood: Shinjuku. Description: Near transit. Source: https://stay.example/tokyo
 
         ## What to see
-        - **Mount Takao:** A marked trail. Source: https://trail.example/takao
+        - **Mount Takao:** Category: hiking trail. Description: A marked trail. Source: https://trail.example/takao
         """,
-        "itinerary",
+        "recommendations",
     )
 
     assert parsed["stays"][0]["name"] == "Central hotel"
@@ -310,9 +364,9 @@ def test_grounded_response_keeps_interleaved_citation_urls_with_recommendations(
                 "output": {
                     "message": {
                         "content": [
-                            {"text": "## Where to stay\n- **Central hotel:** Near transit."},
+                            {"text": "## Where to stay\n- **Central hotel:** Category: hotel. Neighborhood: Shinjuku. Description: Near transit."},
                             {"citationsContent": {"citations": [{"location": {"web": {"url": "https://stay.example/tokyo"}}}]}},
-                            {"text": "\n## What to see\n- **Mount Takao:** A marked trail."},
+                            {"text": "\n## What to see\n- **Mount Takao:** Category: hiking trail. Description: A marked trail."},
                             {"citationsContent": {"citations": [{"location": {"web": {"url": "https://trail.example/takao"}}}]}},
                         ]
                     }
@@ -322,7 +376,7 @@ def test_grounded_response_keeps_interleaved_citation_urls_with_recommendations(
     monkeypatch.setattr(trip_pipeline.boto3, "client", lambda *_args, **_kwargs: FakeBedrock())
 
     text, sources = _grounded_response("Find itinerary recommendations")
-    parsed = _parse_grounded_text(text, "itinerary")
+    parsed = _parse_grounded_text(text, "recommendations")
 
     assert sources == ["https://stay.example/tokyo", "https://trail.example/takao"]
     assert parsed["stays"][0]["sourceUrl"] == "https://stay.example/tokyo"
@@ -351,13 +405,20 @@ def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
         contexts[stage] = _existing_research or {}
         if stage == "health":
             return {"preparation": [{"title": "Health kit", "detail": "Pack essentials."}]}, []
-        return {
-            "overview": "Tokyo",
-            "routeSummary": "Transit to each researched area.",
-            "days": [{"date": "2026-09-30", "title": "City day", "detail": "Explore.", "route": "Train", "conditions": "Mild."}],
-                "stays": [{"name": "Central hotel", "type": "hotel", "sourceUrl": "https://stay.example/tokyo"}],
-                "places": [{"name": "Mount Takao", "type": "hiking_trail", "sourceUrl": "https://trail.example/takao"}],
-        }, ["https://guide.example/tokyo"]
+        if stage == "recommendations":
+            return {
+                "stays": [{"name": "Central hotel", "type": "hotel", "neighborhood": "Shinjuku", "description": "Near transit.", "sourceUrl": "https://stay.example/tokyo"}],
+                "places": [{"name": "Mount Takao", "type": "hiking_trail", "description": "A marked trail.", "sourceUrl": "https://trail.example/takao"}],
+            }, ["https://guide.example/tokyo"]
+        if stage == "itinerary":
+            return {
+                "overview": "Tokyo",
+                "routeSummary": "Transit to each researched area.",
+                "days": [{"date": "2026-09-30", "title": "City day", "detail": "Explore.", "route": "Train", "conditions": "Mild."}],
+            }, ["https://guide.example/tokyo"]
+        assert stage == "gap"
+        category = sorted(missing)[len([stage for stage in called if stage == "gap"]) - 1]
+        return {"signals": [{"category": category, "title": category, "detail": "Checked", "severity": "info"}]}, [f"https://{category}.example"]
 
     monkeypatch.setattr(trip_pipeline, "_run_grounded_stage", fake_stage)
     persisted: list[str] = []
@@ -367,7 +428,7 @@ def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
 
     output = asyncio.run(trip_pipeline._research_trip(record, {}, persist))
 
-    assert called == ["health", "itinerary"]
+    assert called == ["health", "recommendations", "itinerary"]
     assert contexts["health"]["signals"] == all_categories
     assert contexts["itinerary"]["preparation"] == [
         {"title": "Layers", "detail": "Pack layers."},
@@ -375,10 +436,9 @@ def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
     ]
     assert output["stays"] == [{
         "name": "Central hotel",
-        "area": "Area requires confirmation",
-        "type": "other",
-        "detail": "Verify this lodging option before relying on it.",
-        "safety": "Review current neighborhood and access conditions.",
+        "neighborhood": "Shinjuku",
+        "type": "hotel",
+        "description": "Near transit.",
         "sourceUrl": "https://stay.example/tokyo",
     }]
     assert output["places"][0]["name"] == "Mount Takao"
@@ -386,15 +446,19 @@ def test_research_resumes_from_saved_stage_results(monkeypatch) -> None:
     assert persisted[0] == "health and hazards"
 
 
-def test_recommendations_require_both_categories_but_not_source_links() -> None:
+def test_recommendations_require_categories_neighborhoods_and_source_links() -> None:
     assert not _has_recommendations({"stays": [{"name": "Stay"}]})
     assert not _has_recommendations({
         "stays": [{"name": "Stay"}],
         "places": [],
     })
+    assert not _has_recommendations({
+        "stays": [{"name": "Stay", "type": "hotel", "neighborhood": "Downtown", "description": "Near transit."}],
+        "places": [{"name": "Place", "type": "museum", "description": "An exhibit.", "sourceUrl": "https://place.example"}],
+    })
     assert _has_recommendations({
-        "stays": [{"name": "Stay"}],
-        "places": [{"name": "Place"}],
+        "stays": [{"name": "Stay", "type": "hotel", "neighborhood": "Downtown", "description": "Near transit.", "sourceUrl": "https://stay.example"}],
+        "places": [{"name": "Place", "type": "museum", "description": "An exhibit.", "sourceUrl": "https://place.example"}],
     })
 
 
