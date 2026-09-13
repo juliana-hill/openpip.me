@@ -9,7 +9,7 @@ SERVICES=("openpip-backend" "openpip-frontend")
 # Keep these limits explicit: Cloud Run defaults must never decide the cost
 # ceiling for either application service.
 CLOUD_RUN_CPU="2"
-CLOUD_RUN_MEMORY="1Gi"
+CLOUD_RUN_MEMORY="2Gi"
 CLOUD_RUN_CONCURRENCY="80"
 CLOUD_RUN_MIN_INSTANCES="0"
 CLOUD_RUN_MAX_INSTANCES="5"
