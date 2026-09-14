@@ -159,6 +159,55 @@ def test_drive_create_timeout_rechecks_before_retrying(monkeypatch) -> None:
     assert find_calls == 1
 
 
+def test_list_json_files_follows_drive_pagination(monkeypatch) -> None:
+    requests: list[dict[str, object]] = []
+    page_files = {
+        None: [
+            {"id": "file-1", "name": "2024-01-01.json"},
+            {"id": "file-2", "name": "metadata.json"},
+        ],
+        "page-2": [
+            {"id": "file-3", "name": "2024-01-02.json"},
+        ],
+    }
+    contents = {
+        "file-1": {"records": 1},
+        "file-2": {"schema": 1},
+        "file-3": {"records": 2},
+    }
+
+    async def fake_find_folder(*_args, **_kwargs):
+        return "manifest-folder"
+
+    async def fake_request(_client, method, url, _access_token, *, params=None, **_kwargs):
+        params = params or {}
+        requests.append({"method": method, "url": url, "params": params})
+        if url.endswith("/files"):
+            page_token = params.get("pageToken")
+            files = page_files[page_token]
+            payload = {"files": files}
+            if page_token is None:
+                payload["nextPageToken"] = "page-2"
+            return httpx.Response(200, json=payload)
+        file_id = url.rsplit("/", 1)[-1]
+        return httpx.Response(200, json=contents[file_id])
+
+    monkeypatch.setattr(gdd, "_find_folder", fake_find_folder)
+    monkeypatch.setattr(gdd, "_request", fake_request)
+
+    result = asyncio.run(gdd.list_json_files("token", "OpenPip/manifest"))
+
+    assert result == {
+        "2024-01-01": {"records": 1},
+        "metadata": {"schema": 1},
+        "2024-01-02": {"records": 2},
+    }
+    list_requests = [request for request in requests if str(request["url"]).endswith("/files")]
+    assert len(list_requests) == 2
+    assert list_requests[0]["params"]["fields"] == "nextPageToken,files(id,name)"
+    assert list_requests[1]["params"]["pageToken"] == "page-2"
+
+
 def test_overwrite_document_replaces_existing_content(monkeypatch) -> None:
     folders: dict = {}
     files: dict = {}

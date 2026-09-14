@@ -373,20 +373,41 @@ async def list_json_files(access_token: str, folder_path: str) -> dict[str, dict
         parent_id = await _find_folder(client, access_token, folder_path)
         if parent_id is None:
             return {}
-        listing = await _request(
-            client, "GET", f"{_DRIVE_API}/files", access_token,
-            params={
-                "q": f"'{parent_id}' in parents and trashed = false and name contains '.json'",
-                "fields": "files(id,name)",
+        query = f"'{parent_id}' in parents and trashed = false and name contains '.json'"
+        files: list[dict[str, Any]] = []
+        page_token: str | None = None
+        seen_page_tokens: set[str] = set()
+        while True:
+            params: dict[str, object] = {
+                "q": query,
+                "fields": "nextPageToken,files(id,name)",
                 "pageSize": 1000,
-            },
-        )
-        # Drive may return a JSON `files: null` value for an empty folder.
-        # Treat that exactly like an empty result set.
-        files = [
-            f for f in (listing.json().get("files") or [])
-            if isinstance(f, dict) and str(f.get("name", "")).endswith(".json")
-        ]
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            listing = await _request(
+                client, "GET", f"{_DRIVE_API}/files", access_token, params=params,
+            )
+            payload = listing.json()
+            # Drive may return a JSON `files: null` value for an empty folder.
+            # Treat that exactly like an empty result set, while still following
+            # a page token if Drive provides one.
+            files.extend(
+                f for f in (payload.get("files") or [])
+                if isinstance(f, dict) and str(f.get("name", "")).endswith(".json")
+            )
+            next_page_token = payload.get("nextPageToken")
+            if not next_page_token:
+                break
+            next_page_token = str(next_page_token)
+            # A repeated token would otherwise make a broken/mocked Drive
+            # response loop forever. It is safe to stop because the repeated
+            # page has already been processed.
+            if next_page_token in seen_page_tokens:
+                _logger.warning("Google Drive returned a repeated page token while listing %s", folder_path)
+                break
+            seen_page_tokens.add(next_page_token)
+            page_token = next_page_token
 
         async def read_one(file: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
             response = await _request(
