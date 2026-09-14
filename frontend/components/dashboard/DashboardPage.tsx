@@ -377,7 +377,10 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   }, [refreshScheduledActions]);
 
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded;
+  // The workspace-review prompt is separate from Connie's historical-learning
+  // run. If its status request fails, keep both prompts hidden rather than
+  // treating a missing status as proof that learning has completed.
+  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded && insightStatus !== null;
   const showStudyMe = showAssistantPrompt && insightStatus !== null && insightStatus.state !== "completed";
 
   return (

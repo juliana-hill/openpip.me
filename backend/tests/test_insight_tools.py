@@ -5,11 +5,51 @@ import pytest
 
 from openpip_backend import insight_memory
 from openpip_backend.tools.insights import (
+    build_agentic_memory_status_tools,
     build_list_historical_sources_tool,
     build_lookup_insights_tool,
     build_read_historical_source_tool,
     build_remember_insight_tool,
 )
+
+
+def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
+    status = {"state": "pending", "currentTopic": None, "topics": []}
+    writes: list[dict] = []
+
+    async def persist(current: dict):
+        writes.append(current.copy())
+
+    list_topics, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
+        status, persist, {"sourceIds": {"email:offer", "calendar:work"}},
+    )
+
+    async def run():
+        initial = json.loads(await list_topics())
+        planned = json.loads(await plan_topics(["Scout employment", "Learning goals"]))
+        started = json.loads(await record_topic(
+            "Scout employment",
+            memory_key="work:employment:scout",
+            rationale="Offer and scheduled work titles overlap.",
+        ))
+        completed = json.loads(await complete_topic(
+            "Scout employment",
+            memory_key="work:employment:scout",
+            relevant_source_ids=["email:offer", "calendar:work"],
+            completion_note="No more relevant indexed evidence found.",
+        ))
+        return initial, planned, started, completed
+
+    initial, planned, started, completed = asyncio.run(run())
+
+    assert initial["topics"] == []
+    assert [item["topic"] for item in planned["topics"]] == ["Scout employment", "Learning goals"]
+    assert started["topic"]["status"] == "in_progress"
+    assert completed["topic"]["status"] == "completed"
+    assert status["currentTopic"] is None
+    assert status["topics"][0]["memoryKey"] == "work:employment:scout"
+    assert status["topics"][0]["recordsRead"] == 2
+    assert len(writes) == 3
 
 
 def test_lookup_requires_a_focused_query_and_records_the_result(monkeypatch) -> None:

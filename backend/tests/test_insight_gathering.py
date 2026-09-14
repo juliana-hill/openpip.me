@@ -93,6 +93,48 @@ def test_count_manifest_dates_only_counts_iso_date_files(monkeypatch) -> None:
     assert asyncio.run(insight_gathering._count_manifest_dates("token")) == 2
 
 
+def test_manifest_sweep_moves_stale_cursor_after_newest_indexed_date() -> None:
+    manifest = {
+        "currentDate": "2020-09-20",
+        "lastFetchedDate": "2020-09-20",
+        "newestDate": "2020-10-10",
+        "dates": ["2020-09-20"],
+    }
+    checkpoint = {
+        "count": 997,
+        "dates": ["2020-10-01"],
+        "newestIndexedDate": "2020-10-01",
+        "newestCompletedDate": "2020-10-01",
+        "incompleteDates": [],
+    }
+
+    changed = insight_gathering._synchronize_manifest_cursor(manifest, checkpoint)
+
+    assert changed is True
+    assert manifest["currentDate"] == "2020-10-02"
+    assert manifest["lastFetchedDate"] == "2020-10-01"
+    assert manifest["dates"] == ["2020-09-20", "2020-10-01"]
+
+
+def test_manifest_sweep_rewinds_to_an_incomplete_indexed_date() -> None:
+    manifest = {
+        "currentDate": "2020-10-05",
+        "lastFetchedDate": "2020-10-01",
+        "newestDate": "2020-10-10",
+    }
+    checkpoint = {
+        "count": 997,
+        "dates": ["2020-10-01", "2020-10-02"],
+        "newestIndexedDate": "2020-10-02",
+        "newestCompletedDate": "2020-10-01",
+        "incompleteDates": ["2020-10-02"],
+    }
+
+    insight_gathering._synchronize_manifest_cursor(manifest, checkpoint)
+
+    assert manifest["currentDate"] == "2020-10-02"
+
+
 def test_login_status_does_not_start_a_persisted_run(monkeypatch) -> None:
     stale = {"state": "running", "runId": "run-1"}
     started = False
@@ -257,6 +299,9 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
     async def fake_manifest_entries(_token: str):
         return entries
 
+    async def fake_read_json(_token: str, _folder: str, _filename: str):
+        return {}
+
     async def fake_write(_token: str, _folder: str, _filename: str, _data: dict):
         return None
 
@@ -270,6 +315,7 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
         prompts.append(prompt)
 
     monkeypatch.setattr(insight_gathering, "_read_manifest_entries", fake_manifest_entries)
+    monkeypatch.setattr(insight_gathering, "read_json_file", fake_read_json)
     monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
     monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
     monkeypatch.setattr(insight_gathering, "build_executive_assistant", fake_build)
@@ -281,10 +327,50 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
 
     assert len(prompts) == 1
     assert "list_historical_sources repeatedly" in prompts[0]
-    assert "remember_historical_insight as the write tool" in prompts[0]
+    assert "remember_historical_insight" in prompts[0]
     assert "canonical output" in prompts[0]
     assert status["stages"]["aggregate"] == {"status": "completed", "processed": 1, "total": 1}
     assert manifest["aggregateStatus"] == "completed"
+
+
+def test_aggregate_retry_does_not_restart_completed_daily_history(monkeypatch) -> None:
+    manifest = {
+        "oldestDate": "2020-08-20",
+        "newestDate": "2021-01-10",
+        "currentDate": None,
+        "lastFetchedDate": "2021-01-10",
+        "dateStates": {"2021-01-10": "completed"},
+        "aggregateStatus": "in_progress",
+    }
+    aggregate_called = False
+
+    async def fake_read(_token: str, _folder: str, filename: str):
+        assert filename == "metadata.json"
+        return manifest
+
+    async def fake_count(_token: str):
+        return 997
+
+    async def fake_write_status(_token: str, _status: dict):
+        return None
+
+    async def fake_aggregate(_token: str, status: dict, _manifest: dict, _context: str, _agent_name: str):
+        nonlocal aggregate_called
+        aggregate_called = True
+        assert status["stages"]["history"]["status"] == "completed"
+
+    async def fail_fetch(*_args, **_kwargs):
+        raise AssertionError("aggregate retry must not crawl provider dates")
+
+    monkeypatch.setattr(insight_gathering, "read_json_file", fake_read)
+    monkeypatch.setattr(insight_gathering, "_count_manifest_dates", fake_count)
+    monkeypatch.setattr(insight_gathering, "_run_aggregate", fake_aggregate)
+    monkeypatch.setattr(insight_gathering, "_fetch_lazy_day", fail_fetch)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+
+    asyncio.run(insight_gathering._run_lazy("token", insight_gathering._default_status(), "", "Pip"))
+
+    assert aggregate_called
 
 
 def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:
@@ -392,7 +478,11 @@ def test_fetch_lazy_day_uses_exact_daily_bounds_not_next_nonempty_cursor(monkeyp
 
     async def fake_gmail(*_args, **kwargs):
         calls.append(("emails", kwargs["local_date"]))
-        return ([{"id": "message-1", "date": "2021-01-02T12:00:00Z", "subject": "Subject"}], 1)
+        assert kwargs["exclude_unread"] is True
+        return ([
+            {"id": "message-1", "date": "2021-01-02T12:00:00Z", "subject": "Subject", "unread": False},
+            {"id": "message-2", "date": "2021-01-02T12:00:00Z", "subject": "Unread", "unread": True},
+        ], 2)
 
     async def fake_calendar(*_args, **kwargs):
         calls.append(("calendar", kwargs["from_date"]))
@@ -434,3 +524,4 @@ def test_fetch_lazy_day_uses_exact_daily_bounds_not_next_nonempty_cursor(monkeyp
     assert ("documents", "2021-01-02") in calls
     assert not any(source == "calendar" for source, _ in calls)
     assert entries[0]["reference"]["id"] == "email:message-1"
+    assert len([entry for entry in entries if entry["reference"]["kind"] == "email"]) == 1

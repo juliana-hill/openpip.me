@@ -29,6 +29,7 @@ from .google_workspace import (
     find_newest_drive_document_date,
 )
 from .tools import (
+    build_agentic_memory_status_tools,
     build_list_historical_sources_tool,
     build_lookup_insights_tool,
     build_read_historical_source_tool,
@@ -38,8 +39,10 @@ from .tools import (
 
 _FOLDER = "OpenPip/memory/insights_gathering"
 _MANIFEST_FOLDER = f"{_FOLDER}/manifest"
+_AGENTIC_MEMORY_FOLDER = f"{_FOLDER}/agentic_memory"
 _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
+_AGENTIC_MEMORY_STATUS_FILE = "status.json"
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
 _LOOKBACK_DAYS = 365 * 5
@@ -147,6 +150,55 @@ def _progress(status: dict[str, Any]) -> int:
     )
 
 
+def _history_checkpoint_is_complete(manifest: dict[str, Any]) -> bool:
+    """Return whether the daily index is complete and only aggregation remains.
+
+    ``currentDate`` is deliberately set to ``None`` after the final daily
+    checkpoint. That is a terminal history cursor, not an instruction to start
+    the crawl at ``oldestDate`` again. A previous recovery path treated any
+    falsey cursor as a fresh run, making an aggregate retry walk every day a
+    second time.
+    """
+    if manifest.get("currentDate") is not None:
+        return False
+    if not manifest.get("oldestDate") or not manifest.get("newestDate"):
+        return True
+    try:
+        last_fetched = date.fromisoformat(str(manifest.get("lastFetchedDate"))[:10])
+        newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+    except (TypeError, ValueError):
+        return False
+    return last_fetched >= newest
+
+
+def _default_agentic_memory_status() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "state": "pending",
+        "currentTopic": None,
+        "topics": [],
+        "updatedAt": None,
+    }
+
+
+async def _read_agentic_memory_status(access_token: str) -> dict[str, Any]:
+    try:
+        stored = await read_json_file(access_token, _AGENTIC_MEMORY_FOLDER, _AGENTIC_MEMORY_STATUS_FILE)
+    except Exception:
+        return _default_agentic_memory_status()
+    if not isinstance(stored, dict):
+        return _default_agentic_memory_status()
+    result = _default_agentic_memory_status()
+    result.update(stored)
+    result["topics"] = [item for item in result.get("topics", []) if isinstance(item, dict)]
+    return result
+
+
+async def _write_agentic_memory_status(access_token: str, status: dict[str, Any]) -> None:
+    status["updatedAt"] = datetime.now(UTC).isoformat()
+    await write_json_file(access_token, _AGENTIC_MEMORY_FOLDER, _AGENTIC_MEMORY_STATUS_FILE, status)
+
+
 async def _read_status(access_token: str) -> dict[str, Any]:
     try:
         stored = await read_json_file(access_token, _FOLDER, _STATUS_FILE)
@@ -177,12 +229,108 @@ def _is_dated_manifest_file(stem: str) -> bool:
 
 
 async def _count_manifest_dates(access_token: str) -> int | None:
+    checkpoint = await _read_manifest_date_checkpoint(access_token)
+    return checkpoint.get("count") if checkpoint is not None else None
+
+
+async def _read_manifest_date_checkpoint(access_token: str) -> dict[str, Any] | None:
+    """Read the dated index files and derive the furthest safe history point."""
     try:
         files = await list_json_files(access_token, _MANIFEST_FOLDER)
     except Exception as error:
         _logger.warning("historical insight gathering: unable to count manifest dates: %s", error)
         return None
-    return sum(1 for stem in files if _is_dated_manifest_file(str(stem)))
+    dated: list[str] = []
+    completed: list[str] = []
+    incomplete: list[str] = []
+    for stem, payload in files.items():
+        stem = str(stem)
+        if not _is_dated_manifest_file(stem):
+            continue
+        dated.append(stem)
+        file_status = str(payload.get("status") or "").casefold() if isinstance(payload, dict) else ""
+        number_of_entries = payload.get("numberOfEntries") if isinstance(payload, dict) else None
+        completed_entries = payload.get("completedEntries") if isinstance(payload, dict) else None
+        is_incomplete = file_status in {"indexing", "in_progress", "pending"}
+        try:
+            if number_of_entries is not None and completed_entries is not None:
+                # Entry counts are more reliable than the transient
+                # ``indexing`` label. A worker can crash after all records in
+                # a date file are complete but before the final date-state
+                # write; that file is safe to resume after, not re-crawl.
+                is_incomplete = int(completed_entries) < int(number_of_entries)
+        except (TypeError, ValueError):
+            pass
+        (incomplete if is_incomplete else completed).append(stem)
+    return {
+        "count": len(dated),
+        "dates": sorted(dated),
+        "newestIndexedDate": max(dated, default=None),
+        "newestCompletedDate": max(completed, default=None),
+        "incompleteDates": sorted(incomplete),
+    }
+
+
+def _synchronize_manifest_cursor(
+    manifest: dict[str, Any],
+    checkpoint: dict[str, Any],
+) -> bool:
+    """Move a stale daily cursor past date files already present in Drive."""
+    changed = False
+    indexed_dates = [str(value) for value in checkpoint.get("dates", []) if _is_dated_manifest_file(str(value))]
+    if indexed_dates:
+        existing_dates = manifest.get("dates") if isinstance(manifest.get("dates"), list) else []
+        merged_dates = sorted({str(value) for value in existing_dates if _is_dated_manifest_file(str(value))} | set(indexed_dates))
+        if merged_dates != existing_dates:
+            manifest["dates"] = merged_dates
+            changed = True
+
+    newest_completed_raw = checkpoint.get("newestCompletedDate")
+    incomplete_dates = [
+        str(value) for value in checkpoint.get("incompleteDates", [])
+        if _is_dated_manifest_file(str(value))
+    ]
+    try:
+        newest_completed = date.fromisoformat(str(newest_completed_raw)) if newest_completed_raw else None
+    except ValueError:
+        newest_completed = None
+    try:
+        provider_newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+    except (TypeError, ValueError):
+        provider_newest = None
+    try:
+        current = date.fromisoformat(str(manifest.get("currentDate"))[:10])
+    except (TypeError, ValueError):
+        current = None
+
+    desired: date | None = None
+    if incomplete_dates:
+        # Never skip a date file that was written but not fully completed.
+        desired = date.fromisoformat(incomplete_dates[0])
+    elif newest_completed is not None:
+        candidate = newest_completed + timedelta(days=1)
+        if current is None or current <= newest_completed:
+            desired = candidate if provider_newest is None or candidate <= provider_newest else None
+        else:
+            # The saved cursor is already ahead of the indexed files; preserve
+            # it so a legitimate partially completed provider range is not
+            # rewound.
+            desired = current
+
+    desired_value = desired.isoformat() if desired is not None else None
+    if manifest.get("currentDate") != desired_value and (newest_completed is not None or incomplete_dates):
+        manifest["currentDate"] = desired_value
+        changed = True
+    if newest_completed is not None:
+        last_fetched_raw = manifest.get("lastFetchedDate")
+        try:
+            last_fetched = date.fromisoformat(str(last_fetched_raw)[:10]) if last_fetched_raw else None
+        except (TypeError, ValueError):
+            last_fetched = None
+        if last_fetched is None or newest_completed > last_fetched:
+            manifest["lastFetchedDate"] = newest_completed.isoformat()
+            changed = True
+    return changed
 
 
 async def _write_status(access_token: str, status: dict[str, Any]) -> None:
@@ -372,12 +520,12 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
 
     oldest_values, newest_values = await asyncio.gather(
         asyncio.gather(
-            probe("email oldest", lambda: find_oldest_gmail_date(access_token, start=history_start, end=today + timedelta(days=1))),
+            probe("email oldest", lambda: find_oldest_gmail_date(access_token, start=history_start, end=today + timedelta(days=1), exclude_unread=True)),
             probe("calendar oldest", lambda: find_oldest_calendar_date(access_token, start=history_start, end=history_end)),
             probe("document oldest", lambda: find_oldest_drive_document_date(access_token)),
         ),
         asyncio.gather(
-            probe("email newest", lambda: find_newest_gmail_date(access_token, start=history_start, end=today + timedelta(days=1))),
+            probe("email newest", lambda: find_newest_gmail_date(access_token, start=history_start, end=today + timedelta(days=1), exclude_unread=True)),
             probe("calendar newest", lambda: find_newest_calendar_date(access_token, start=history_start, end=history_end)),
             probe("document newest", lambda: find_newest_drive_document_date(access_token)),
         ),
@@ -436,6 +584,10 @@ def _prompt(stage: str, entries: list[dict[str, Any]], existing_hint: str = "") 
         "user-specific, durable beyond this source item, and useful for future assistance; if not, save "
         "nothing. Do not create one memory per email, event, task, contact, document, or spreadsheet row. "
         "Prefer one refined memory supported by multiple records over many restatements of individual items. "
+        "Work on one topic at a time across the indexed dates in the manifest. The manifest is the search space: do not restart "
+        "the daily provider crawl during this phase. Select one candidate topic from the indexed titles, dates, and "
+        "source kinds, then search the complete index for matching entities, title variants, and overlapping timeframes "
+        "before deciding what belongs together. Finish the current topic before selecting another. "
         "For each potentially useful person, employer, business, book, purchase, or topic, search_historical_sources first "
         "to find related records on other dates and in other source types, then combine the evidence into "
         "one coherent chronological narrative about that one topic. For every source that may support a durable memory, call "
@@ -568,16 +720,19 @@ async def _fetch_lazy_day(
         _logger.info("historical insight gathering: fetching email records for date=%s", day)
         messages, total = await fetch_gmail_messages(
             access_token, local_date=day.isoformat(), page=1, page_size=100,
-            fetch_all_pages=False,
+            fetch_all_pages=False, exclude_unread=True,
         )
         for page in range(2, (total + 99) // 100 + 1):
             page_messages, _ = await fetch_gmail_messages(
                 access_token, local_date=day.isoformat(), page=page, page_size=100,
-                fetch_all_pages=False,
+                fetch_all_pages=False, exclude_unread=True,
             )
             messages.extend(page_messages)
         for message in messages:
-            if message.get("id"):
+            # The Gmail query is the primary filter. Keep this defensive check
+            # so an adapter or recovered payload cannot reintroduce unread mail
+            # into the historical index.
+            if message.get("id") and not message.get("unread"):
                 record, reference = _email_source(message)
                 entries.append({"record": record, "reference": reference})
 
@@ -787,9 +942,8 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
     if not isinstance(manifest, dict):
         manifest = await _collect_manifest(access_token, status)
-    else:
-        for stage in status["stages"].values():
-            stage.update({"status": "pending", "processed": 0, "total": 0})
+    # Existing stage state is durable. In particular, an aggregate retry must
+    # not turn a completed history pass back into a pending daily crawl.
     # Older v6 checkpoints used one cursor per source.  Preserve their
     # currentDate for recovery, but translate the bounds to the daily-pass
     # shape before doing any more work.
@@ -801,7 +955,7 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     if not manifest.get("newestDate"):
         newest_values = [value for value in source_newest.values() if value]
         manifest["newestDate"] = max(newest_values, default=manifest.get("newestEntryDate"))
-    if not manifest.get("currentDate"):
+    if "currentDate" not in manifest:
         manifest["currentDate"] = manifest.get("currentPointerDate") or manifest.get("oldestDate")
     manifest.pop("sourceCursors", None)
     manifest.pop("nextDate", None)
@@ -826,11 +980,22 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     manifest.pop("sourceCounts", None)
     if had_legacy_fields:
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-    dates_indexed = await _count_manifest_dates(access_token)
+    indexed_checkpoint = await _read_manifest_date_checkpoint(access_token)
+    dates_indexed = indexed_checkpoint.get("count") if indexed_checkpoint is not None else None
     if dates_indexed is not None:
         status["datesIndexed"] = dates_indexed
+    if indexed_checkpoint is not None and _synchronize_manifest_cursor(manifest, indexed_checkpoint):
+        status["currentDate"] = manifest.get("currentDate")
+        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+        _logger.info(
+            "historical insight gathering: resumed daily cursor from indexed manifest dates currentDate=%s",
+            manifest.get("currentDate"),
+        )
     stage = status["stages"]["history"]
-    if stage.get("status") != "completed":
+    history_complete = _history_checkpoint_is_complete(manifest)
+    if history_complete:
+        stage.update({"status": "completed", "processed": dates_indexed or 0, "total": dates_indexed or 0})
+    else:
         stage["status"] = "running"
 
         while True:
@@ -913,20 +1078,29 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
 
 
 def _aggregate_prompt(total: int) -> str:
-    """Tell the sole LLM phase to build a global evidence model first."""
+    """Tell the sole LLM phase to process one manifest topic at a time."""
     return (
         _prompt("the complete indexed history", [])
         + "\n\n"
         + f"This is the sole agentic phase after deterministic indexing; the manifest contains {total} indexed materials. "
         + "The daily crawl did not make any LLM calls and intentionally stored only dates, source metadata, and titles. "
         + "First call list_historical_sources repeatedly from page 1 until nextPage is null. Treat that catalog as the "
-        + "complete scope of this pass. Then crawl every catalog item and read_historical_source for each source before "
-        + "saving. This is intentionally the only full-content phase; titles alone are not enough for ownership, "
-        + "employment, roles, or relationships. "
-        + "Do not save memories while you are still discovering the catalog. Build a cross-date evidence ledger in your "
-        + "working context, then synthesize and save only after the full catalog has been inspected.\n\n"
-        + "Use lookup_historical_insights and search_historical_sources while investigating. Once you have established "
-        + "a correct, coherent narrative, use remember_historical_insight as the write tool to create or update exactly "
+        + "complete scope of this pass, but do not read every source just because it is listed. Use the catalog to choose "
+        + "one candidate topic, then call search_historical_sources across the manifest for that topic's names, title "
+        + "variants, related entities, and nearby dates. Read only the exact matching source ids needed to establish that "
+        + "topic. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
+        + "roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
+        + "At the start, call list_historical_sources repeatedly to inspect the indexed dates, then call "
+        + "plan_agentic_memory_topics with the ordered list of durable topics you want to research across those indexed "
+        + "dates. Do not begin topic-specific source reads until that list has been recorded. Then iterate through the "
+        + "planned list one topic at a time: call record_agentic_memory_topic, investigate/refine it, and call "
+        + "complete_agentic_memory_topic only after its relevant source IDs have all been fetched and its gap-filling "
+        + "search is exhausted. If a topic is already in progress, continue it before starting another. These tools "
+        + "persist the topic checkpoint in agentic_memory/status.json so an interrupted aggregate pass can resume at the "
+        + "same topic without restarting history.\n\n"
+        + "Use the existing agent-memory structure for every result: memoryKey, category, subject, fact, confidence, "
+        + "source_ids, and rationale. Do not invent a second topic or cluster record format. Once you have established "
+        + "a correct, coherent narrative for the current topic, use remember_historical_insight to create or update exactly "
         + "one durable memory with the supporting source ids. The `fact` argument is the memory's canonical output and "
         + "will be injected into future Strands system prompts: write it as a self-contained chronology from earliest "
         + "known event to latest known state, with dated events or explicitly bounded time ranges whenever available. "
@@ -944,7 +1118,13 @@ def _aggregate_prompt(total: int) -> str:
         + " For example, if one record loosely describes Scout as the user's startup but other records identify Chad as "
         + "an owner and connect the user's job or Chase-offer decision to Scout, write one dated Scout role/employment "
         + "narrative that preserves those distinctions; do not write that the user owns Scout unless the complete evidence "
-        + "actually establishes it."
+        + "actually establishes it. After each topic memory is saved or updated, read the existing memory again and ask "
+        + "what evidence, connection, date, role, or contradiction is still missing. If a gap is answerable, search the "
+        + "manifest again with a focused gap query, read the newly relevant exact source ids, and rewrite the same stable "
+        + "memoryKey using the existing memory schema. Repeat that search/compare/refine loop until the topic yields no "
+        + "new relevant indexed evidence. When completing a topic, pass every relevant sourceId identified from the "
+        + "indexed dates in the manifest in relevant_source_ids; completion is valid only after each of those records has been "
+        + "fetched through read_historical_source. Only then mark the topic complete and continue to the next topic."
     )
 
 
@@ -974,6 +1154,13 @@ async def _run_aggregate(
         for item in entries
         if item.get("sourceId")
     }
+    agentic_memory_status = await _read_agentic_memory_status(access_token)
+    agentic_memory_status["state"] = "running"
+    await _write_agentic_memory_status(access_token, agentic_memory_status)
+
+    async def persist_agentic_memory_status(current: dict[str, Any]) -> None:
+        await _write_agentic_memory_status(access_token, current)
+
     stage.update({"status": "running", "processed": 0, "total": len(source_index)})
     status.update({
         "currentStage": "aggregate",
@@ -1000,6 +1187,9 @@ async def _run_aggregate(
             agent_name=agent_name,
             extra_tools=[
                 build_list_historical_sources_tool(source_index),
+                *build_agentic_memory_status_tools(
+                    agentic_memory_status, persist_agentic_memory_status, read_state,
+                ),
                 build_lookup_insights_tool(access_token, lookup_state),
                 build_read_historical_source_tool(access_token, source_index, read_state),
                 build_search_historical_sources_tool(
@@ -1017,10 +1207,24 @@ async def _run_aggregate(
         # becomes coherent.
         await _stream_agent_page(aggregate_agent, _aggregate_prompt(len(source_index)), status, access_token)
 
+        incomplete_topics = [
+            str(item.get("topic") or item.get("topicKey"))
+            for item in agentic_memory_status.get("topics", [])
+            if isinstance(item, dict) and item.get("status") != "completed"
+        ]
+        if incomplete_topics:
+            raise RuntimeError(
+                "agentic memory pass ended before completing topics: "
+                + ", ".join(incomplete_topics[:20])
+            )
+
     stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
     manifest["aggregateStatus"] = "completed"
     status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    agentic_memory_status["state"] = "completed"
+    agentic_memory_status["currentTopic"] = None
+    await _write_agentic_memory_status(access_token, agentic_memory_status)
     _add_event(status, "Built coherent historical memories", f"Reviewed {len(source_index)} indexed source records")
     await _write_status(access_token, status)
 

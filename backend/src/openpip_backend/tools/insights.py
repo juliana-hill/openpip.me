@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, TypeVar
+from datetime import UTC, datetime
+from typing import Any, Awaitable, Callable, TypeVar
 
 from .. import insight_memory
 from ..google_drive_docs import read_json_file
@@ -60,6 +61,176 @@ def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] |
         return json.dumps({"query": normalized_query, "insights": insights})
 
     return lookup_historical_insights
+
+
+def build_agentic_memory_status_tools(
+    status: dict[str, Any],
+    persist: Callable[[dict[str, Any]], Awaitable[None]],
+    read_state: dict[str, Any] | None = None,
+) -> list[Any]:
+    """Track the aggregate agent's one-topic-at-a-time research loop."""
+
+    def topic_key(topic: str) -> str:
+        return " ".join(topic.casefold().split())
+
+    @tool(
+        name="list_agentic_memory_topics",
+        description=(
+            "Read the agentic_memory/status.json checkpoint. It records topics already completed and the one currently "
+            "being researched. Continue an in-progress topic before selecting a new one."
+        ),
+    )
+    async def list_agentic_memory_topics() -> str:
+        return json.dumps({
+            "state": status.get("state", "pending"),
+            "currentTopic": status.get("currentTopic"),
+            "topics": status.get("topics", []),
+        })
+
+    @tool(
+        name="plan_agentic_memory_topics",
+        description=(
+            "After reviewing all indexed dates, create the ordered list of durable topics to research across the "
+            "manifest. Pass one concise topic per item. This writes planned topics to agentic_memory/status.json "
+            "before any topic-specific source reads begin."
+        ),
+    )
+    async def plan_agentic_memory_topics(topics: list[str]) -> str:
+        planned: list[str] = []
+        seen: set[str] = set()
+        for topic in topics:
+            normalized_topic = str(topic or "").strip()
+            key = topic_key(normalized_topic) if normalized_topic else ""
+            if key and key not in seen:
+                seen.add(key)
+                planned.append(normalized_topic)
+        if not planned:
+            raise ValueError("topics must contain at least one non-empty topic")
+        existing_by_key = {
+            str(item.get("topicKey")): item
+            for item in status.setdefault("topics", [])
+            if isinstance(item, dict) and item.get("topicKey")
+        }
+        now = datetime.now(UTC).isoformat()
+        for topic in planned:
+            key = topic_key(topic)
+            if key in existing_by_key:
+                continue
+            item = {
+                "topicKey": key,
+                "topic": topic,
+                "status": "planned",
+                "memoryKey": None,
+                "rationale": "",
+                "sourceIds": [],
+                "recordsRead": 0,
+                "plannedAt": now,
+                "startedAt": None,
+                "completedAt": None,
+            }
+            status.setdefault("topics", []).append(item)
+            existing_by_key[key] = item
+        current_topic = status.get("currentTopic")
+        status["state"] = "running" if current_topic else "planned"
+        await persist(status)
+        return json.dumps({"status": "planned", "topics": status["topics"]})
+
+    @tool(
+        name="record_agentic_memory_topic",
+        description=(
+            "Record one topic before researching it across the indexed manifest. Use one topic at a time; provide the "
+            "existing stable memoryKey when refining an existing memory. This updates agentic_memory/status.json."
+        ),
+    )
+    async def record_agentic_memory_topic(
+        topic: str,
+        memory_key: str = "",
+        rationale: str = "",
+    ) -> str:
+        normalized_topic = topic.strip()
+        if not normalized_topic:
+            raise ValueError("topic must not be empty")
+        now = datetime.now(UTC).isoformat()
+        topics = status.setdefault("topics", [])
+        existing = next(
+            (item for item in topics if isinstance(item, dict) and item.get("topicKey") == topic_key(normalized_topic)),
+            None,
+        )
+        current_topic = status.get("currentTopic")
+        normalized_key = topic_key(normalized_topic)
+        if current_topic and current_topic != normalized_key:
+            raise ValueError("complete the current agentic memory topic before starting another")
+        if existing is not None and existing.get("status") == "completed":
+            return json.dumps({"status": "completed", "topic": existing})
+        if existing is None:
+            raise ValueError("plan_agentic_memory_topics must be called before starting a topic")
+        else:
+            existing.update({
+                "topic": normalized_topic,
+                "status": "in_progress",
+                "memoryKey": memory_key.strip().lower() or existing.get("memoryKey"),
+                "rationale": rationale.strip()[:500] or existing.get("rationale", ""),
+                "startedAt": existing.get("startedAt") or now,
+                "completedAt": None,
+            })
+        status["state"] = "running"
+        status["currentTopic"] = existing["topicKey"]
+        await persist(status)
+        return json.dumps({"status": "in_progress", "topic": existing})
+
+    @tool(
+        name="complete_agentic_memory_topic",
+        description=(
+            "Mark the current topic complete only after its manifest search, exact-source reads, existing-memory check, "
+            "and gap-filling search found no more relevant indexed evidence. Pass every relevant sourceId that was "
+            "identified from the index and fetched through read_historical_source. This updates agentic_memory/status.json."
+        ),
+    )
+    async def complete_agentic_memory_topic(
+        topic: str,
+        memory_key: str = "",
+        relevant_source_ids: list[str] | None = None,
+        completion_note: str = "",
+    ) -> str:
+        normalized_topic = topic.strip()
+        key = topic_key(normalized_topic)
+        existing = next(
+            (item for item in status.setdefault("topics", []) if isinstance(item, dict) and item.get("topicKey") == key),
+            None,
+        )
+        if existing is None:
+            raise ValueError("record_agentic_memory_topic must be called before completing a topic")
+        if existing.get("status") == "completed":
+            return json.dumps({"status": "completed", "topic": existing})
+        if existing.get("status") != "in_progress" or status.get("currentTopic") != key:
+            raise ValueError("the topic must be the current in-progress topic before it can be completed")
+        source_ids = list(dict.fromkeys(str(source_id) for source_id in (relevant_source_ids or []) if source_id))
+        if read_state is not None:
+            read_source_ids = read_state.get("sourceIds") or set()
+            unread = [source_id for source_id in source_ids if source_id not in read_source_ids]
+            if unread:
+                raise ValueError(
+                    "read_historical_source must be called for every relevant source before completing the topic: "
+                    + ", ".join(unread)
+                )
+        existing.update({
+            "status": "completed",
+            "memoryKey": memory_key.strip().lower() or existing.get("memoryKey"),
+            "sourceIds": source_ids,
+            "recordsRead": len(source_ids),
+            "completionNote": completion_note.strip()[:500],
+            "completedAt": datetime.now(UTC).isoformat(),
+        })
+        status["currentTopic"] = None
+        await persist(status)
+        return json.dumps({"status": "completed", "topic": existing})
+
+    return [
+        list_agentic_memory_topics,
+        plan_agentic_memory_topics,
+        record_agentic_memory_topic,
+        complete_agentic_memory_topic,
+    ]
 
 
 def build_read_historical_source_tool(

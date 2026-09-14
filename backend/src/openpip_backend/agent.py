@@ -50,14 +50,14 @@ _UNCLOSED_PRIVATE_REASONING_RE = re.compile(
 # re-requested — nova-2-lite-v1:0 is the current, active replacement.
 NOVA_GROUNDING_MODEL_ID = "us.amazon.nova-2-lite-v1:0"
 
-# The Executive Assistant needs general chat + tool-calling, not Nova Web
-# Grounding specifically, so it doesn't need a cross-region inference
-# profile — confirmed directly against this account with a plain `converse`
-# call (bare "amazon.nova-pro-v1:0", ON_DEMAND, no "us." prefix needed).
-# Nova Pro over the lighter nova-2-lite used for grounding above: this model
-# has to reason over many signals (tasks/contacts/calendar/email) and hold
-# up under tool use, not just relay one short grounded quote.
-EXECUTIVE_ASSISTANT_MODEL_ID = "amazon.nova-pro-v1:0"
+# Bedrock requires Nova Pro to be invoked through the US cross-region
+# inference profile in production; the bare foundation-model id fails with
+# "on-demand throughput isn't supported" during long tool-calling passes.
+# Keep this overrideable for another account/region, while defaulting to the
+# production-compatible profile used by the historical aggregate worker.
+EXECUTIVE_ASSISTANT_MODEL_ID = os.getenv(
+    "OPENPIP_EXECUTIVE_ASSISTANT_MODEL_ID", "us.amazon.nova-pro-v1:0"
+)
 
 
 DEFAULT_AGENT_NAME = "OpenPip"

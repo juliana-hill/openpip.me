@@ -946,6 +946,7 @@ async def fetch_gmail_messages(
     label_id: str | None = None,
     gmail_query: str | None = None,
     unread_only: bool = False,
+    exclude_unread: bool = False,
     page: int = 1,
     page_size: int = 50,
     fetch_all_pages: bool = True,
@@ -955,6 +956,9 @@ async def fetch_gmail_messages(
     The default remains the Inbox. Supplying a label ID intentionally removes
     the Inbox/date restriction so a label can retrieve read and archived mail;
     ``gmail_query`` does the same for searches such as ``from:sender``.
+    ``exclude_unread`` adds Gmail's ``-is:unread`` query while retaining the
+    default Inbox/date scope. Historical indexing uses it because unread mail
+    is not evidence of an established past behavior.
     """
     query: dict[str, Any] = {
         "includeSpamTrash": "false",
@@ -972,6 +976,8 @@ async def fetch_gmail_messages(
         query_parts.append(gmail_query)
     if unread_only:
         query_parts.append("is:unread")
+    elif exclude_unread:
+        query_parts.append("-is:unread")
     if local_date and not label_id:
         try:
             day = date.fromisoformat(local_date)
@@ -1034,6 +1040,7 @@ async def fetch_gmail_messages(
 
 async def find_oldest_gmail_date(
     access_token: str, *, start: date, end: date, gmail_query: str | None = None,
+    exclude_unread: bool = False,
 ) -> date | None:
     """Find the first day containing Gmail results using metadata-only probes.
 
@@ -1048,6 +1055,8 @@ async def find_oldest_gmail_date(
             parts = [f"after:{day - timedelta(days=1):%Y/%m/%d}", f"before:{end:%Y/%m/%d}"]
             if gmail_query:
                 parts.insert(0, gmail_query)
+            if exclude_unread:
+                parts.insert(0, "-is:unread")
             payload = await _get_json(
                 client,
                 "https://gmail.googleapis.com/gmail/v1/users/me/messages",
@@ -1072,6 +1081,7 @@ async def find_oldest_gmail_date(
 
 async def find_newest_gmail_date(
     access_token: str, *, start: date, end: date, gmail_query: str | None = None,
+    exclude_unread: bool = False,
 ) -> date | None:
     """Read only the newest Gmail message's metadata to establish a boundary."""
     if start >= end:
@@ -1079,6 +1089,8 @@ async def find_newest_gmail_date(
     parts = [f"after:{start - timedelta(days=1):%Y/%m/%d}", f"before:{end:%Y/%m/%d}"]
     if gmail_query:
         parts.insert(0, gmail_query)
+    if exclude_unread:
+        parts.insert(0, "-is:unread")
     async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
         listing = await _get_json(
             client,

@@ -11,6 +11,7 @@ from openpip_backend.google_workspace import (
     _extract_gmail_content,
     _get_json,
     create_gmail_draft,
+    fetch_gmail_messages,
     modify_gmail_message_labels,
     update_google_calendar_event,
 )
@@ -45,6 +46,34 @@ def test_google_read_timeout_retries_before_failing(monkeypatch) -> None:
 
     assert result == {"items": []}
     assert calls == 2
+
+
+def test_historical_gmail_query_excludes_unread_messages(monkeypatch) -> None:
+    captured: list[dict[str, object]] = []
+
+    async def fake_get(self, url, **kwargs):
+        captured.append(kwargs["params"])
+        return httpx.Response(
+            200,
+            json={"messages": [], "resultSizeEstimate": 0},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    asyncio.run(fetch_gmail_messages(
+        "oauth-token",
+        local_date="2021-01-02",
+        exclude_unread=True,
+        fetch_all_pages=False,
+    ))
+
+    assert captured == [{
+        "includeSpamTrash": "false",
+        "maxResults": 100,
+        "labelIds": "INBOX",
+        "q": "-is:unread after:2021/01/02 before:2021/01/03",
+    }]
 
 
 def test_google_tasks_are_returned_from_the_oauth_adapter(monkeypatch) -> None:
