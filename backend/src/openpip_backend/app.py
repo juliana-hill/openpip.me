@@ -330,6 +330,20 @@ async def briefing(request: BriefingRequest, token: str | None = Depends(get_goo
     return BriefingResponse(briefing=text, generated_by=generated_by, proposals_created=proposals_created)
 
 
+@app.get("/agent/briefing/quote")
+@app.get("/api/briefing/quote")
+def briefing_quote() -> dict[str, str]:
+    """Return one database-selected quote for the frontend's local brief.
+
+    The dashboard already fetched the Today data it displays, so it does not
+    POST that same data to the briefing endpoint a second time. Quote
+    selection remains server-owned because the quote pool is stored in SQLite.
+    """
+    quote = store.pick_random_quote() or DAILY_QUOTES[0]
+    store.mark_quote_shown(quote)
+    return {"quote": quote}
+
+
 @app.post("/api/quotes/discover")
 def discover_quote() -> dict[str, Any]:
     """Ask Nova (Web Grounding enabled) for one real, verifiable quote and add

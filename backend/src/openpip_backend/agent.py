@@ -21,17 +21,138 @@ from .tools import travel_agent
 # Seed data for the `quotes` table (store.seed_quotes) — a starting pool so
 # briefings have something to draw from before discover_quote_via_grounding()
 # has ever added anything of its own. The pool grows from there; this tuple
-# is never read directly by create_briefing() itself.
+# is never read directly by create_briefing() itself. The classical selections
+# are short excerpts from public-domain translations/works; modern selections
+# are limited to short, attributable excerpts. Existing user/discovered rows
+# are intentionally preserved by store.seed_quotes()'s INSERT OR IGNORE logic.
 DAILY_QUOTES = (
-    '> "The obstacle is the way." — Marcus Aurelius',
-    '> "Nothing great was ever achieved without enthusiasm." — Ralph Waldo Emerson',
-    '> "The secret of getting ahead is getting started." — Mark Twain',
-    '> "It is not what you look at that matters, it is what you see." — Henry David Thoreau',
-    '> "Success is not final, failure is not fatal: it is the courage to continue that counts." — Winston Churchill',
-    '> "I will prepare and some day my chance will come." — Abraham Lincoln',
+    # Marcus Aurelius — Meditations, trans. George Long.
+    '> "The happiness of your life depends upon the quality of your thoughts." — Marcus Aurelius',
+    '> "The soul becomes dyed with the colour of its thoughts." — Marcus Aurelius',
+    '> "The universe is transformation: life is opinion." — Marcus Aurelius',
+    '> "The best revenge is to be unlike him who performed the injury." — Marcus Aurelius',
+    '> "The mind adapts and converts to its purposes the obstacle to our acting." — Marcus Aurelius',
+    '> "The soul is never deprived of the present." — Marcus Aurelius',
+    '> "Do every act of your life as though it were the very last act of your life." — Marcus Aurelius',
+    '> "A man should be upright, not be kept upright." — Marcus Aurelius',
+    '> "The art of living is more like wrestling than dancing." — Marcus Aurelius',
+    '> "Remember that the nature of the whole delights in change." — Marcus Aurelius',
+    '> "Look within. Within is the fountain of good, and it will ever bubble up." — Marcus Aurelius',
+    '> "Nowhere can man find a quieter or more untroubled retreat than in his own soul." — Marcus Aurelius',
+    '> "It is not fit that I should be angry with men." — Marcus Aurelius',
+    '> "Everything that happens happens as it should." — Marcus Aurelius',
+    '> "The object of life is not to be on the side of the majority, but to escape finding oneself in the ranks of the insane." — Marcus Aurelius',
+
+    # Epictetus — The Enchiridion, trans. Elizabeth Carter.
+    '> "Some things are in our control and others not." — Epictetus',
+    '> "Men are disturbed, not by things, but by the principles and notions which they form concerning things." — Epictetus',
+    '> "Don\'t demand that things happen as you wish, but wish that they happen as they do happen, and you will go on well." — Epictetus',
+    '> "With every accident, ask yourself what abilities you have for making a proper use of it." — Epictetus',
+    '> "Never say of anything, \"I have lost it\"; but, \"I have returned it.\"" — Epictetus',
+    '> "If you want to improve, be content to be thought foolish and stupid with regard to external things." — Epictetus',
+    '> "Exercise, therefore, what is in your control." — Epictetus',
+    '> "No man is free who is not master of himself." — Epictetus',
+    '> "First say to yourself what you would be; and then do what you have to do." — Epictetus',
+    '> "It is impossible for a man to learn what he thinks he already knows." — Epictetus',
+    '> "It is better to die with hunger, exempt from grief and fear, than to live in affluence with perturbation." — Epictetus',
+    '> "It is not things themselves which disturb men, but their judgments about these things." — Epictetus',
+
+    # Seneca — On the Shortness of Life and Moral Letters, public-domain texts.
+    '> "It is not that we have a short time to live, but that we waste a great deal of it." — Seneca',
+    '> "Life is long if you know how to use it." — Seneca',
+    '> "We are not given a short life but we make it short." — Seneca',
+    '> "While we are postponing, life speeds by." — Seneca',
+    '> "Difficulties strengthen the mind, as labour does the body." — Seneca',
+    '> "He who is brave is free." — Seneca',
+    '> "No man was ever wise by chance." — Seneca',
+    '> "Begin at once to live, and count each separate day as a separate life." — Seneca',
+    '> "The greatest obstacle to living is expectancy, which depends upon to-morrow and loses to-day." — Seneca',
+    '> "It is quality rather than quantity that matters." — Seneca',
+    '> "Luck never made a man wise." — Seneca',
+    '> "If one does not know to which port one is sailing, no wind is favorable." — Seneca',
+
+    # Aristotle — Nicomachean Ethics and Politics, trans. W. D. Ross.
+    '> "The good of man is an activity of soul in accordance with virtue." — Aristotle',
+    '> "One swallow does not make a summer, nor does one day." — Aristotle',
+    '> "We are not inquiring in order to know what virtue is, but in order to become good." — Aristotle',
+    '> "It makes no small difference whether we form habits of one kind or of another from our very youth." — Aristotle',
+    '> "For the things we have to learn before we can do them, we learn by doing them." — Aristotle',
+    '> "We become just by doing just acts, temperate by doing temperate acts, brave by doing brave acts." — Aristotle',
+    '> "Virtue, then, is of two kinds, intellectual and moral." — Aristotle',
+    '> "Man is by nature a political animal." — Aristotle',
+
+    # Socrates as recorded by Plato — Apology, trans. Benjamin Jowett.
+    '> "The unexamined life is not worth living." — Socrates (Plato, Apology)',
+    '> "I shall obey God rather than you." — Socrates (Plato, Apology)',
+    '> "The greatest good of man is daily to converse about virtue." — Socrates (Plato, Apology)',
+    '> "The difficulty, my friends, is not in avoiding death, but in avoiding unrighteousness." — Socrates (Plato, Apology)',
+    '> "No evil can happen to a good man, either in life or after death." — Socrates (Plato, Apology)',
+    '> "The easiest and noblest way is not to be crushing others, but to be improving yourselves." — Socrates (Plato, Apology)',
+
+    # Sun Tzu — The Art of War, trans. Lionel Giles.
+    '> "The art of war is of vital importance to the State." — Sun Tzu',
+    '> "He who knows them will be victorious; he who knows them not will fail." — Sun Tzu',
+    '> "Attack him where he is unprepared, appear where you are not expected." — Sun Tzu',
+    '> "The general who wins a battle makes many calculations in his temple ere the battle is fought." — Sun Tzu',
+    '> "In war, then, let your great object be victory, not lengthy campaigns." — Sun Tzu',
+    '> "The skillful soldier does not raise a second levy." — Sun Tzu',
+    '> "Whoever is first in the field and awaits the coming of the enemy, will be fresh for the fight." — Sun Tzu',
+    '> "The clever combatant imposes his will on the enemy, but does not allow the enemy\'s will to be imposed on him." — Sun Tzu',
+    '> "The art of war teaches us to rely not on the likelihood of the enemy\'s not coming, but on our own readiness." — Sun Tzu',
+
+    # Laozi — Tao Te Ching / Dao De Jing, public-domain translations.
+    '> "A journey of a thousand miles begins with a single step." — Laozi',
+    '> "Knowing others is intelligence; knowing yourself is true wisdom." — Laozi',
+    '> "He who knows others is wise; he who knows himself is enlightened." — Laozi',
+    '> "Nature does not hurry, yet everything is accomplished." — Laozi',
+    '> "The softest thing in the universe overcomes the hardest thing in the universe." — Laozi',
+    '> "Those who know do not speak. Those who speak do not know." — Laozi',
+    '> "To attain knowledge, add things every day. To attain wisdom, remove things every day." — Laozi',
+    '> "The sage does not hoard. The more he helps others, the more he benefits himself." — Laozi',
+
+    # Ralph Waldo Emerson — public-domain essays.
+    '> "Nothing can bring you peace but yourself." — Ralph Waldo Emerson',
+    '> "Whoso would be a man must be a nonconformist." — Ralph Waldo Emerson',
+    '> "A foolish consistency is the hobgoblin of little minds." — Ralph Waldo Emerson',
+    '> "The reward of a thing well done is having done it." — Ralph Waldo Emerson',
+    '> "Every artist was first an amateur." — Ralph Waldo Emerson',
+    '> "Adopt the pace of nature: her secret is patience." — Ralph Waldo Emerson',
+    '> "Life consists in what a man is thinking of all day." — Ralph Waldo Emerson',
+
+    # Henry David Thoreau — Walden, public domain.
+    '> "The mass of men lead lives of quiet desperation." — Henry David Thoreau',
+    '> "Simplify, simplify." — Henry David Thoreau',
+    '> "Go confidently in the direction of your dreams! Live the life you\'ve imagined." — Henry David Thoreau',
+    '> "Things do not change; we change." — Henry David Thoreau',
+    '> "How vain it is to sit down to write when you have not stood up to live." — Henry David Thoreau',
+    '> "The question is not what you look at, but what you see." — Henry David Thoreau',
+
+    # Oscar Wilde — public-domain plays and novels.
+    '> "We are all in the gutter, but some of us are looking at the stars." — Oscar Wilde',
+    '> "Experience is simply the name we give our mistakes." — Oscar Wilde',
+    '> "To live is the rarest thing in the world. Most people exist, that is all." — Oscar Wilde',
+    '> "The truth is rarely pure and never simple." — Oscar Wilde',
     '> "With freedom, books, flowers, and the moon, who could not be happy?" — Oscar Wilde',
-    '> "Action is the foundational key to all success." — Pablo Picasso',
-    '> "It is better to offer no excuse than a bad one." — George Washington',
+
+    # The Dalai Lama — short excerpts from the Office of His Holiness.
+    '> "The basic source of all happiness is a sense of kindness and warm-heartedness towards others." — Dalai Lama',
+    '> "The key to happiness is peace of mind." — Dalai Lama',
+    '> "The purpose of life is to be happy." — Dalai Lama',
+    '> "If you want others to be happy, practise compassion; if you want to be happy, practise compassion." — Dalai Lama',
+
+    # Steve Jobs — Stanford commencement address, June 12, 2005.
+    '> "Your time is limited, so don\'t waste it living someone else\'s life." — Steve Jobs',
+    '> "Have the courage to follow your heart and intuition." — Steve Jobs',
+    '> "Stay hungry. Stay foolish." — Steve Jobs',
+
+    # Pablo Picasso — documented artist statements and quotations.
+    '> "The purpose of art is washing the dust of daily life off our souls." — Pablo Picasso',
+    '> "Every act of creation is first an act of destruction." — Pablo Picasso',
+    '> "Everything is a miracle. It is a miracle that one does not dissolve in one\'s bath like a lump of sugar." — Pablo Picasso',
+
+    # Andy Warhol — The Philosophy of Andy Warhol and documented statements.
+    '> "They always say time changes things, but you actually have to change them yourself." — Andy Warhol',
+    '> "Being good in business is the most fascinating kind of art." — Andy Warhol',
 )
 
 _PRIVATE_REASONING_BLOCK_RE = re.compile(
@@ -196,14 +317,10 @@ def _fallback_core(request: BriefingRequest) -> str:
     else:
         headline = "Today is open, with no calendar events or Google Tasks requiring attention."
 
-    first = priorities[0] if priorities else "Review the day and choose one clear priority"
-    second = priorities[1] if len(priorities) > 1 else "Protect focus for the work that matters most"
-    risk = (
-        "Leave space between commitments for unexpected work"
-        if priorities
-        else "An unstructured day may fragment focus without intention"
-    )
-    return "\n".join([headline, "", f"- {first}", f"- {second}", f"- {risk}"])
+    bullets = priorities[:3]
+    while len(bullets) < 3:
+        bullets.append("No additional priority returned")
+    return "\n".join([headline, "", *(f"- {item}" for item in bullets)])
 
 
 def _is_strict_core(text: str) -> bool:
@@ -239,7 +356,7 @@ def build_briefing_prompt(request: BriefingRequest, user_context: UserContext) -
         "LINE 2: blank\n"
         "LINE 3: - <most urgent calendar event or Google Task, 10 words maximum>\n"
         "LINE 4: - <second priority, 10 words maximum>\n"
-        "LINE 5: - <one risk or blocker to watch, 10 words maximum>\n"
+        "LINE 5: - <third calendar event or Google Task, 10 words maximum>\n"
         "Rules: lines 3-5 must start with '- '; no numbering, labels, extra text, or closing quote "
         "(a quote is appended separately, do not write one).\n\n"
         "User working context (use this to prioritize work and match communication style; "

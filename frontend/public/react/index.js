@@ -1,7 +1,5 @@
 import {
-  idbGetUserPrefs,
-  idbListSearches,
-  idbSetUserPrefs
+  idbListSearches
 } from "./chunk-4JWWYGPH.js";
 import {
   Dialog_default
@@ -121,10 +119,6 @@ var DashboardPage_default = {
   emptyText: "DashboardPage_emptyText",
   contactList: "DashboardPage_contactList",
   contactRow: "DashboardPage_contactRow"
-};
-
-// compat/no-sync.ts
-var pushUserData = async () => {
 };
 
 // components/dashboard/ReviewDashboardCard.tsx
@@ -298,10 +292,62 @@ function StudyMeCard({
   ] });
 }
 
+// components/dashboard/todayBrief.ts
+async function fetchDailyQuote() {
+  for (const path of ["/agent/briefing/quote", "/api/briefing/quote"]) {
+    try {
+      const response = await proxyFetch(path);
+      if (!response.ok) continue;
+      const data = await response.json();
+      if (typeof data.quote === "string" && data.quote.trim()) return data.quote.trim();
+    } catch {
+    }
+  }
+  return null;
+}
+function buildTodayBriefing({
+  tasks,
+  events,
+  openCount,
+  taskCount,
+  eventCount,
+  unreadCount,
+  quote
+}) {
+  const bullets = [
+    ...events.map((event) => event.title.trim()).filter(Boolean),
+    ...tasks.map((task) => task.title.trim()).filter(Boolean)
+  ].slice(0, 3);
+  while (bullets.length < 3) bullets.push("No additional priority returned");
+  const lines = [
+    quote?.trim() || `Today: ${openCount} open`,
+    "",
+    `${taskCount} Google task${taskCount === 1 ? "" : "s"} \xB7 ${eventCount} calendar event${eventCount === 1 ? "" : "s"} today \xB7 ${unreadCount} unread email${unreadCount === 1 ? "" : "s"}`,
+    "",
+    ...bullets.map((item) => `- ${item}`)
+  ];
+  return lines.join("\n");
+}
+
 // components/dashboard/DashboardPage.tsx
 var import_jsx_runtime4 = __toESM(require_jsx_runtime());
 var localToday = () => (/* @__PURE__ */ new Date()).toLocaleDateString("en-CA");
-var localNow = () => (/* @__PURE__ */ new Date()).toLocaleTimeString();
+function BriefMarkdown({ content }) {
+  return /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.briefText, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
+    Markdown,
+    {
+      remarkPlugins: [remarkGfm],
+      components: {
+        p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { margin: "0 0 8px" }, children }),
+        ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { style: { margin: "4px 0", paddingLeft: 18 }, children }),
+        li: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { style: { marginBottom: 2 }, children }),
+        blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }, children }),
+        strong: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { style: { color: "var(--color-text)" }, children })
+      },
+      children: content
+    }
+  ) });
+}
 function DashboardPage({ userName, userImage }) {
   const { name: agentName } = useAgentIdentity();
   const initials = userName.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -323,7 +369,6 @@ function DashboardPage({ userName, userImage }) {
   const [reviewLoaded, setReviewLoaded] = (0, import_react3.useState)(false);
   const [insightStatus, setInsightStatus] = (0, import_react3.useState)(null);
   const [insightLoaded, setInsightLoaded] = (0, import_react3.useState)(false);
-  const briefFetchedRef = (0, import_react3.useRef)(false);
   const scanPollRef = (0, import_react3.useRef)(null);
   const insightPollRef = (0, import_react3.useRef)(null);
   const insightPollGenerationRef = (0, import_react3.useRef)(0);
@@ -504,38 +549,15 @@ function DashboardPage({ userName, userImage }) {
       const top3Urgent = urgentTasks.sort((a, b) => a.tier - b.tier || a.priority - b.priority).slice(0, 3).map(({ title, priority, source }) => ({ title, priority, source }));
       setTasks(top3Urgent);
       setTasksLoading(false);
-      const briefTasks = [
-        ...googleTasks.map((t) => ({ t, tier: dateUrgencyTier(t.dueDate) })).filter((x) => x.tier === 0 || x.tier === 1).sort((a, b) => a.tier - b.tier || namedPriorityToNumber(a.t.priority) - namedPriorityToNumber(b.t.priority)).map(({ t }) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google", dueDate: t.dueDate ?? null }))
-      ];
-      const briefEvents = (calendarData.calendars ?? []).flatMap((calendarItem) => (calendarItem.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).map((event) => ({ title: event.title ?? "Calendar event", start: event.start })));
-      return { briefTasks, briefEvents };
-    }
-    async function loadBrief(briefTasks, briefEvents) {
-      try {
-        const prefs = await idbGetUserPrefs();
-        if (prefs.dailyBriefing?.version === "deterministic-v1" && prefs.dailyBriefing?.createdAtDate === localToday()) {
-          setBrief(prefs.dailyBriefing.text);
-          setBriefLoading(false);
-          return;
-        }
-        const res = await proxyFetch("/agent/briefing", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tasks: briefTasks, events: briefEvents, today: localToday(), now: localNow() })
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.briefing ?? null;
-          if (text) {
-            const t = localNow();
-            await idbSetUserPrefs({ dailyBriefing: { version: "deterministic-v1", text, createdAtDate: localToday(), createdAtTime: t } });
-            void pushUserData();
-            setBrief(text);
-          }
-        }
-      } catch {
-      }
-      setBriefLoading(false);
+      const briefEvents = (calendarData.calendars ?? []).flatMap((calendarItem) => (calendarItem.events ?? []).filter((event) => event.start && new Date(event.start).toDateString() === todayDate).map((event) => ({ title: event.title ?? "Calendar event" })));
+      return {
+        briefTasks: top3Urgent,
+        briefEvents,
+        openCount: todayTaskCount + eventCount + (inboxData.unread ?? 0),
+        taskCount: todayTaskCount,
+        eventCount,
+        unreadCount: inboxData.unread ?? 0
+      };
     }
     async function loadRoute() {
       try {
@@ -562,16 +584,23 @@ function DashboardPage({ userName, userImage }) {
     }
     async function init() {
       try {
-        const [{ briefTasks, briefEvents }] = await Promise.all([
+        const [{ briefTasks, briefEvents, openCount, taskCount, eventCount, unreadCount: unreadCount2 }, , , , quote] = await Promise.all([
           loadTasks(),
           loadRoute(),
           loadTripCounts(),
-          refreshScheduledActions()
+          refreshScheduledActions(),
+          fetchDailyQuote()
         ]);
-        if (!briefFetchedRef.current) {
-          briefFetchedRef.current = true;
-          await loadBrief(briefTasks, briefEvents);
-        }
+        setBrief(buildTodayBriefing({
+          tasks: briefTasks,
+          events: briefEvents,
+          openCount,
+          taskCount,
+          eventCount,
+          unreadCount: unreadCount2,
+          quote
+        }));
+        setBriefLoading(false);
       } catch {
         setTasksLoading(false);
         setBriefLoading(false);
@@ -582,7 +611,7 @@ function DashboardPage({ userName, userImage }) {
     init();
   }, [refreshScheduledActions]);
   const today = (/* @__PURE__ */ new Date()).toLocaleDateString(void 0, { weekday: "long", month: "long", day: "numeric" });
-  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded;
+  const showAssistantPrompt = dashboardDataReady && reviewLoaded && !tasksLoading && !briefLoading && insightLoaded && insightStatus !== null;
   const showStudyMe = showAssistantPrompt && insightStatus !== null && insightStatus.state !== "completed";
   return /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.shell, children: [
     /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(AppHeader, { userImage, userName, initials, pageTitle: today }),
@@ -641,22 +670,9 @@ function DashboardPage({ userName, userImage }) {
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: `${DashboardPage_default.card} ${DashboardPage_default.cardFull} ${DashboardPage_default.cardBrief}`, style: { animationDelay: "80ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [
           /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("span", { className: DashboardPage_default.cardTitle, children: "Today's Brief" }),
-          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReadAloudButton, { text: brief ?? "", style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
+          brief && !briefLoading && /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(ReadAloudButton, { text: brief, style: { background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" } })
         ] }),
-        briefLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.skeleton }) : brief ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.briefText, children: /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(
-          Markdown,
-          {
-            remarkPlugins: [remarkGfm],
-            components: {
-              p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { margin: "0 0 8px" }, children }),
-              ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { style: { margin: "4px 0", paddingLeft: 18 }, children }),
-              li: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { style: { marginBottom: 2 }, children }),
-              blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }, children }),
-              strong: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { style: { color: "var(--color-text)" }, children })
-            },
-            children: brief
-          }
-        ) }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.briefText, children: "No briefing available." })
+        briefLoading ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("div", { className: DashboardPage_default.skeleton }) : brief ? /* @__PURE__ */ (0, import_jsx_runtime4.jsx)(BriefMarkdown, { content: brief }) : /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { className: DashboardPage_default.briefText, children: "No briefing available." })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)(Link, { href: "/today", className: `${DashboardPage_default.card} ${DashboardPage_default.cardHalf} ${DashboardPage_default.outcomeToday}`, style: { animationDelay: "60ms" }, children: [
         /* @__PURE__ */ (0, import_jsx_runtime4.jsxs)("div", { className: DashboardPage_default.cardHeader, children: [

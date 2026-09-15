@@ -604,7 +604,12 @@ function placeTypeLabel(type) {
     neighborhood: "Neighborhood",
     hotel: "Hotel",
     hostel: "Hostel",
+    inn: "Inn",
+    ryokan: "Ryokan",
+    guesthouse: "Guesthouse",
+    bath_house: "Bath house",
     apartment: "Apartment",
+    resort: "Resort",
     camping: "Camping",
     other: "Other"
   };
@@ -621,6 +626,12 @@ function readableAgentText(value, fallback = "") {
     }
   }
   return fallback;
+}
+var genericPreparationTitles = /* @__PURE__ */ new Set(["item", "preparation", "preparation item", "what you'll need", "what you\u2019ll need"]);
+function preparationTitle(item) {
+  const title = item.title?.trim() || "";
+  if (title && !genericPreparationTitles.has(title.toLowerCase())) return title;
+  return item.detail?.trim().split(/[.;]/, 1)[0]?.trim() || "";
 }
 function itineraryDayTitle(value) {
   const title = value?.trim() || "Plan this day";
@@ -640,8 +651,8 @@ function draftFromTrip(trip) {
   return { id: trip.id, kind: trip.kind, destination: trip.destination, startDate: trip.startDate || "", endDate: trip.endDate || "", activities: knownActivities, pace: trip.pace || "Balanced", agentOutput: trip["agent-pipeline-output"] };
 }
 function ResearchRecommendations({ output }) {
-  const stays = output.stays || [];
-  const places = (output.places || []).filter((place) => place.name?.replace(/[*_]/g, "").trim().toLowerCase() !== "current status");
+  const stays = (output.stays || []).filter((stay) => Boolean(stay.name && (stay.neighborhood || stay.area) && stay.type && stay.type !== "other" && stay.sourceUrl));
+  const places = (output.places || []).filter((place) => Boolean(place.name && place.type && place.type !== "other" && place.sourceUrl) && place.name?.replace(/[*_]/g, "").trim().toLowerCase() !== "current status");
   if (stays.length === 0 && places.length === 0) return null;
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.recommendationGrid, children: [
     stays.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)(Card, { className: RoutesPage_default.recommendationCard, children: [
@@ -653,14 +664,14 @@ function ResearchRecommendations({ output }) {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Compass, { size: 19, className: RoutesPage_default.mutedIcon })
       ] }),
       /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CardContent, { className: RoutesPage_default.recommendationList, children: stays.map((stay, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: `${RoutesPage_default.recommendationRow} ${RoutesPage_default.stayRecommendationRow}`, children: [
-        /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.stayTile, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Building2, { size: 22, "aria-hidden": "true" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: placeTypeLabel(stay.type) })
-        ] }),
+        /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: RoutesPage_default.stayTile, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(Building2, { size: 22, "aria-hidden": "true" }) }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.stayRecommendationContent, children: [
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: stay.name || "Stay option" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: stay.area || "Area to confirm" }),
-          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationMarkdown, value: stay.detail }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.placeRecommendationTitle, children: [
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: stay.name }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: RoutesPage_default.recommendationType, children: placeTypeLabel(stay.type) })
+          ] }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { children: stay.neighborhood || stay.area }),
+          /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationMarkdown, value: stay.description || stay.detail }),
           stay.safety && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationNote, value: stay.safety })
         ] }),
         stay.sourceUrl && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("a", { className: RoutesPage_default.recommendationSourceLink, href: stay.sourceUrl, target: "_blank", rel: "noopener noreferrer", children: [
@@ -683,10 +694,10 @@ function ResearchRecommendations({ output }) {
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: RoutesPage_default.placeRecommendationIcon, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PlaceIcon, { size: 26, "aria-hidden": "true" }) }),
           /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.placeRecommendationContent, children: [
             /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.placeRecommendationTitle, children: [
-              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: place.name || "Place to verify" }),
+              /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("strong", { children: place.name }),
               /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("span", { className: RoutesPage_default.recommendationType, children: placeTypeLabel(place.type) })
             ] }),
-            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationMarkdown, value: place.detail }),
+            /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationMarkdown, value: place.description || place.detail }),
             place.route && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(AgentMarkdown, { className: RoutesPage_default.recommendationNote, value: place.route }),
             place.sourceUrl && /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("a", { className: RoutesPage_default.recommendationSourceLink, href: place.sourceUrl, target: "_blank", rel: "noopener noreferrer", children: [
               "View source ",
@@ -737,7 +748,7 @@ function Workspace({ draft, saved, onBack, onRetry }) {
   const output = draft.agentOutput;
   const overview = readableAgentText(output?.overview);
   const routeSummary = readableAgentText(output?.routeSummary);
-  const preparation = output?.preparation || [];
+  const preparation = (output?.preparation || []).filter((item) => preparationTitle(item));
   const generatedDays = output?.days || [];
   const priorityIcons = [Mountain, Sun, ListChecks];
   return /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.pageStack, children: [
@@ -784,7 +795,7 @@ function Workspace({ draft, saved, onBack, onRetry }) {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: RoutesPage_default.eyebrow, children: "Before you go" }),
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("h2", { children: "Start with the important parts" })
       ] }) }),
-      preparation.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: RoutesPage_default.priorityGrid, children: preparation.slice(0, 3).map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PriorityAction, { icon: priorityIcons[index] || ListChecks, tone: ["coralTone", "goldTone", "blueTone"][index] || "blueTone", title: item.title || "Preparation item", detail: item.detail || "Research-based guidance for this trip." }, `${item.title}-${index}`)) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: RoutesPage_default.prepEmpty, children: "The agent did not return preparation details for this plan." })
+      preparation.length > 0 ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: RoutesPage_default.priorityGrid, children: preparation.slice(0, 3).map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(PriorityAction, { icon: priorityIcons[index] || ListChecks, tone: ["coralTone", "goldTone", "blueTone"][index] || "blueTone", title: preparationTitle(item), detail: item.detail || "" }, `${item.title}-${index}`)) }) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: RoutesPage_default.prepEmpty, children: "The agent did not return preparation details for this plan." })
     ] }),
     output && /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(ResearchRecommendations, { output }),
     /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("div", { className: RoutesPage_default.workspaceGrid, children: [
@@ -820,7 +831,7 @@ function Workspace({ draft, saved, onBack, onRetry }) {
         /* @__PURE__ */ (0, import_jsx_runtime6.jsx)(CardContent, { className: RoutesPage_default.prepContent, children: /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("div", { className: RoutesPage_default.checklist, children: preparation.length > 0 ? preparation.map((item, index) => /* @__PURE__ */ (0, import_jsx_runtime6.jsxs)("label", { children: [
           /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("input", { type: "checkbox" }),
           " ",
-          item.title || "Preparation item",
+          preparationTitle(item),
           item.detail ? /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("small", { children: item.detail }) : null
         ] }, `${item.title}-${index}`)) : /* @__PURE__ */ (0, import_jsx_runtime6.jsx)("p", { className: RoutesPage_default.prepEmpty, children: "The agent did not return preparation details for this plan." }) }) })
       ] }) })

@@ -39,6 +39,15 @@ app.use(
     setHeaders: (res) => res.setHeader("Cache-Control", "public, max-age=31536000, immutable"),
   }),
 );
+// React bundles are rebuilt in place during local development and deployment.
+// Keep the stable bundle URLs from leaving an already-open browser on an older
+// dashboard implementation after a container restart.
+app.use("/react", (req, res, next) => {
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+});
 app.use(express.static(path.join(__dirname, "public")));
 
 async function proxy(req, res, upstream) {

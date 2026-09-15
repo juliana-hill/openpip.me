@@ -7,23 +7,36 @@ import remarkGfm from "remark-gfm";
 import styles from "./DashboardPage.module.css";
 import { AppHeader } from "@/components/app-header";
 import { FloatingAssistant } from "@/components/tasks/FloatingAssistant";
-import { idbGetUserPrefs, idbSetUserPrefs, idbListSearches } from "@/lib/idb";
-import { pushUserData } from "@/lib/sync";
+import { idbListSearches } from "@/lib/idb";
 import { ReviewDashboardCard } from "./ReviewDashboardCard";
 import { ReadAloudButton } from "@/components/ui/ReadAloudButton";
 import { useAgentIdentity } from "@/lib/agentIdentity";
 import { AgentRunHistoryModal, type AgentRun } from "./AgentRunHistoryModal";
 import { StudyMeCard, type InsightGatheringStatus } from "./StudyMeCard";
+import { buildTodayBriefing, fetchDailyQuote, type TodayBriefEvent } from "./todayBrief";
 
-type BriefTask = { title: string; priority: string; projectName: string | null; source?: string; dueDate?: string | null };
-type BriefEvent = { title: string; start: string };
 type TaskSnapshot = { title: string; priority: number; source: string }[];
 type RouteSnapshot = { origin: string; destination: string; date: string } | null;
 type ScheduledPlan = AgentRun;
 type TripCounts = { past: number; current: number; upcoming: number };
 
 const localToday = () => new Date().toLocaleDateString("en-CA");
-const localNow = () => new Date().toLocaleTimeString();
+
+function BriefMarkdown({ content }: { content: string }) {
+  return (
+    <div className={styles.briefText}>
+      <Markdown remarkPlugins={[remarkGfm]}
+        components={{
+          p: ({ children }) => <p style={{ margin: "0 0 8px" }}>{children}</p>,
+          ul: ({ children }) => <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{children}</ul>,
+          li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
+          blockquote: ({ children }) => <blockquote style={{ borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "0 0 12px" }}>{children}</blockquote>,
+          strong: ({ children }) => <strong style={{ color: "var(--color-text)" }}>{children}</strong>,
+        }}
+      >{content}</Markdown>
+    </div>
+  );
+}
 
 export function DashboardPage({ userName, userImage }: { userName: string; userImage: string }) {
   const { name: agentName } = useAgentIdentity();
@@ -46,7 +59,6 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
   const [reviewLoaded, setReviewLoaded] = useState(false);
   const [insightStatus, setInsightStatus] = useState<InsightGatheringStatus | null>(null);
   const [insightLoaded, setInsightLoaded] = useState(false);
-  const briefFetchedRef = useRef(false);
   const scanPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const insightPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const insightPollGenerationRef = useRef(0);
@@ -270,58 +282,21 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
       setTasks(top3Urgent);
       setTasksLoading(false);
 
-      // Build brief payload from the data we already have. Overdue tasks
-      // (tier 0) belong in the briefing just as much as tasks due today
-      // (tier 1) — a briefing that only looked at "due today" would silently
-      // drop anything overdue, which is exactly the work that most needs
-      // surfacing.
-      // Sorted, not just filtered — the backend prompt tells the LLM these
-      // arrive in urgency order (closest due date, then highest priority)
-      // and treats earlier entries as more urgent without re-ranking them
-      // itself, so that ordering has to actually hold here.
-      const briefTasks: BriefTask[] = [
-        ...googleTasks
-          .map((t) => ({ t, tier: dateUrgencyTier(t.dueDate) }))
-          .filter((x): x is { t: GoogleTask; tier: number } => x.tier === 0 || x.tier === 1)
-          .sort((a, b) => a.tier - b.tier || namedPriorityToNumber(a.t.priority) - namedPriorityToNumber(b.t.priority))
-          .map(({ t }) => ({ title: t.title, priority: t.priority ?? "LOW", projectName: null, source: "google", dueDate: t.dueDate ?? null })),
-      ];
-      const briefEvents: BriefEvent[] = (calendarData.calendars ?? [])
+      // The brief is derived from the same values that populate the Today
+      // card. Keep the visible top-three task ordering and use actual event
+      // titles; do not make a second provider request just to summarize them.
+      const briefEvents: TodayBriefEvent[] = (calendarData.calendars ?? [])
         .flatMap((calendarItem) => (calendarItem.events ?? [])
           .filter((event) => event.start && new Date(event.start).toDateString() === todayDate)
-          .map((event) => ({ title: event.title ?? "Calendar event", start: event.start! })));
-      return { briefTasks, briefEvents };
-    }
-
-    async function loadBrief(briefTasks: BriefTask[], briefEvents: BriefEvent[]) {
-      try {
-        // Serve from IDB cache if generated today
-        const prefs = await idbGetUserPrefs();
-        // Version the cache so a briefing generated by the former LLM path is
-        // not shown after switching routine briefs to the deterministic backend.
-        if (prefs.dailyBriefing?.version === "deterministic-v1" && prefs.dailyBriefing?.createdAtDate === localToday()) {
-          setBrief(prefs.dailyBriefing.text);
-          setBriefLoading(false);
-          return;
-        }
-
-        const res = await proxyFetch("/agent/briefing", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ tasks: briefTasks, events: briefEvents, today: localToday(), now: localNow() }),
-        });
-        if (res.ok) {
-          const data = await res.json() as { briefing?: string };
-          const text = data.briefing ?? null;
-          if (text) {
-            const t = localNow();
-            await idbSetUserPrefs({ dailyBriefing: { version: "deterministic-v1", text, createdAtDate: localToday(), createdAtTime: t } });
-            void pushUserData();
-            setBrief(text);
-          }
-        }
-      } catch { /* silent */ }
-      setBriefLoading(false);
+          .map((event) => ({ title: event.title ?? "Calendar event" })));
+      return {
+        briefTasks: top3Urgent,
+        briefEvents,
+        openCount: todayTaskCount + eventCount + (inboxData.unread ?? 0),
+        taskCount: todayTaskCount,
+        eventCount,
+        unreadCount: inboxData.unread ?? 0,
+      };
     }
 
     async function loadRoute() {
@@ -349,17 +324,23 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
 
     async function init() {
       try {
-        const [{ briefTasks, briefEvents }] = await Promise.all([
+        const [{ briefTasks, briefEvents, openCount, taskCount, eventCount, unreadCount }, , , , quote] = await Promise.all([
           loadTasks(),
           loadRoute(),
           loadTripCounts(),
           refreshScheduledActions(),
+          fetchDailyQuote(),
         ]);
-        // Pipeline scan is manual — user clicks the button to start it
-        if (!briefFetchedRef.current) {
-          briefFetchedRef.current = true;
-          await loadBrief(briefTasks, briefEvents);
-        }
+        setBrief(buildTodayBriefing({
+          tasks: briefTasks,
+          events: briefEvents,
+          openCount,
+          taskCount,
+          eventCount,
+          unreadCount,
+          quote,
+        }));
+        setBriefLoading(false);
       } catch {
         // A partial provider outage should not keep the assistant entry point
         // hidden forever. The individual cards already render their empty
@@ -457,21 +438,11 @@ export function DashboardPage({ userName, userImage }: { userName: string; userI
           <div className={styles.cardHeader}>
             <span className={styles.cardTitle}>Today&apos;s Brief</span>
             {brief && !briefLoading && (
-              <ReadAloudButton text={brief ?? ""} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" }} />
+              <ReadAloudButton text={brief} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)", padding: 4, display: "flex", alignItems: "center", marginLeft: "auto" }} />
             )}
           </div>
           {briefLoading ? <div className={styles.skeleton} /> : brief ? (
-            <div className={styles.briefText}>
-              <Markdown remarkPlugins={[remarkGfm]}
-                components={{
-                  p: ({ children }) => <p style={{ margin: "0 0 8px" }}>{children}</p>,
-                  ul: ({ children }) => <ul style={{ margin: "4px 0", paddingLeft: 18 }}>{children}</ul>,
-                  li: ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
-                  blockquote: ({ children }) => <blockquote style={{ borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }}>{children}</blockquote>,
-                  strong: ({ children }) => <strong style={{ color: "var(--color-text)" }}>{children}</strong>,
-                }}
-              >{brief}</Markdown>
-            </div>
+            <BriefMarkdown content={brief} />
           ) : <p className={styles.briefText}>No briefing available.</p>}
         </div>
 

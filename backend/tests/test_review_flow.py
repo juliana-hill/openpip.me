@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
 from openpip_backend.app import _review_item, app, store
-from openpip_backend.agent import build_briefing_prompt, build_executive_assistant, extract_agent_text, _system_prompt
+from openpip_backend.agent import DAILY_QUOTES, _fallback_core, build_briefing_prompt, build_executive_assistant, extract_agent_text, _system_prompt
 from openpip_backend.models import BriefingRequest, Proposal, ProposalStatus, SourceReference, UserContext
 from openpip_backend.tools import travel_agent
 
@@ -22,6 +22,41 @@ def test_briefing_creates_pending_proposal_for_message() -> None:
     items = client.get("/api/proposals?status=pending").json()["items"]
     assert len(items) == 1
     assert items[0]["status"] == "pending"
+
+
+def test_briefing_uses_real_third_priority_instead_of_hard_coded_advice() -> None:
+    request = BriefingRequest(
+        events=[{"title": "Weekly Standup"}],
+        tasks=[{"title": "Read pages 1-35"}, {"title": "Read pages 106-140"}],
+    )
+
+    result = _fallback_core(request)
+
+    assert result.splitlines() == [
+        "You have 1 calendar event(s) shaping today's priorities.",
+        "",
+        "- Weekly Standup",
+        "- Read pages 1-35",
+        "- Read pages 106-140",
+    ]
+    assert "Leave space between commitments for unexpected work" not in result
+
+
+def test_briefing_quote_is_selected_from_the_database(monkeypatch) -> None:
+    shown: list[str] = []
+    monkeypatch.setattr(store, "pick_random_quote", lambda: "> \"Database quote\" — Author")
+    monkeypatch.setattr(store, "mark_quote_shown", shown.append)
+
+    response = TestClient(app).get("/agent/briefing/quote")
+
+    assert response.status_code == 200
+    assert response.json() == {"quote": "> \"Database quote\" — Author"}
+    assert shown == ["> \"Database quote\" — Author"]
+
+
+def test_daily_quote_seed_pool_has_100_unique_quotes() -> None:
+    assert len(DAILY_QUOTES) == 100
+    assert len(set(DAILY_QUOTES)) == 100
 
 
 def test_travel_is_an_on_demand_executive_assistant_tool(monkeypatch) -> None:
