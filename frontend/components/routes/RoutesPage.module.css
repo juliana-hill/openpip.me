@@ -1497,6 +1497,13 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
+
+  /* The overview's trip library is the sole item in this rail. Once the
+     entry grid stacks, keep that card full-width instead of leaving it in
+     one half of a two-column rail. */
+  .sideStack {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 600px) {

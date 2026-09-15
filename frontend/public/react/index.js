@@ -341,7 +341,7 @@ function BriefMarkdown({ content }) {
         p: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("p", { style: { margin: "0 0 8px" }, children }),
         ul: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("ul", { style: { margin: "4px 0", paddingLeft: 18 }, children }),
         li: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("li", { style: { marginBottom: 2 }, children }),
-        blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "8px 0 0" }, children }),
+        blockquote: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("blockquote", { style: { borderLeft: "3px solid var(--color-border)", paddingLeft: 10, color: "var(--color-text-muted)", fontStyle: "italic", margin: "0 0 12px" }, children }),
         strong: ({ children }) => /* @__PURE__ */ (0, import_jsx_runtime4.jsx)("strong", { style: { color: "var(--color-text)" }, children })
       },
       children: content
