@@ -208,6 +208,40 @@ def test_list_json_files_follows_drive_pagination(monkeypatch) -> None:
     assert list_requests[1]["params"]["pageToken"] == "page-2"
 
 
+def test_find_newest_json_filename_uses_drive_name_sort_and_pagination(monkeypatch) -> None:
+    requests: list[dict[str, object]] = []
+    page_files = {
+        None: [{"name": "not-a-date.json"}],
+        "page-2": [{"name": "2025-12-31.json"}],
+    }
+
+    async def fake_find_folder(*_args, **_kwargs):
+        return "manifest-folder"
+
+    async def fake_request(_client, method, url, _access_token, *, params=None, **_kwargs):
+        params = params or {}
+        requests.append({"method": method, "url": url, "params": params})
+        page_token = params.get("pageToken")
+        payload = {"files": page_files[page_token]}
+        if page_token is None:
+            payload["nextPageToken"] = "page-2"
+        return httpx.Response(200, json=payload)
+
+    monkeypatch.setattr(gdd, "_find_folder", fake_find_folder)
+    monkeypatch.setattr(gdd, "_request", fake_request)
+
+    result = asyncio.run(gdd.find_newest_json_filename(
+        "token",
+        "OpenPip/memory/insights_gathering/manifest",
+        excluded_names=("metadata.json",),
+        filename_validator=lambda name: re.fullmatch(r"\d{4}-\d{2}-\d{2}\.json", name) is not None,
+    ))
+
+    assert result == "2025-12-31.json"
+    assert requests[0]["params"]["orderBy"] == "name desc"
+    assert requests[1]["params"]["pageToken"] == "page-2"
+
+
 def test_overwrite_document_replaces_existing_content(monkeypatch) -> None:
     folders: dict = {}
     files: dict = {}

@@ -11,7 +11,13 @@ from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from .agent import DEFAULT_AGENT_NAME, build_executive_assistant, load_context_documents
-from .google_drive_docs import delete_json_file, list_json_files, read_json_file, write_json_file
+from .google_drive_docs import (
+    delete_json_file,
+    find_newest_json_filename,
+    list_json_files,
+    read_json_file,
+    write_json_file,
+)
 from .google_drive_store import read_drive_app_data
 from .google_workspace import (
     GoogleApiError,
@@ -46,9 +52,9 @@ _AGENTIC_MEMORY_STATUS_FILE = "status.json"
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
 _LOOKBACK_DAYS = 365 * 5
-# Keep future commitments visible too, so a historical provider assignment can
-# be connected to an appointment already on the calendar.
-_LOOKAHEAD_DAYS = 365
+# Study Me is historical onboarding. Future calendar commitments belong to a
+# separate planning flow and must never extend this crawl's newest date.
+_LOOKAHEAD_DAYS = 0
 _FETCH_WINDOW_DAYS = 90
 # This is the agent page size, deliberately much smaller than the manifest.
 # The agent sees one chronological page, never the complete history.
@@ -228,6 +234,16 @@ def _is_dated_manifest_file(stem: str) -> bool:
     return True
 
 
+def _is_historical_manifest_file(stem: str) -> bool:
+    if not _is_dated_manifest_file(stem):
+        return False
+    return date.fromisoformat(stem) <= date.today()
+
+
+def _is_dated_manifest_filename(filename: str) -> bool:
+    return filename.endswith(".json") and _is_historical_manifest_file(filename[:-len(".json")])
+
+
 async def _count_manifest_dates(access_token: str) -> int | None:
     checkpoint = await _read_manifest_date_checkpoint(access_token)
     return checkpoint.get("count") if checkpoint is not None else None
@@ -235,6 +251,23 @@ async def _count_manifest_dates(access_token: str) -> int | None:
 
 async def _read_manifest_date_checkpoint(access_token: str) -> dict[str, Any] | None:
     """Read the dated index files and derive the furthest safe history point."""
+    try:
+        newest_filename = await find_newest_json_filename(
+            access_token,
+            _MANIFEST_FOLDER,
+            excluded_names=(_MANIFEST_FILE,),
+            filename_validator=_is_dated_manifest_filename,
+        )
+    except Exception as error:
+        _logger.warning("historical insight gathering: unable to find newest manifest date: %s", error)
+        newest_filename = None
+    newest_manifest_date = (
+        newest_filename[:-len(".json")]
+        if newest_filename and newest_filename.endswith(".json")
+        else None
+    )
+    if newest_manifest_date and not _is_historical_manifest_file(newest_manifest_date):
+        newest_manifest_date = None
     try:
         files = await list_json_files(access_token, _MANIFEST_FOLDER)
     except Exception as error:
@@ -245,7 +278,7 @@ async def _read_manifest_date_checkpoint(access_token: str) -> dict[str, Any] | 
     incomplete: list[str] = []
     for stem, payload in files.items():
         stem = str(stem)
-        if not _is_dated_manifest_file(stem):
+        if not _is_historical_manifest_file(stem):
             continue
         dated.append(stem)
         file_status = str(payload.get("status") or "").casefold() if isinstance(payload, dict) else ""
@@ -265,7 +298,11 @@ async def _read_manifest_date_checkpoint(access_token: str) -> dict[str, Any] | 
     return {
         "count": len(dated),
         "dates": sorted(dated),
-        "newestIndexedDate": max(dated, default=None),
+        # This value comes from Drive's name-sorted directory query, before
+        # any dated manifest bodies are read. It is the authoritative newest
+        # filename for cursor recovery and status display.
+        "newestManifestDate": newest_manifest_date or max(dated, default=None),
+        "newestIndexedDate": newest_manifest_date or max(dated, default=None),
         "newestCompletedDate": max(completed, default=None),
         "incompleteDates": sorted(incomplete),
     }
@@ -277,19 +314,24 @@ def _synchronize_manifest_cursor(
 ) -> bool:
     """Move a stale daily cursor past date files already present in Drive."""
     changed = False
-    indexed_dates = [str(value) for value in checkpoint.get("dates", []) if _is_dated_manifest_file(str(value))]
+    indexed_dates = [str(value) for value in checkpoint.get("dates", []) if _is_historical_manifest_file(str(value))]
     if indexed_dates:
         existing_dates = manifest.get("dates") if isinstance(manifest.get("dates"), list) else []
-        merged_dates = sorted({str(value) for value in existing_dates if _is_dated_manifest_file(str(value))} | set(indexed_dates))
+        merged_dates = sorted({str(value) for value in existing_dates if _is_historical_manifest_file(str(value))} | set(indexed_dates))
         if merged_dates != existing_dates:
             manifest["dates"] = merged_dates
             changed = True
 
+    newest_manifest_raw = checkpoint.get("newestManifestDate") or checkpoint.get("newestIndexedDate")
     newest_completed_raw = checkpoint.get("newestCompletedDate")
     incomplete_dates = [
         str(value) for value in checkpoint.get("incompleteDates", [])
-        if _is_dated_manifest_file(str(value))
+        if _is_historical_manifest_file(str(value))
     ]
+    try:
+        newest_manifest = date.fromisoformat(str(newest_manifest_raw)) if newest_manifest_raw else None
+    except ValueError:
+        newest_manifest = None
     try:
         newest_completed = date.fromisoformat(str(newest_completed_raw)) if newest_completed_raw else None
     except ValueError:
@@ -304,7 +346,12 @@ def _synchronize_manifest_cursor(
         current = None
 
     desired: date | None = None
-    if incomplete_dates:
+    if newest_manifest is not None and (current is None or current < newest_manifest):
+        # The pointer is stale when Drive already contains a newer dated
+        # manifest file. Jump directly to that date; the crawl loop checks the
+        # file before asking any provider for records.
+        desired = newest_manifest
+    elif incomplete_dates:
         # Never skip a date file that was written but not fully completed.
         desired = date.fromisoformat(incomplete_dates[0])
     elif newest_completed is not None:
@@ -481,7 +528,9 @@ def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 async def _read_manifest_entries(access_token: str) -> list[dict[str, Any]]:
     files = await list_json_files(access_token, _MANIFEST_FOLDER)
     entries_by_id: dict[str, dict[str, Any]] = {}
-    for data in files.values():
+    for filename, data in files.items():
+        if not _is_historical_manifest_file(str(filename)):
+            continue
         if not isinstance(data, dict):
             continue
         for page in data.get("pages", []):
@@ -531,18 +580,18 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         ),
     )
     oldest = {
-        "emails": oldest_values[0].isoformat() if oldest_values[0] else None,
-        "calendar": oldest_values[1].isoformat() if oldest_values[1] else None,
-        "documents": oldest_values[2].isoformat() if oldest_values[2] else None,
+        "emails": min(oldest_values[0], today).isoformat() if oldest_values[0] else None,
+        "calendar": min(oldest_values[1], today).isoformat() if oldest_values[1] else None,
+        "documents": min(oldest_values[2], today).isoformat() if oldest_values[2] else None,
         # Tasks and contacts have no provider-side historical date cursor, so
         # their one-day boundary is today.
         "tasks": today.isoformat(),
         "contacts": today.isoformat(),
     }
     newest = {
-        "emails": newest_values[0].isoformat() if newest_values[0] else None,
-        "calendar": newest_values[1].isoformat() if newest_values[1] else None,
-        "documents": newest_values[2].isoformat() if newest_values[2] else None,
+        "emails": min(newest_values[0], today).isoformat() if newest_values[0] else None,
+        "calendar": min(newest_values[1], today).isoformat() if newest_values[1] else None,
+        "documents": min(newest_values[2], today).isoformat() if newest_values[2] else None,
         "tasks": today.isoformat(),
         "contacts": today.isoformat(),
     }
@@ -949,12 +998,47 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     # shape before doing any more work.
     source_oldest = manifest.get("oldestSourceDates") if isinstance(manifest.get("oldestSourceDates"), dict) else {}
     source_newest = manifest.get("newestSourceDates") if isinstance(manifest.get("newestSourceDates"), dict) else {}
+    today = date.today()
+    capped_source_oldest: dict[str, Any] = {}
+    for source, value in source_oldest.items():
+        try:
+            capped_source_oldest[source] = min(date.fromisoformat(str(value)[:10]), today).isoformat()
+        except (TypeError, ValueError):
+            capped_source_oldest[source] = value
+    source_oldest = capped_source_oldest
+    manifest["oldestSourceDates"] = source_oldest
     if not manifest.get("oldestDate"):
         oldest_values = [value for value in source_oldest.values() if value]
         manifest["oldestDate"] = min(oldest_values, default=manifest.get("oldestEntryDate"))
     if not manifest.get("newestDate"):
         newest_values = [value for value in source_newest.values() if value]
         manifest["newestDate"] = max(newest_values, default=manifest.get("newestEntryDate"))
+    capped_source_newest: dict[str, Any] = {}
+    for source, value in source_newest.items():
+        try:
+            capped_source_newest[source] = min(date.fromisoformat(str(value)[:10]), today).isoformat()
+        except (TypeError, ValueError):
+            capped_source_newest[source] = value
+    source_newest = capped_source_newest
+    oldest_candidates = [value for value in source_oldest.values() if value]
+    if manifest.get("oldestDate"):
+        oldest_candidates.append(str(manifest["oldestDate"]))
+    if oldest_candidates:
+        manifest["oldestDate"] = min(oldest_candidates)
+    try:
+        manifest_oldest = date.fromisoformat(str(manifest.get("oldestDate"))[:10])
+        if manifest_oldest > today:
+            manifest["oldestDate"] = today.isoformat()
+    except (TypeError, ValueError):
+        pass
+    manifest["newestSourceDates"] = source_newest
+    try:
+        manifest_newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
+        if manifest_newest > today:
+            manifest["newestDate"] = today.isoformat()
+    except (TypeError, ValueError):
+        pass
+    status["newestSourceDates"] = source_newest
     if "currentDate" not in manifest:
         manifest["currentDate"] = manifest.get("currentPointerDate") or manifest.get("oldestDate")
     manifest.pop("sourceCursors", None)
@@ -1020,7 +1104,22 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
             await _write_status(access_token, status)
             date_key = day.isoformat()
             date_records = await _read_lazy_date_index(access_token, date_key)
-            entries = await _fetch_lazy_day(access_token, day, manifest, date_records)
+            if date_records:
+                # The dated manifest file is the durable index. Never crawl
+                # Gmail, Calendar, Drive, Tasks, or Contacts again for a date
+                # that already has an index file; recover its stored records
+                # in place and advance the cursor.
+                _logger.info(
+                    "historical insight gathering: reusing existing manifest date=%s records=%s",
+                    date_key,
+                    len(date_records),
+                )
+                entries = []
+                for indexed_record in date_records.values():
+                    indexed_record["status"] = "completed"
+                    indexed_record.setdefault("summary", indexed_record.get("label") or "Indexed source")
+            else:
+                entries = await _fetch_lazy_day(access_token, day, manifest, date_records)
             # Persist only source ids and tiny index metadata before indexing;
             # an interrupted day can therefore be retried without losing place.
             for entry in entries:

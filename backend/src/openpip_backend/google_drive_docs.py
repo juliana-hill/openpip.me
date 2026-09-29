@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 import httpx
@@ -424,3 +424,55 @@ async def list_json_files(access_token: str, folder_path: str) -> dict[str, dict
 
         results = await asyncio.gather(*(read_one(f) for f in files))
     return dict(entry for entry in results if entry is not None)
+
+
+async def find_newest_json_filename(
+    access_token: str,
+    folder_path: str,
+    *,
+    excluded_names: tuple[str, ...] = (),
+    filename_validator: Callable[[str], bool] | None = None,
+) -> str | None:
+    """Return the newest JSON filename using Drive's name ordering.
+
+    Manifest date files use ISO dates in their names, so Drive's descending
+    lexical ``name`` order is chronological order. The query is paginated so
+    a non-candidate JSON file cannot hide a later page of candidate files.
+    """
+    async with httpx.AsyncClient(timeout=GOOGLE_TIMEOUT) as client:
+        parent_id = await _find_folder(client, access_token, folder_path)
+        if parent_id is None:
+            return None
+        query = f"'{parent_id}' in parents and trashed = false and name contains '.json'"
+        for excluded_name in excluded_names:
+            query += f" and name != '{_escape(excluded_name)}'"
+
+        page_token: str | None = None
+        seen_page_tokens: set[str] = set()
+        while True:
+            params: dict[str, object] = {
+                "q": query,
+                "orderBy": "name desc",
+                "fields": "nextPageToken,files(name)",
+                "pageSize": 1000,
+            }
+            if page_token:
+                params["pageToken"] = page_token
+            listing = await _request(
+                client, "GET", f"{_DRIVE_API}/files", access_token, params=params,
+            )
+            payload = listing.json()
+            for file in payload.get("files") or []:
+                name = str(file.get("name") or "") if isinstance(file, dict) else ""
+                if name.endswith(".json") and (filename_validator is None or filename_validator(name)):
+                    return name
+
+            next_page_token = payload.get("nextPageToken")
+            if not next_page_token:
+                return None
+            next_page_token = str(next_page_token)
+            if next_page_token in seen_page_tokens:
+                _logger.warning("Google Drive returned a repeated page token while finding newest %s", folder_path)
+                return None
+            seen_page_tokens.add(next_page_token)
+            page_token = next_page_token

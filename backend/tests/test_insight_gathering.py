@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 
 from openpip_backend import insight_gathering
 from openpip_backend.google_workspace import GoogleApiError
@@ -89,8 +89,32 @@ def test_count_manifest_dates_only_counts_iso_date_files(monkeypatch) -> None:
         }
 
     monkeypatch.setattr(insight_gathering, "list_json_files", fake_list)
+    async def fake_newest(*_args, **_kwargs):
+        return "2021-10-14.json"
+    monkeypatch.setattr(insight_gathering, "find_newest_json_filename", fake_newest)
 
     assert asyncio.run(insight_gathering._count_manifest_dates("token")) == 2
+
+
+def test_manifest_sweep_moves_stale_pointer_to_newest_drive_filename() -> None:
+    manifest = {
+        "currentDate": "2022-02-11",
+        "lastFetchedDate": "2022-02-11",
+        "newestDate": "2025-12-31",
+    }
+    checkpoint = {
+        "count": 1626,
+        "dates": ["2022-02-11", "2025-12-31"],
+        "newestManifestDate": "2025-12-31",
+        "newestIndexedDate": "2025-12-31",
+        "newestCompletedDate": "2025-12-31",
+        "incompleteDates": ["2022-02-11"],
+    }
+
+    changed = insight_gathering._synchronize_manifest_cursor(manifest, checkpoint)
+
+    assert changed is True
+    assert manifest["currentDate"] == "2025-12-31"
 
 
 def test_manifest_sweep_moves_stale_cursor_after_newest_indexed_date() -> None:
@@ -111,7 +135,7 @@ def test_manifest_sweep_moves_stale_cursor_after_newest_indexed_date() -> None:
     changed = insight_gathering._synchronize_manifest_cursor(manifest, checkpoint)
 
     assert changed is True
-    assert manifest["currentDate"] == "2020-10-02"
+    assert manifest["currentDate"] == "2020-10-01"
     assert manifest["lastFetchedDate"] == "2020-10-01"
     assert manifest["dates"] == ["2020-09-20", "2020-10-01"]
 
@@ -364,6 +388,9 @@ def test_aggregate_retry_does_not_restart_completed_daily_history(monkeypatch) -
 
     monkeypatch.setattr(insight_gathering, "read_json_file", fake_read)
     monkeypatch.setattr(insight_gathering, "_count_manifest_dates", fake_count)
+    async def fake_newest(*_args, **_kwargs):
+        return "2021-01-10.json"
+    monkeypatch.setattr(insight_gathering, "find_newest_json_filename", fake_newest)
     monkeypatch.setattr(insight_gathering, "_run_aggregate", fake_aggregate)
     monkeypatch.setattr(insight_gathering, "_fetch_lazy_day", fail_fetch)
     monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
@@ -453,6 +480,44 @@ def test_collect_manifest_metadata_contains_pointers_not_records(monkeypatch) ->
     assert "sourceCursors" not in captured
     assert "sources" not in captured
     assert "numberOfEntries" not in captured
+
+
+def test_collect_manifest_caps_newest_boundaries_at_today(monkeypatch) -> None:
+    today = date.today()
+
+    async def fake_oldest(*_args, **_kwargs):
+        return today - timedelta(days=30)
+
+    async def fake_newest(*_args, **_kwargs):
+        return today + timedelta(days=30)
+
+    async def fake_write_status(_token: str, _status: dict):
+        return None
+
+    async def fake_write_json(_token: str, _folder: str, filename: str, data: dict):
+        if filename == "metadata.json":
+            captured.update(data)
+
+    captured: dict = {}
+    for name in (
+        "find_oldest_gmail_date", "find_oldest_calendar_date",
+        "find_oldest_drive_document_date", "find_newest_gmail_date",
+        "find_newest_calendar_date", "find_newest_drive_document_date",
+    ):
+        monkeypatch.setattr(insight_gathering, name, fake_oldest if "oldest" in name else fake_newest)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write_json)
+
+    asyncio.run(insight_gathering._collect_manifest("token", insight_gathering._default_status()))
+
+    assert captured["newestSourceDates"] == {
+        "emails": today.isoformat(),
+        "calendar": today.isoformat(),
+        "documents": today.isoformat(),
+        "tasks": today.isoformat(),
+        "contacts": today.isoformat(),
+    }
+    assert captured["newestDate"] == today.isoformat()
 
 
 def test_daily_pointer_advances_one_day_until_newest_date() -> None:
