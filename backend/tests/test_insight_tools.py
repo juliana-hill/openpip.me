@@ -20,12 +20,13 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
     async def persist(current: dict):
         writes.append(current.copy())
 
-    list_topics, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
+    list_topics, plan_questions, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
         status, persist, {"sourceIds": {"email:offer", "calendar:work"}},
     )
 
     async def run():
         initial = json.loads(await list_topics())
+        questions = json.loads(await plan_questions(["What work has the user done?", "What work has the user done?"]))
         planned = json.loads(await plan_topics(["Scout employment", "Learning goals"]))
         started = json.loads(await record_topic(
             "Scout employment",
@@ -38,18 +39,19 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
             relevant_source_ids=["email:offer", "calendar:work"],
             completion_note="No more relevant indexed evidence found.",
         ))
-        return initial, planned, started, completed
+        return initial, questions, planned, started, completed
 
-    initial, planned, started, completed = asyncio.run(run())
+    initial, questions, planned, started, completed = asyncio.run(run())
 
     assert initial["topics"] == []
+    assert questions["questions"] == ["What work has the user done?"]
     assert [item["topic"] for item in planned["topics"]] == ["Scout employment", "Learning goals"]
     assert started["topic"]["status"] == "in_progress"
     assert completed["topic"]["status"] == "completed"
     assert status["currentTopic"] is None
     assert status["topics"][0]["memoryKey"] == "work:employment:scout"
     assert status["topics"][0]["recordsRead"] == 2
-    assert len(writes) == 3
+    assert len(writes) == 4
 
 
 def test_lookup_requires_a_focused_query_and_records_the_result(monkeypatch) -> None:
@@ -84,7 +86,8 @@ def test_list_historical_sources_paginates_the_metadata_only_manifest() -> None:
             "label": "Brief Timeline", "summary": "Brief Timeline",
         },
     }
-    list_sources = build_list_historical_sources_tool(source_index)
+    pagination_state: dict = {}
+    list_sources = build_list_historical_sources_tool(source_index, pagination_state=pagination_state)
 
     first = json.loads(asyncio.run(list_sources(page=1, page_size=1)))
     second = json.loads(asyncio.run(list_sources(page=2, page_size=1)))
@@ -94,6 +97,27 @@ def test_list_historical_sources_paginates_the_metadata_only_manifest() -> None:
     assert first["sources"][0]["summary"] == "Work"
     assert second["nextPage"] is None
     assert second["sources"][0]["sourceId"] == "document:1"
+    assert pagination_state["complete"] is True
+
+
+def test_agentic_plans_require_the_complete_manifest_catalog() -> None:
+    status = {"state": "pending", "currentTopic": None, "topics": []}
+    pagination_state: dict = {}
+
+    async def persist(_current: dict):
+        return None
+
+    _, plan_questions, plan_topics, *_ = build_agentic_memory_status_tools(
+        status, persist, catalog_state=pagination_state,
+    )
+
+    async def run():
+        with pytest.raises(ValueError, match="paged until nextPage is null"):
+            await plan_questions(["What durable work history is supported?"])
+        with pytest.raises(ValueError, match="paged until nextPage is null"):
+            await plan_topics(["Work history"])
+
+    asyncio.run(run())
 
 
 def test_lookup_normalizes_null_memory_directory(monkeypatch) -> None:

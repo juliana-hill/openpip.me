@@ -135,7 +135,9 @@ def _progress(status: dict[str, Any]) -> int:
 
     history_fraction = stage_fraction("history")
     oldest_values = [value for value in (status.get("oldestSourceDates") or {}).values() if value]
-    newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
+    newest_values = [status.get("newestDate")] if status.get("newestDate") else []
+    if not newest_values:
+        newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
     current_value = status.get("currentDate")
     if current_value and oldest_values and newest_values and history_fraction < 1.0:
         try:
@@ -181,6 +183,7 @@ def _default_agentic_memory_status() -> dict[str, Any]:
     return {
         "version": 1,
         "state": "pending",
+        "questions": [],
         "currentTopic": None,
         "topics": [],
         "updatedAt": None,
@@ -616,6 +619,7 @@ async def _collect_manifest(access_token: str, status: dict[str, Any]) -> dict[s
         "aggregateStatus": "pending",
         "warnings": [],
     }
+    status["newestDate"] = manifest["newestDate"]
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     status["currentStage"] = None
     status["statusMessage"] = "History boundaries are ready; fetching the oldest records next."
@@ -1010,9 +1014,6 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     if not manifest.get("oldestDate"):
         oldest_values = [value for value in source_oldest.values() if value]
         manifest["oldestDate"] = min(oldest_values, default=manifest.get("oldestEntryDate"))
-    if not manifest.get("newestDate"):
-        newest_values = [value for value in source_newest.values() if value]
-        manifest["newestDate"] = max(newest_values, default=manifest.get("newestEntryDate"))
     capped_source_newest: dict[str, Any] = {}
     for source, value in source_newest.items():
         try:
@@ -1032,12 +1033,11 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     except (TypeError, ValueError):
         pass
     manifest["newestSourceDates"] = source_newest
-    try:
-        manifest_newest = date.fromisoformat(str(manifest.get("newestDate"))[:10])
-        if manifest_newest > today:
-            manifest["newestDate"] = today.isoformat()
-    except (TypeError, ValueError):
-        pass
+    # The historical crawl is allowed to advance through today, even when an
+    # older persisted manifest stopped earlier. Future records are excluded by
+    # the source boundary caps and dated-file validator above.
+    manifest["newestDate"] = today.isoformat()
+    status["newestDate"] = manifest["newestDate"]
     status["newestSourceDates"] = source_newest
     if "currentDate" not in manifest:
         manifest["currentDate"] = manifest.get("currentPointerDate") or manifest.get("oldestDate")
@@ -1183,15 +1183,20 @@ def _aggregate_prompt(total: int) -> str:
         + "\n\n"
         + f"This is the sole agentic phase after deterministic indexing; the manifest contains {total} indexed materials. "
         + "The daily crawl did not make any LLM calls and intentionally stored only dates, source metadata, and titles. "
-        + "First call list_historical_sources repeatedly from page 1 until nextPage is null. Treat that catalog as the "
-        + "complete scope of this pass, but do not read every source just because it is listed. Use the catalog to choose "
-        + "one candidate topic, then call search_historical_sources across the manifest for that topic's names, title "
-        + "variants, related entities, and nearby dates. Read only the exact matching source ids needed to establish that "
-        + "topic. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
+        + "First call list_historical_sources repeatedly from page 1 until nextPage is null; do not plan anything until "
+        + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
+        + "do not read every source just because it is listed. After the final page, create a concise ordered list of "
+        + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Questions should cover "
+        + "durable identity/background, work and education, projects and goals, important relationships, routines and "
+        + "preferences, commitments, purchases/finances, and other recurring patterns only when the catalog contains "
+        + "evidence for them. Use each question to choose one candidate topic, then call search_historical_sources across "
+        + "the manifest with several focused name, title, entity, and date queries; do not use a multi-word query that "
+        + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer "
+        + "that question. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
         + "roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
-        + "At the start, call list_historical_sources repeatedly to inspect the indexed dates, then call "
-        + "plan_agentic_memory_topics with the ordered list of durable topics you want to research across those indexed "
-        + "dates. Do not begin topic-specific source reads until that list has been recorded. Then iterate through the "
+        + "After the question plan is recorded, call plan_agentic_memory_topics with the ordered list of durable topics "
+        + "that will answer those questions across the indexed dates. Do not begin topic-specific source reads until both "
+        + "plans have been recorded. Then iterate through the "
         + "planned list one topic at a time: call record_agentic_memory_topic, investigate/refine it, and call "
         + "complete_agentic_memory_topic only after its relevant source IDs have all been fetched and its gap-filling "
         + "search is exhausted. If a topic is already in progress, continue it before starting another. These tools "
@@ -1254,6 +1259,32 @@ async def _run_aggregate(
         if item.get("sourceId")
     }
     agentic_memory_status = await _read_agentic_memory_status(access_token)
+    saved = 0
+
+    def all_topics_completed() -> bool:
+        topics = [item for item in agentic_memory_status.get("topics", []) if isinstance(item, dict)]
+        return bool(topics) and not agentic_memory_status.get("currentTopic") and all(
+            item.get("status") == "completed" for item in topics
+        )
+
+    async def finalize_aggregate() -> None:
+        stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
+        manifest["aggregateStatus"] = "completed"
+        status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
+        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+        agentic_memory_status["state"] = "completed"
+        agentic_memory_status["currentTopic"] = None
+        await _write_agentic_memory_status(access_token, agentic_memory_status)
+        _add_event(status, "Built coherent historical memories", f"Reviewed {len(source_index)} indexed source records")
+        await _write_status(access_token, status)
+
+    # A worker can disappear immediately after the final topic checkpoint is
+    # written but before the aggregate manifest/status finalization below. Do
+    # not send the model back through the entire topic loop in that case.
+    if all_topics_completed():
+        await finalize_aggregate()
+        return
+
     agentic_memory_status["state"] = "running"
     await _write_agentic_memory_status(access_token, agentic_memory_status)
 
@@ -1270,7 +1301,6 @@ async def _run_aggregate(
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     await _write_status(access_token, status)
 
-    saved = 0
     if source_index:
         references = {source_id: _index_reference(item) for source_id, item in source_index.items()}
 
@@ -1281,13 +1311,14 @@ async def _run_aggregate(
         search_state: dict[str, Any] = {}
         lookup_state: dict[str, Any] = {}
         read_state: dict[str, Any] = {}
+        catalog_state: dict[str, Any] = {}
         aggregate_agent = build_executive_assistant(
             context_block,
             agent_name=agent_name,
             extra_tools=[
-                build_list_historical_sources_tool(source_index),
+                build_list_historical_sources_tool(source_index, pagination_state=catalog_state),
                 *build_agentic_memory_status_tools(
-                    agentic_memory_status, persist_agentic_memory_status, read_state,
+                    agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
                 ),
                 build_lookup_insights_tool(access_token, lookup_state),
                 build_read_historical_source_tool(access_token, source_index, read_state),
@@ -1304,7 +1335,15 @@ async def _run_aggregate(
         # single completion. The agent chooses which indexed sources to read,
         # searches for corroboration, and saves memories as its evidence model
         # becomes coherent.
-        await _stream_agent_page(aggregate_agent, _aggregate_prompt(len(source_index)), status, access_token)
+        try:
+            await _stream_agent_page(aggregate_agent, _aggregate_prompt(len(source_index)), status, access_token)
+        except Exception:
+            if not all_topics_completed():
+                raise
+            _logger.warning(
+                "historical insight gathering: aggregate stream ended after all topic checkpoints completed; finalizing",
+                exc_info=True,
+            )
 
         incomplete_topics = [
             str(item.get("topic") or item.get("topicKey"))
@@ -1317,15 +1356,7 @@ async def _run_aggregate(
                 + ", ".join(incomplete_topics[:20])
             )
 
-    stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
-    manifest["aggregateStatus"] = "completed"
-    status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
-    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-    agentic_memory_status["state"] = "completed"
-    agentic_memory_status["currentTopic"] = None
-    await _write_agentic_memory_status(access_token, agentic_memory_status)
-    _add_event(status, "Built coherent historical memories", f"Reviewed {len(source_index)} indexed source records")
-    await _write_status(access_token, status)
+    await finalize_aggregate()
 
 
 async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], access_token: str) -> None:

@@ -67,6 +67,7 @@ def build_agentic_memory_status_tools(
     status: dict[str, Any],
     persist: Callable[[dict[str, Any]], Awaitable[None]],
     read_state: dict[str, Any] | None = None,
+    catalog_state: dict[str, Any] | None = None,
 ) -> list[Any]:
     """Track the aggregate agent's one-topic-at-a-time research loop."""
 
@@ -83,9 +84,36 @@ def build_agentic_memory_status_tools(
     async def list_agentic_memory_topics() -> str:
         return json.dumps({
             "state": status.get("state", "pending"),
+            "questions": status.get("questions", []),
             "currentTopic": status.get("currentTopic"),
             "topics": status.get("topics", []),
         })
+
+    @tool(
+        name="plan_agentic_memory_questions",
+        description=(
+            "After the complete paged manifest catalog has been inspected, record the ordered user-centered questions "
+            "the aggregate pass must answer from the indexed evidence. This writes the question plan to "
+            "agentic_memory/status.json before topic research begins."
+        ),
+    )
+    async def plan_agentic_memory_questions(questions: list[str]) -> str:
+        if catalog_state is not None and not catalog_state.get("complete"):
+            raise ValueError("list_historical_sources must be paged until nextPage is null before planning questions")
+        planned: list[str] = []
+        seen: set[str] = set()
+        for question in questions:
+            normalized_question = " ".join(str(question or "").split())
+            key = normalized_question.casefold()
+            if normalized_question and key not in seen:
+                seen.add(key)
+                planned.append(normalized_question)
+        if not planned:
+            raise ValueError("questions must contain at least one non-empty question")
+        status["questions"] = planned
+        status["state"] = "planned"
+        await persist(status)
+        return json.dumps({"status": "planned", "questions": planned})
 
     @tool(
         name="plan_agentic_memory_topics",
@@ -96,6 +124,8 @@ def build_agentic_memory_status_tools(
         ),
     )
     async def plan_agentic_memory_topics(topics: list[str]) -> str:
+        if catalog_state is not None and not catalog_state.get("complete"):
+            raise ValueError("list_historical_sources must be paged until nextPage is null before planning topics")
         planned: list[str] = []
         seen: set[str] = set()
         for topic in topics:
@@ -227,6 +257,7 @@ def build_agentic_memory_status_tools(
 
     return [
         list_agentic_memory_topics,
+        plan_agentic_memory_questions,
         plan_agentic_memory_topics,
         record_agentic_memory_topic,
         complete_agentic_memory_topic,
@@ -294,6 +325,7 @@ def build_list_historical_sources_tool(
     source_index: dict[str, dict[str, Any]],
     *,
     default_page_size: int = 50,
+    pagination_state: dict[str, Any] | None = None,
 ) -> Any:
     """List the complete metadata-only manifest without reading source bodies."""
     @tool(
@@ -319,6 +351,16 @@ def build_list_historical_sources_tool(
                 if item.get(key) is not None
             })
         next_page = normalized_page + 1 if start + len(page_items) < len(items) else None
+        if pagination_state is not None:
+            page_size = pagination_state.setdefault("pageSize", normalized_size)
+            pagination_state.setdefault("pages", set()).add(normalized_page)
+            expected_pages = max(1, (len(items) + page_size - 1) // page_size)
+            pages_seen = pagination_state["pages"]
+            pagination_state["complete"] = (
+                page_size == normalized_size
+                and next_page is None
+                and pages_seen == set(range(1, expected_pages + 1))
+            )
         return json.dumps({
             "page": normalized_page,
             "pageSize": normalized_size,

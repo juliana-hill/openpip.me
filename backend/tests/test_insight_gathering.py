@@ -357,12 +357,46 @@ def test_aggregate_phase_is_the_only_agentic_memory_pass(monkeypatch) -> None:
     assert manifest["aggregateStatus"] == "completed"
 
 
+def test_aggregate_finalizes_after_all_topic_checkpoints_are_complete(monkeypatch) -> None:
+    async def fake_manifest_entries(_token: str):
+        return [{"sourceId": "email:1", "kind": "email", "date": "2021-01-01", "label": "Offer"}]
+
+    async def fake_memory_status(_token: str):
+        return {
+            "version": 1,
+            "state": "running",
+            "questions": ["What work is supported by the indexed evidence?"],
+            "currentTopic": None,
+            "topics": [{"topic": "Work", "topicKey": "work", "status": "completed"}],
+        }
+
+    async def fail_build(*_args, **_kwargs):
+        raise AssertionError("a completed topic checkpoint must not restart the agent")
+
+    async def fake_write(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(insight_gathering, "_read_manifest_entries", fake_manifest_entries)
+    monkeypatch.setattr(insight_gathering, "_read_agentic_memory_status", fake_memory_status)
+    monkeypatch.setattr(insight_gathering, "build_executive_assistant", fail_build)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+    monkeypatch.setattr(insight_gathering, "_write_agentic_memory_status", fake_write)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write)
+
+    status = insight_gathering._default_status()
+    manifest = {"aggregateStatus": "in_progress"}
+    asyncio.run(insight_gathering._run_aggregate("token", status, manifest, "", "Pip"))
+
+    assert manifest["aggregateStatus"] == "completed"
+    assert status["stages"]["aggregate"] == {"status": "completed", "processed": 1, "total": 1}
+
+
 def test_aggregate_retry_does_not_restart_completed_daily_history(monkeypatch) -> None:
     manifest = {
         "oldestDate": "2020-08-20",
         "newestDate": "2021-01-10",
         "currentDate": None,
-        "lastFetchedDate": "2021-01-10",
+        "lastFetchedDate": date.today().isoformat(),
         "dateStates": {"2021-01-10": "completed"},
         "aggregateStatus": "in_progress",
     }
@@ -398,6 +432,7 @@ def test_aggregate_retry_does_not_restart_completed_daily_history(monkeypatch) -
     asyncio.run(insight_gathering._run_lazy("token", insight_gathering._default_status(), "", "Pip"))
 
     assert aggregate_called
+    assert manifest["newestDate"] == date.today().isoformat()
 
 
 def test_write_lazy_date_index_persists_only_index_fields(monkeypatch) -> None:
