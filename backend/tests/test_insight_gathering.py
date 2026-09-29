@@ -99,6 +99,52 @@ def test_login_status_reopens_completed_legacy_aggregate(monkeypatch) -> None:
     assert result["statusMessage"] == "The historical review is ready to resume."
 
 
+def test_running_history_resets_completed_aggregate_checkpoint(monkeypatch) -> None:
+    stored_status = insight_gathering._default_status()
+    stored_status.update({"state": "running", "runId": "run-1", "progress": 100})
+    stored_status["stages"]["history"] = {"status": "running", "processed": 477, "total": 0}
+    stored_status["stages"]["aggregate"] = {"status": "completed", "processed": 6121, "total": 6121}
+    manifest = {"aggregateStatus": "completed", "currentDate": "2026-09-24"}
+    agentic = {
+        "state": "completed",
+        "questions": ["What work has the user done?"],
+        "currentTopic": None,
+        "topics": [{"topic": "Work", "status": "completed"}],
+    }
+    writes: dict[tuple[str, str], dict] = {}
+
+    async def fake_read(_token: str, folder: str, filename: str):
+        if folder == insight_gathering._FOLDER and filename == insight_gathering._STATUS_FILE:
+            return stored_status
+        if folder == insight_gathering._MANIFEST_FOLDER:
+            return manifest
+        if folder == insight_gathering._AGENTIC_MEMORY_FOLDER:
+            return agentic
+        return {}
+
+    async def fake_write(_token: str, folder: str, filename: str, data: dict):
+        writes[(folder, filename)] = data.copy()
+
+    async def fake_write_status(_token: str, _status: dict):
+        return None
+
+    async def fake_count(_token: str):
+        return 1378
+
+    monkeypatch.setattr(insight_gathering, "read_json_file", fake_read)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write_status)
+    monkeypatch.setattr(insight_gathering, "_count_manifest_dates", fake_count)
+
+    result = asyncio.run(insight_gathering.get_insight_gathering_login_status("token"))
+
+    assert result["stages"]["history"]["status"] == "running"
+    assert result["stages"]["aggregate"] == {"status": "pending", "processed": 0, "total": 0}
+    assert manifest["aggregateStatus"] == "pending"
+    assert writes[(insight_gathering._AGENTIC_MEMORY_FOLDER, insight_gathering._AGENTIC_MEMORY_STATUS_FILE)]["state"] == "pending"
+    assert result["progress"] < 100
+
+
 def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> None:
     stale = {"state": "running", "runId": "run-1"}
     resumed = {**stale, "state": "queued", "statusMessage": "Resuming the historical review."}
@@ -276,6 +322,21 @@ def test_progress_uses_oldest_newest_date_span_and_current_date() -> None:
 
     status["currentDate"] = "2021-01-02"
     assert insight_gathering._progress(status) == 53
+
+
+def test_progress_never_rounds_to_100_while_a_stage_is_running() -> None:
+    status = {
+        "state": "running",
+        "oldestSourceDates": {"emails": "2021-01-01"},
+        "newestDate": "2021-01-03",
+        "currentDate": "2021-01-03",
+        "stages": {
+            "history": {"status": "running", "processed": 0, "total": 0},
+            "aggregate": {"status": "completed", "processed": 1, "total": 1},
+        },
+    }
+
+    assert insight_gathering._progress(status) == 99
 
 
 def test_normalize_index_record_drops_legacy_raw_payload() -> None:

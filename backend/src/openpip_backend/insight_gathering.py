@@ -152,10 +152,19 @@ def _progress(status: dict[str, Any]) -> int:
             # checkpoint is being recovered.
             pass
     aggregate_fraction = stage_fraction("aggregate")
-    return round(
+    progress = round(
         _WEIGHTS["history"] * min(1.0, history_fraction)
         + _WEIGHTS["aggregate"] * aggregate_fraction
     )
+    # A weighted percentage can round to 100 while a stage is still active.
+    # Reserve 100 for the terminal pipeline state so the dashboard never says
+    # "100%" while the history cursor is still moving.
+    if status.get("state") != "completed" and any(
+        ((status.get("stages") or {}).get(name) or {}).get("status") != "completed"
+        for name in _STAGES
+    ):
+        return min(progress, 99)
+    return progress
 
 
 def _history_checkpoint_is_complete(manifest: dict[str, Any]) -> bool:
@@ -225,7 +234,7 @@ async def _read_status(access_token: str) -> dict[str, Any]:
         for name in _COLLECTION_SOURCES
     }
     result["statusMessage"] = _public_status_message(result.get("statusMessage"))
-    result["progress"] = _progress(result) if result.get("state") != "completed" else 100
+    result["progress"] = _progress(result)
     return result
 
 
@@ -384,12 +393,74 @@ def _synchronize_manifest_cursor(
 
 
 async def _write_status(access_token: str, status: dict[str, Any]) -> None:
-    status["progress"] = 100 if status.get("state") == "completed" else _progress(status)
+    all_stages_complete = all(
+        ((status.get("stages") or {}).get(name) or {}).get("status") == "completed"
+        for name in _STAGES
+    )
+    status["progress"] = 100 if status.get("state") == "completed" and all_stages_complete else _progress(status)
     _logger.info(
         "historical insight gathering: state=%s stage=%s progress=%s message=%s",
         status.get("state"), status.get("currentStage"), status.get("progress"), status.get("statusMessage"),
     )
     await write_json_file(access_token, _FOLDER, _STATUS_FILE, status)
+
+
+async def _reset_aggregate_for_history_resume(
+    access_token: str,
+    status: dict[str, Any],
+    manifest: dict[str, Any],
+) -> bool:
+    """Invalidate aggregate checkpoints when the chronological index is active.
+
+    Aggregate memories are derived from the complete dated manifest. If the
+    history cursor is moving again, a completed aggregate checkpoint is stale
+    even when its old processed/total counts look complete. Durable insight
+    files are intentionally left in place; only the resumable aggregate
+    checkpoint is reset so the agent can reconcile them against the newer
+    index.
+    """
+    history_stage = (status.get("stages") or {}).get("history") or {}
+    aggregate_stage = (status.get("stages") or {}).get("aggregate") or {}
+    history_active = history_stage.get("status") in {"queued", "running"}
+    aggregate_complete = (
+        aggregate_stage.get("status") == "completed"
+        or manifest.get("aggregateStatus") == "completed"
+    )
+    if not history_active or not aggregate_complete:
+        return False
+
+    status["stages"]["aggregate"] = _stage()
+    status["insightsWritten"] = 0
+    manifest["aggregateStatus"] = "pending"
+    agentic_status = await _read_agentic_memory_status(access_token)
+    agentic_status.update({
+        "state": "pending",
+        "questions": [],
+        "currentTopic": None,
+        "topics": [],
+    })
+    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    await _write_agentic_memory_status(access_token, agentic_status)
+    await _write_status(access_token, status)
+    _logger.info("historical insight gathering: reset stale aggregate checkpoint while history is active")
+    return True
+
+
+async def _reconcile_history_aggregate_checkpoint(
+    access_token: str,
+    status: dict[str, Any],
+) -> dict[str, Any]:
+    """Repair a contradictory persisted history/aggregate pair before polling."""
+    history_stage = (status.get("stages") or {}).get("history") or {}
+    if history_stage.get("status") not in {"queued", "running"}:
+        return status
+    try:
+        manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
+        if isinstance(manifest, dict):
+            await _reset_aggregate_for_history_resume(access_token, status, manifest)
+    except Exception:
+        _logger.warning("historical insight gathering: unable to reconcile history/aggregate checkpoint", exc_info=True)
+    return status
 
 
 async def _reconcile_completed_status(access_token: str, status: dict[str, Any]) -> dict[str, Any]:
@@ -438,6 +509,7 @@ async def get_insight_gathering_status(
     token_resolver: TokenResolver | None = None,
 ) -> dict[str, Any]:
     status = await _read_status(access_token)
+    status = await _reconcile_history_aggregate_checkpoint(access_token, status)
     status = await _reconcile_completed_status(access_token, status)
     if status.get("datesIndexed") is None:
         dates_indexed = await _count_manifest_dates(access_token)
@@ -471,6 +543,7 @@ async def get_insight_gathering_login_status(
     paused so the card can offer an explicit Resume button.
     """
     status = await _read_status(access_token)
+    status = await _reconcile_history_aggregate_checkpoint(access_token, status)
     status = await _reconcile_completed_status(access_token, status)
     dates_indexed = await _count_manifest_dates(access_token)
     if dates_indexed is not None:
@@ -1121,7 +1194,11 @@ async def _run_lazy(access_token: str, status: dict[str, Any], context_block: st
     if history_complete:
         stage.update({"status": "completed", "processed": dates_indexed or 0, "total": dates_indexed or 0})
     else:
+        # A history retry invalidates any aggregate result derived from the
+        # older manifest. Reset it before the cursor advances so the status
+        # document cannot report completed aggregation alongside live indexing.
         stage["status"] = "running"
+        await _reset_aggregate_for_history_resume(access_token, status, manifest)
 
         while True:
             try:
@@ -1290,7 +1367,12 @@ async def _run_aggregate(
 ) -> None:
     """Run the only agentic phase over the complete metadata-only manifest."""
     stage = status["stages"]["aggregate"]
-    if stage.get("status") == "completed" and manifest.get("aggregateStatus") == "completed":
+    history_stage = status["stages"]["history"]
+    if (
+        history_stage.get("status") == "completed"
+        and stage.get("status") == "completed"
+        and manifest.get("aggregateStatus") == "completed"
+    ):
         return
 
     entries = await _read_manifest_entries(access_token)
@@ -1341,6 +1423,14 @@ async def _run_aggregate(
     async def persist_agentic_memory_status(current: dict[str, Any]) -> None:
         await _write_agentic_memory_status(access_token, current)
 
+    async def record_source_read(_source_id: str) -> None:
+        processed = len(read_state.get("sourceIds") or set())
+        stage["processed"] = min(len(source_index), processed)
+        status["statusMessage"] = (
+            f"Reviewing indexed evidence: {stage['processed']} of {len(source_index)} source records read."
+        )
+        await _write_status(access_token, status)
+
     stage.update({"status": "running", "processed": 0, "total": len(source_index)})
     status.update({
         "currentStage": "aggregate",
@@ -1371,7 +1461,9 @@ async def _run_aggregate(
                     agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
                 ),
                 build_lookup_insights_tool(access_token, lookup_state),
-                build_read_historical_source_tool(access_token, source_index, read_state),
+                build_read_historical_source_tool(
+                    access_token, source_index, read_state, on_read=record_source_read,
+                ),
                 build_search_historical_sources_tool(
                     access_token, _MANIFEST_FOLDER, [],
                     references, search_state, source_index,
@@ -1417,6 +1509,12 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
         tool_use = event.get("current_tool_use")
         tool_name = tool_use.get("name") if isinstance(tool_use, dict) else None
         message = {
+            "list_historical_sources": "Reviewing the indexed history catalog.",
+            "list_agentic_memory_topics": "Checking the saved memory-review checkpoint.",
+            "plan_agentic_memory_questions": "Identifying the questions the indexed history should answer.",
+            "plan_agentic_memory_topics": "Organizing the historical review into memory topics.",
+            "record_agentic_memory_topic": "Starting a focused historical topic review.",
+            "complete_agentic_memory_topic": "Finishing the current historical topic review.",
             "read_historical_source": "Reading the full source record for this pass.",
             "lookup_historical_insights": "Checking existing memories for related facts.",
             "search_historical_sources": "Searching related email, calendar, document, and contact evidence.",
@@ -1498,6 +1596,7 @@ async def start_insight_gathering(
     lock = _start_locks.setdefault(owner, asyncio.Lock())
     async with lock:
         status = await _read_status(access_token)
+        status = await _reconcile_history_aggregate_checkpoint(access_token, status)
         status = await _reconcile_completed_status(access_token, status)
         if status.get("state") == "completed":
             return status

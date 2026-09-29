@@ -198,6 +198,22 @@ def test_remember_requires_read_source_before_write_when_enabled(monkeypatch) ->
     assert payload == {"status": "saved", "memoryKey": "work:scout"}
 
 
+def test_read_historical_source_reports_progress_callback() -> None:
+    references = {"calendar:1": {"id": "calendar:1", "kind": "calendar", "label": "Work"}}
+    read_state: dict = {}
+    reads: list[str] = []
+
+    async def on_read(source_id: str) -> None:
+        reads.append(source_id)
+
+    read = build_read_historical_source_tool("token", references, read_state, on_read=on_read)
+
+    asyncio.run(read("calendar:1"))
+
+    assert read_state["sourceIds"] == {"calendar:1"}
+    assert reads == ["calendar:1"]
+
+
 def test_remember_keeps_prerequisites_after_a_failed_payload(monkeypatch) -> None:
     async def fake_upsert(*_args, **kwargs):
         return {"status": "saved", "memoryKey": kwargs["memory_key"]}

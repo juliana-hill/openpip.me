@@ -268,6 +268,7 @@ def build_read_historical_source_tool(
     access_token: str,
     source_entries: dict[str, dict[str, Any]],
     read_state: dict[str, Any] | None = None,
+    on_read: Callable[[str], Awaitable[None]] | None = None,
 ) -> Any:
     """Let the agent fetch exactly one source's full content on demand."""
     @tool(
@@ -316,6 +317,8 @@ def build_read_historical_source_tool(
             payload = item.get("record") or item
         if read_state is not None:
             read_state.setdefault("sourceIds", set()).add(source_id)
+        if on_read is not None:
+            await on_read(source_id)
         return json.dumps(payload, default=str)
 
     return read_historical_source
