@@ -95,8 +95,9 @@ def build_agentic_memory_status_tools(
         description=(
             "After the complete paged manifest catalog has been inspected, record the ordered user-centered questions "
             "the aggregate pass must answer from the indexed evidence. Each item must include `question` and "
-            "`manifest_files`, using exact dated filenames such as `2022-02-11.json` returned by "
-            "list_historical_sources; those are the manifest files the question should investigate. This writes the inspectable question plan to "
+            "an initially empty `manifest_files` array. After searching the catalog for each question, call "
+            "record_agentic_memory_question_scope with the exact dated filenames such as `2022-02-11.json` returned by "
+            "list_historical_sources; the agent—not this tool—chooses which manifest files are relevant. This writes the inspectable question plan to "
             "OpenPip/memory/insights_gathering/building_insights.json and the resumable checkpoint to "
             "agentic_memory/status.json "
             "before topic research begins."
@@ -126,8 +127,10 @@ def build_agentic_memory_status_tools(
                 raw_files = question.get("indexed_dates") or question.get("indexedDates")
             if not normalized_question or key in seen:
                 continue
-            if not isinstance(raw_files, list) or not raw_files:
-                raise ValueError(f"question requires at least one manifest file: {normalized_question}")
+            if raw_files is None:
+                raw_files = []
+            if not isinstance(raw_files, list):
+                raise ValueError(f"manifest_files must be an array: {normalized_question}")
             manifest_files: list[str] = []
             for value in raw_files:
                 normalized_file = str(value).strip()
@@ -156,6 +159,54 @@ def build_agentic_memory_status_tools(
         return json.dumps({"status": "planned", "questions": planned})
 
     @tool(
+        name="record_agentic_memory_question_scope",
+        description=(
+            "After searching the indexed manifest for one planned question, record the exact dated manifest filenames "
+            "that contain evidence relevant to that question. The agent chooses these files from search results; do not "
+            "assign dates mechanically. This updates OpenPip/memory/insights_gathering/building_insights.json."
+        ),
+    )
+    async def record_agentic_memory_question_scope(question: str, manifest_files: list[str]) -> str:
+        normalized_question = " ".join(str(question or "").split())
+        question_key = normalized_question.casefold()
+        existing = next(
+            (
+                item for item in status.setdefault("questions", [])
+                if isinstance(item, dict)
+                and str(item.get("question") or "").casefold() == question_key
+            ),
+            None,
+        )
+        if existing is None:
+            raise ValueError("plan_agentic_memory_questions must be called before recording question scope")
+        available_dates = {
+            str(value)[:10]
+            for value in (catalog_state or {}).get("dates", set())
+            if value
+        }
+        normalized_files: list[str] = []
+        for value in manifest_files:
+            normalized_file = str(value).strip()
+            if not normalized_file.endswith(".json"):
+                normalized_file = f"{normalized_file[:10]}.json"
+            try:
+                normalized_date = date.fromisoformat(normalized_file[:-5]).isoformat()
+            except (TypeError, ValueError):
+                raise ValueError(f"invalid manifest file: {normalized_file}") from None
+            canonical_file = f"{normalized_date}.json"
+            if available_dates and normalized_date not in available_dates:
+                raise ValueError(f"manifest file {canonical_file} was not returned by list_historical_sources")
+            if canonical_file not in normalized_files:
+                normalized_files.append(canonical_file)
+        if not normalized_files:
+            raise ValueError("record_agentic_memory_question_scope requires at least one manifest file")
+        existing["manifestFiles"] = sorted(normalized_files)
+        if persist_question_plan is not None:
+            await persist_question_plan(status["questions"])
+        await persist(status)
+        return json.dumps({"status": "scoped", "question": existing})
+
+    @tool(
         name="plan_agentic_memory_topics",
         description=(
             "After reviewing all indexed dates, create the ordered list of durable topics to research across the "
@@ -166,6 +217,14 @@ def build_agentic_memory_status_tools(
     async def plan_agentic_memory_topics(topics: list[str]) -> str:
         if catalog_state is not None and not catalog_state.get("complete"):
             raise ValueError("list_historical_sources must be paged until nextPage is null before planning topics")
+        questions = status.get("questions") or []
+        if not questions or any(
+            not isinstance(item, dict) or not item.get("manifestFiles")
+            for item in questions
+        ):
+            raise ValueError(
+                "record_agentic_memory_question_scope must assign manifest files to every planned question before topics"
+            )
         planned: list[str] = []
         seen: set[str] = set()
         for topic in topics:
@@ -298,6 +357,7 @@ def build_agentic_memory_status_tools(
     return [
         list_agentic_memory_topics,
         plan_agentic_memory_questions,
+        record_agentic_memory_question_scope,
         plan_agentic_memory_topics,
         record_agentic_memory_topic,
         complete_agentic_memory_topic,

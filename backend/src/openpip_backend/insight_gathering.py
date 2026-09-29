@@ -1348,9 +1348,10 @@ def _aggregate_prompt(total: int) -> str:
         + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
         + "do not read every source just because it is listed. After the final page, create a concise ordered list of "
         + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Pass each question "
-        + "as an object with a `question` string and a `manifest_files` array containing exact dated filenames such as "
-        + "`2022-02-11.json` returned by list_historical_sources. Those are the manifest files that should be examined "
-        + "for that question; do not substitute source ids or an invented date range. Questions should cover "
+        + "as an object with a `question` string and an initially empty `manifest_files` array. Then, for each question, "
+        + "search the catalog using focused terms and read the matching source metadata; decide which exact dated files "
+        + "such as `2022-02-11.json` are relevant, and call record_agentic_memory_question_scope with those filenames. "
+        + "Do not substitute source ids or let code assign the files. Questions should cover "
         + "durable identity/background, work and education, projects and goals, important relationships, routines and "
         + "preferences, commitments, purchases/finances, and other recurring patterns only when the catalog contains "
         + "evidence for them. Use each question to choose one candidate topic, then call search_historical_sources across "
@@ -1358,8 +1359,9 @@ def _aggregate_prompt(total: int) -> str:
         + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer "
         + "that question. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
         + "roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
-        + "The question plan is persisted in OpenPip/memory/insights_gathering/building_insights.json; use it as the explicit research "
-        + "queue rather than inventing an untracked checklist. After the question plan is recorded, call "
+        + "The question plan is persisted in OpenPip/memory/insights_gathering/building_insights.json; update it through "
+        + "record_agentic_memory_question_scope as the investigation discovers relevant dated files. Use it as the explicit research "
+        + "queue rather than inventing an untracked checklist. Only after every question has an agent-selected file scope, call "
         + "plan_agentic_memory_topics with the ordered list of durable topics "
         + "that will answer those questions across the indexed dates. Do not begin topic-specific source reads until both "
         + "plans have been recorded. Then iterate through the "
@@ -1580,6 +1582,7 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
             "list_historical_sources": "Reviewing the indexed history catalog.",
             "list_agentic_memory_topics": "Checking the saved memory-review checkpoint.",
             "plan_agentic_memory_questions": "Identifying the questions the indexed history should answer.",
+            "record_agentic_memory_question_scope": "Assigning the relevant dated manifest files to this question.",
             "plan_agentic_memory_topics": "Organizing the historical review into memory topics.",
             "record_agentic_memory_topic": "Starting a focused historical topic review.",
             "complete_agentic_memory_topic": "Finishing the current historical topic review.",

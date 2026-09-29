@@ -22,9 +22,9 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
         writes.append(current.copy())
 
     async def persist_question_plan(current: list[dict]):
-        question_plans.append(current)
+        question_plans.append(json.loads(json.dumps(current)))
 
-    list_topics, plan_questions, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
+    list_topics, plan_questions, record_scope, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
         status,
         persist,
         {"sourceIds": {"email:offer", "calendar:work"}},
@@ -36,13 +36,15 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
         questions = json.loads(await plan_questions([
             {
                 "question": "What work has the user done?",
-                "manifest_files": ["2021-01-01.json", "2021-01-02.json"],
             },
             {
                 "question": "What work has the user done?",
-                "manifest_files": ["2021-01-01.json"],
             },
         ]))
+        scoped = json.loads(await record_scope(
+            "What work has the user done?",
+            ["2021-01-01.json", "2021-01-02.json"],
+        ))
         planned = json.loads(await plan_topics(["Scout employment", "Learning goals"]))
         started = json.loads(await record_topic(
             "Scout employment",
@@ -55,23 +57,25 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
             relevant_source_ids=["email:offer", "calendar:work"],
             completion_note="No more relevant indexed evidence found.",
         ))
-        return initial, questions, planned, started, completed
+        return initial, questions, scoped, planned, started, completed
 
-    initial, questions, planned, started, completed = asyncio.run(run())
+    initial, questions, scoped, planned, started, completed = asyncio.run(run())
 
     assert initial["topics"] == []
     assert questions["questions"] == [{
         "question": "What work has the user done?",
-        "manifestFiles": ["2021-01-01.json", "2021-01-02.json"],
+        "manifestFiles": [],
     }]
-    assert question_plans == [questions["questions"]]
+    assert scoped["question"]["manifestFiles"] == ["2021-01-01.json", "2021-01-02.json"]
+    assert question_plans[0] == [{"question": "What work has the user done?", "manifestFiles": []}]
+    assert question_plans[1] == status["questions"]
     assert [item["topic"] for item in planned["topics"]] == ["Scout employment", "Learning goals"]
     assert started["topic"]["status"] == "in_progress"
     assert completed["topic"]["status"] == "completed"
     assert status["currentTopic"] is None
     assert status["topics"][0]["memoryKey"] == "work:employment:scout"
     assert status["topics"][0]["recordsRead"] == 2
-    assert len(writes) == 4
+    assert len(writes) == 5
 
 
 def test_lookup_requires_a_focused_query_and_records_the_result(monkeypatch) -> None:
@@ -129,7 +133,7 @@ def test_agentic_plans_require_the_complete_manifest_catalog() -> None:
     async def persist(_current: dict):
         return None
 
-    _, plan_questions, plan_topics, *_ = build_agentic_memory_status_tools(
+    _, plan_questions, _, plan_topics, *_ = build_agentic_memory_status_tools(
         status, persist, catalog_state=pagination_state,
     )
 
