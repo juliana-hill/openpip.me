@@ -48,6 +48,7 @@ _MANIFEST_FOLDER = f"{_FOLDER}/manifest"
 _AGENTIC_MEMORY_FOLDER = f"{_FOLDER}/agentic_memory"
 _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
+_BUILDING_INSIGHTS_FILE = "building_insights.json"
 _AGENTIC_MEMORY_STATUS_FILE = "status.json"
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
@@ -215,6 +216,34 @@ async def _read_agentic_memory_status(access_token: str) -> dict[str, Any]:
 async def _write_agentic_memory_status(access_token: str, status: dict[str, Any]) -> None:
     status["updatedAt"] = datetime.now(UTC).isoformat()
     await write_json_file(access_token, _AGENTIC_MEMORY_FOLDER, _AGENTIC_MEMORY_STATUS_FILE, status)
+
+
+async def _write_building_insights_checkpoint(
+    access_token: str,
+    *,
+    state: str,
+    questions: list[dict[str, Any]],
+    indexed_dates: list[str],
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    normalized_dates = sorted({str(value)[:10] for value in (indexed_dates or []) if value})
+    planned_questions = []
+    for item in questions:
+        indexed = sorted({str(value)[:10] for value in item.get("indexedDates", []) if value})
+        planned_questions.append({
+            "question": item.get("question"),
+            "indexedDates": indexed,
+            "manifestFiles": [f"{value}.json" for value in indexed],
+        })
+    await write_json_file(access_token, _FOLDER, _BUILDING_INSIGHTS_FILE, {
+        "version": 1,
+        "state": state,
+        "manifestFolder": _MANIFEST_FOLDER,
+        "indexedDates": normalized_dates,
+        "questions": planned_questions,
+        "createdAt": now,
+        "updatedAt": now,
+    })
 
 
 async def _read_status(access_token: str) -> dict[str, Any]:
@@ -439,6 +468,12 @@ async def _reset_aggregate_for_history_resume(
         "currentTopic": None,
         "topics": [],
     })
+    await _write_building_insights_checkpoint(
+        access_token,
+        state="pending",
+        questions=[],
+        indexed_dates=manifest.get("dates") or [],
+    )
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     await _write_agentic_memory_status(access_token, agentic_status)
     await _write_status(access_token, status)
@@ -1304,7 +1339,9 @@ def _aggregate_prompt(total: int) -> str:
         + "First call list_historical_sources repeatedly from page 1 until nextPage is null; do not plan anything until "
         + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
         + "do not read every source just because it is listed. After the final page, create a concise ordered list of "
-        + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Questions should cover "
+        + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Pass each question "
+        + "as an object with a `question` string and an `indexed_dates` array containing exact YYYY-MM-DD dates of the "
+        + "manifest files that should be examined for that question. Questions should cover "
         + "durable identity/background, work and education, projects and goals, important relationships, routines and "
         + "preferences, commitments, purchases/finances, and other recurring patterns only when the catalog contains "
         + "evidence for them. Use each question to choose one candidate topic, then call search_historical_sources across "
@@ -1312,7 +1349,9 @@ def _aggregate_prompt(total: int) -> str:
         + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer "
         + "that question. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
         + "roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
-        + "After the question plan is recorded, call plan_agentic_memory_topics with the ordered list of durable topics "
+        + "The question plan is persisted in OpenPip/memory/insights_gathering/building_insights.json; use it as the explicit research "
+        + "queue rather than inventing an untracked checklist. After the question plan is recorded, call "
+        + "plan_agentic_memory_topics with the ordered list of durable topics "
         + "that will answer those questions across the indexed dates. Do not begin topic-specific source reads until both "
         + "plans have been recorded. Then iterate through the "
         + "planned list one topic at a time: call record_agentic_memory_topic, investigate/refine it, and call "
@@ -1394,6 +1433,17 @@ async def _run_aggregate(
         stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
         manifest["aggregateStatus"] = "completed"
         status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
+        question_plan = [
+            item for item in agentic_memory_status.get("questions", [])
+            if isinstance(item, dict) and item.get("question")
+        ]
+        if question_plan:
+            await _write_building_insights_checkpoint(
+                access_token,
+                state="completed",
+                questions=question_plan,
+                indexed_dates=manifest.get("dates") or [],
+            )
         await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
         agentic_memory_status["state"] = "completed"
         agentic_memory_status["currentTopic"] = None
@@ -1422,6 +1472,14 @@ async def _run_aggregate(
 
     async def persist_agentic_memory_status(current: dict[str, Any]) -> None:
         await _write_agentic_memory_status(access_token, current)
+
+    async def persist_question_plan(questions: list[dict[str, Any]]) -> None:
+        await _write_building_insights_checkpoint(
+            access_token,
+            state="planned",
+            questions=questions,
+            indexed_dates=sorted(catalog_state.get("dates") or set()),
+        )
 
     async def record_source_read(_source_id: str) -> None:
         processed = len(read_state.get("sourceIds") or set())
@@ -1459,6 +1517,7 @@ async def _run_aggregate(
                 build_list_historical_sources_tool(source_index, pagination_state=catalog_state),
                 *build_agentic_memory_status_tools(
                     agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
+                    persist_question_plan,
                 ),
                 build_lookup_insights_tool(access_token, lookup_state),
                 build_read_historical_source_tool(

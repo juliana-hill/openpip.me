@@ -246,6 +246,40 @@ def test_manifest_sweep_rewinds_to_an_incomplete_indexed_date() -> None:
     assert manifest["currentDate"] == "2020-10-02"
 
 
+def test_building_insights_checkpoint_contains_manifest_question_dates(monkeypatch) -> None:
+    saved: dict[tuple[str, str], dict] = {}
+
+    async def fake_write(_token: str, folder: str, filename: str, data: dict):
+        saved[(folder, filename)] = data
+
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+
+    asyncio.run(insight_gathering._write_building_insights_checkpoint(
+        "token",
+        state="planned",
+        questions=[{
+            "question": "What work history is supported?",
+            "indexedDates": ["2021-01-02", "2021-01-01"],
+        }],
+        indexed_dates=["2021-01-01", "2021-01-02"],
+    ))
+
+    assert (insight_gathering._FOLDER, insight_gathering._BUILDING_INSIGHTS_FILE) in saved
+    assert saved[(insight_gathering._FOLDER, insight_gathering._BUILDING_INSIGHTS_FILE)] == {
+        "version": 1,
+        "state": "planned",
+        "manifestFolder": insight_gathering._MANIFEST_FOLDER,
+        "indexedDates": ["2021-01-01", "2021-01-02"],
+        "questions": [{
+            "question": "What work history is supported?",
+            "indexedDates": ["2021-01-01", "2021-01-02"],
+            "manifestFiles": ["2021-01-01.json", "2021-01-02.json"],
+        }],
+        "createdAt": saved[(insight_gathering._FOLDER, insight_gathering._BUILDING_INSIGHTS_FILE)]["createdAt"],
+        "updatedAt": saved[(insight_gathering._FOLDER, insight_gathering._BUILDING_INSIGHTS_FILE)]["updatedAt"],
+    }
+
+
 def test_login_status_does_not_start_a_persisted_run(monkeypatch) -> None:
     stale = {"state": "running", "runId": "run-1"}
     started = False

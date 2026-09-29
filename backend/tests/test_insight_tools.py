@@ -16,17 +16,33 @@ from openpip_backend.tools.insights import (
 def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
     status = {"state": "pending", "currentTopic": None, "topics": []}
     writes: list[dict] = []
+    question_plans: list[list[dict]] = []
 
     async def persist(current: dict):
         writes.append(current.copy())
 
+    async def persist_question_plan(current: list[dict]):
+        question_plans.append(current)
+
     list_topics, plan_questions, plan_topics, record_topic, complete_topic = build_agentic_memory_status_tools(
-        status, persist, {"sourceIds": {"email:offer", "calendar:work"}},
+        status,
+        persist,
+        {"sourceIds": {"email:offer", "calendar:work"}},
+        persist_question_plan=persist_question_plan,
     )
 
     async def run():
         initial = json.loads(await list_topics())
-        questions = json.loads(await plan_questions(["What work has the user done?", "What work has the user done?"]))
+        questions = json.loads(await plan_questions([
+            {
+                "question": "What work has the user done?",
+                "indexed_dates": ["2021-01-01", "2021-01-02"],
+            },
+            {
+                "question": "What work has the user done?",
+                "indexed_dates": ["2021-01-01"],
+            },
+        ]))
         planned = json.loads(await plan_topics(["Scout employment", "Learning goals"]))
         started = json.loads(await record_topic(
             "Scout employment",
@@ -44,7 +60,11 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
     initial, questions, planned, started, completed = asyncio.run(run())
 
     assert initial["topics"] == []
-    assert questions["questions"] == ["What work has the user done?"]
+    assert questions["questions"] == [{
+        "question": "What work has the user done?",
+        "indexedDates": ["2021-01-01", "2021-01-02"],
+    }]
+    assert question_plans == [questions["questions"]]
     assert [item["topic"] for item in planned["topics"]] == ["Scout employment", "Learning goals"]
     assert started["topic"]["status"] == "in_progress"
     assert completed["topic"]["status"] == "completed"
@@ -98,6 +118,7 @@ def test_list_historical_sources_paginates_the_metadata_only_manifest() -> None:
     assert second["nextPage"] is None
     assert second["sources"][0]["sourceId"] == "document:1"
     assert pagination_state["complete"] is True
+    assert pagination_state["dates"] == {"2021-01-01", "2021-01-02"}
 
 
 def test_agentic_plans_require_the_complete_manifest_catalog() -> None:

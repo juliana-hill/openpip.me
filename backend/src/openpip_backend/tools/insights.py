@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Awaitable, Callable, TypeVar
 
 from .. import insight_memory
@@ -68,6 +68,7 @@ def build_agentic_memory_status_tools(
     persist: Callable[[dict[str, Any]], Awaitable[None]],
     read_state: dict[str, Any] | None = None,
     catalog_state: dict[str, Any] | None = None,
+    persist_question_plan: Callable[[list[dict[str, Any]]], Awaitable[None]] | None = None,
 ) -> list[Any]:
     """Track the aggregate agent's one-topic-at-a-time research loop."""
 
@@ -93,25 +94,56 @@ def build_agentic_memory_status_tools(
         name="plan_agentic_memory_questions",
         description=(
             "After the complete paged manifest catalog has been inspected, record the ordered user-centered questions "
-            "the aggregate pass must answer from the indexed evidence. This writes the question plan to "
-            "agentic_memory/status.json before topic research begins."
+            "the aggregate pass must answer from the indexed evidence. Each item must include `question` and "
+            "`indexed_dates`, using exact YYYY-MM-DD dates returned by list_historical_sources; those dates identify "
+            "the manifest files the question should investigate. This writes the inspectable question plan to "
+            "OpenPip/memory/insights_gathering/building_insights.json and the resumable checkpoint to "
+            "agentic_memory/status.json "
+            "before topic research begins."
         ),
     )
-    async def plan_agentic_memory_questions(questions: list[str]) -> str:
+    async def plan_agentic_memory_questions(questions: list[dict[str, Any]]) -> str:
         if catalog_state is not None and not catalog_state.get("complete"):
             raise ValueError("list_historical_sources must be paged until nextPage is null before planning questions")
-        planned: list[str] = []
+        available_dates = {
+            str(value)[:10]
+            for value in (catalog_state or {}).get("dates", set())
+            if value
+        }
+        planned: list[dict[str, Any]] = []
         seen: set[str] = set()
         for question in questions:
-            normalized_question = " ".join(str(question or "").split())
+            if not isinstance(question, dict):
+                raise ValueError("each question must include question and indexed_dates")
+            normalized_question = " ".join(str(question.get("question") or "").split())
             key = normalized_question.casefold()
-            if normalized_question and key not in seen:
-                seen.add(key)
-                planned.append(normalized_question)
+            raw_dates = question.get("indexed_dates")
+            if raw_dates is None:
+                raw_dates = question.get("indexedDates")
+            if not normalized_question or key in seen:
+                continue
+            if not isinstance(raw_dates, list) or not raw_dates:
+                raise ValueError(f"question requires at least one indexed date: {normalized_question}")
+            indexed_dates: list[str] = []
+            for value in raw_dates:
+                try:
+                    normalized_date = date.fromisoformat(str(value)[:10]).isoformat()
+                except (TypeError, ValueError):
+                    raise ValueError(f"invalid indexed date for question: {normalized_question}") from None
+                if available_dates and normalized_date not in available_dates:
+                    raise ValueError(
+                        f"indexed date {normalized_date} was not returned by list_historical_sources"
+                    )
+                if normalized_date not in indexed_dates:
+                    indexed_dates.append(normalized_date)
+            seen.add(key)
+            planned.append({"question": normalized_question, "indexedDates": sorted(indexed_dates)})
         if not planned:
             raise ValueError("questions must contain at least one non-empty question")
         status["questions"] = planned
         status["state"] = "planned"
+        if persist_question_plan is not None:
+            await persist_question_plan(planned)
         await persist(status)
         return json.dumps({"status": "planned", "questions": planned})
 
@@ -357,6 +389,12 @@ def build_list_historical_sources_tool(
         if pagination_state is not None:
             page_size = pagination_state.setdefault("pageSize", normalized_size)
             pagination_state.setdefault("pages", set()).add(normalized_page)
+            catalog_dates = pagination_state.setdefault("dates", set())
+            catalog_dates.update(
+                str(item.get("date"))[:10]
+                for item in page_items
+                if item.get("date")
+            )
             expected_pages = max(1, (len(items) + page_size - 1) // page_size)
             pages_seen = pagination_state["pages"]
             pagination_state["complete"] = (
