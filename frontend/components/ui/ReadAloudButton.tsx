@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
-import { Volume2, VolumeOff } from "lucide-react";
+import { Loader2, Volume2, VolumeOff } from "lucide-react";
 import { speakNaturally, stopSpeaking, type NaturalSpeechStatus } from "@/lib/speech/localSpeech";
 
 type ReadAloudButtonProps = {
@@ -46,7 +46,7 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
   if (idRef.current === null) idRef.current = nextButtonId++;
   const id = idRef.current;
   const [speaking, setSpeaking] = useState(() => activeButtonId === id);
-  const [status, setStatus] = useState<{ label: string; progress?: number } | null>(null);
+  const [status, setStatus] = useState<{ label: string; showSpinner: boolean } | null>(null);
   const systemVoiceTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
     if (!readableText) return;
     setActiveButton(id);
     void speakNaturally(readableText, {
-      onStatus: (nextStatus, progress) => {
+      onStatus: (nextStatus) => {
         if (activeButtonId !== id) return;
         clearSystemVoiceTimer();
         if (nextStatus === "speaking") {
@@ -89,7 +89,7 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
         }
         const label = STATUS_LABEL[nextStatus];
         if (!label) return;
-        setStatus({ label, progress });
+        setStatus({ label, showSpinner: nextStatus === "preparing" });
         if (nextStatus === "system-voice") {
           systemVoiceTimerRef.current = window.setTimeout(() => {
             if (activeButtonId === id) setStatus(null);
@@ -135,6 +135,9 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
         <span
           role="status"
           style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
             position: "fixed",
             top: "calc(env(safe-area-inset-top, 0px) + 16px)",
             right: "calc(env(safe-area-inset-right, 0px) + 16px)",
@@ -150,8 +153,8 @@ export function ReadAloudButton({ text, className, style, iconSize = 15 }: Reado
             pointerEvents: "none",
           }}
         >
-          {status.label}
-          {typeof status.progress === "number" ? ` ${Math.round(status.progress * 100)}%` : ""}
+          {status.showSpinner && <Loader2 size={14} aria-hidden="true" style={{ animation: "spin 0.7s linear infinite", flexShrink: 0 }} />}
+          <span>{status.label}</span>
         </span>
       )}
     </>

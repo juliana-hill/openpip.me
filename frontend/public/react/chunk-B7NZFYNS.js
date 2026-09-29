@@ -19,6 +19,7 @@ import {
   ExternalLink,
   FileUp,
   House,
+  LoaderCircle,
   MapPin,
   Mic,
   MicOff,
@@ -687,7 +688,7 @@ function ReadAloudButton({ text, className, style, iconSize = 15 }) {
     if (!readableText) return;
     setActiveButton(id);
     void speakNaturally(readableText, {
-      onStatus: (nextStatus, progress) => {
+      onStatus: (nextStatus) => {
         if (activeButtonId !== id) return;
         clearSystemVoiceTimer();
         if (nextStatus === "speaking") {
@@ -696,7 +697,7 @@ function ReadAloudButton({ text, className, style, iconSize = 15 }) {
         }
         const label = STATUS_LABEL[nextStatus];
         if (!label) return;
-        setStatus({ label, progress });
+        setStatus({ label, showSpinner: nextStatus === "preparing" });
         if (nextStatus === "system-voice") {
           systemVoiceTimerRef.current = window.setTimeout(() => {
             if (activeButtonId === id) setStatus(null);
@@ -743,6 +744,9 @@ function ReadAloudButton({ text, className, style, iconSize = 15 }) {
       {
         role: "status",
         style: {
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
           position: "fixed",
           top: "calc(env(safe-area-inset-top, 0px) + 16px)",
           right: "calc(env(safe-area-inset-right, 0px) + 16px)",
@@ -758,8 +762,8 @@ function ReadAloudButton({ text, className, style, iconSize = 15 }) {
           pointerEvents: "none"
         },
         children: [
-          status.label,
-          typeof status.progress === "number" ? ` ${Math.round(status.progress * 100)}%` : ""
+          status.showSpinner && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LoaderCircle, { size: 14, "aria-hidden": "true", style: { animation: "spin 0.7s linear infinite", flexShrink: 0 } }),
+          /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: status.label })
         ]
       }
     )
