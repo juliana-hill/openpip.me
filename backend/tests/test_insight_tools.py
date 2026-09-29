@@ -36,11 +36,11 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
         questions = json.loads(await plan_questions([
             {
                 "question": "What work has the user done?",
-                "indexed_dates": ["2021-01-01", "2021-01-02"],
+                "manifest_files": ["2021-01-01.json", "2021-01-02.json"],
             },
             {
                 "question": "What work has the user done?",
-                "indexed_dates": ["2021-01-01"],
+                "manifest_files": ["2021-01-01.json"],
             },
         ]))
         planned = json.loads(await plan_topics(["Scout employment", "Learning goals"]))
@@ -62,7 +62,7 @@ def test_agentic_memory_topics_are_checkpointed_one_at_a_time() -> None:
     assert initial["topics"] == []
     assert questions["questions"] == [{
         "question": "What work has the user done?",
-        "indexedDates": ["2021-01-01", "2021-01-02"],
+        "manifestFiles": ["2021-01-01.json", "2021-01-02.json"],
     }]
     assert question_plans == [questions["questions"]]
     assert [item["topic"] for item in planned["topics"]] == ["Scout employment", "Learning goals"]
@@ -117,6 +117,7 @@ def test_list_historical_sources_paginates_the_metadata_only_manifest() -> None:
     assert first["sources"][0]["summary"] == "Work"
     assert second["nextPage"] is None
     assert second["sources"][0]["sourceId"] == "document:1"
+    assert second["sources"][0]["manifestFile"] == "2021-01-02.json"
     assert pagination_state["complete"] is True
     assert pagination_state["dates"] == {"2021-01-01", "2021-01-02"}
 

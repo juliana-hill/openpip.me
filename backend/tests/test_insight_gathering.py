@@ -259,7 +259,7 @@ def test_building_insights_checkpoint_contains_manifest_question_dates(monkeypat
         state="planned",
         questions=[{
             "question": "What work history is supported?",
-            "indexedDates": ["2021-01-02", "2021-01-01"],
+            "manifestFiles": ["2021-01-02.json", "2021-01-01.json"],
         }],
         indexed_dates=["2021-01-01", "2021-01-02"],
     ))

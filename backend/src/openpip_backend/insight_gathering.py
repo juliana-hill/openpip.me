@@ -229,11 +229,19 @@ async def _write_building_insights_checkpoint(
     normalized_dates = sorted({str(value)[:10] for value in (indexed_dates or []) if value})
     planned_questions = []
     for item in questions:
-        indexed = sorted({str(value)[:10] for value in item.get("indexedDates", []) if value})
+        raw_files = item.get("manifestFiles") or item.get("manifest_files") or []
+        if not raw_files:
+            raw_files = [f"{str(value)[:10]}.json" for value in item.get("indexedDates", []) if value]
+        manifest_files = sorted({
+            value if str(value).endswith(".json") else f"{str(value)[:10]}.json"
+            for value in raw_files
+            if value
+        })
+        associated_dates = sorted({str(value)[:-5] for value in manifest_files})
         planned_questions.append({
             "question": item.get("question"),
-            "indexedDates": indexed,
-            "manifestFiles": [f"{value}.json" for value in indexed],
+            "manifestFiles": manifest_files,
+            "indexedDates": associated_dates,
         })
     await write_json_file(access_token, _FOLDER, _BUILDING_INSIGHTS_FILE, {
         "version": 1,
@@ -1340,8 +1348,9 @@ def _aggregate_prompt(total: int) -> str:
         + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
         + "do not read every source just because it is listed. After the final page, create a concise ordered list of "
         + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Pass each question "
-        + "as an object with a `question` string and an `indexed_dates` array containing exact YYYY-MM-DD dates of the "
-        + "manifest files that should be examined for that question. Questions should cover "
+        + "as an object with a `question` string and a `manifest_files` array containing exact dated filenames such as "
+        + "`2022-02-11.json` returned by list_historical_sources. Those are the manifest files that should be examined "
+        + "for that question; do not substitute source ids or an invented date range. Questions should cover "
         + "durable identity/background, work and education, projects and goals, important relationships, routines and "
         + "preferences, commitments, purchases/finances, and other recurring patterns only when the catalog contains "
         + "evidence for them. Use each question to choose one candidate topic, then call search_historical_sources across "

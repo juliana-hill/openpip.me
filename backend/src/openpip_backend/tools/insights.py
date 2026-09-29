@@ -95,8 +95,8 @@ def build_agentic_memory_status_tools(
         description=(
             "After the complete paged manifest catalog has been inspected, record the ordered user-centered questions "
             "the aggregate pass must answer from the indexed evidence. Each item must include `question` and "
-            "`indexed_dates`, using exact YYYY-MM-DD dates returned by list_historical_sources; those dates identify "
-            "the manifest files the question should investigate. This writes the inspectable question plan to "
+            "`manifest_files`, using exact dated filenames such as `2022-02-11.json` returned by "
+            "list_historical_sources; those are the manifest files the question should investigate. This writes the inspectable question plan to "
             "OpenPip/memory/insights_gathering/building_insights.json and the resumable checkpoint to "
             "agentic_memory/status.json "
             "before topic research begins."
@@ -117,27 +117,35 @@ def build_agentic_memory_status_tools(
                 raise ValueError("each question must include question and indexed_dates")
             normalized_question = " ".join(str(question.get("question") or "").split())
             key = normalized_question.casefold()
-            raw_dates = question.get("indexed_dates")
-            if raw_dates is None:
-                raw_dates = question.get("indexedDates")
+            raw_files = question.get("manifest_files")
+            if raw_files is None:
+                raw_files = question.get("manifestFiles")
+            if raw_files is None:
+                # Accept the earlier date-only shape while checkpoints roll
+                # forward, but always persist the concrete dated filenames.
+                raw_files = question.get("indexed_dates") or question.get("indexedDates")
             if not normalized_question or key in seen:
                 continue
-            if not isinstance(raw_dates, list) or not raw_dates:
-                raise ValueError(f"question requires at least one indexed date: {normalized_question}")
-            indexed_dates: list[str] = []
-            for value in raw_dates:
+            if not isinstance(raw_files, list) or not raw_files:
+                raise ValueError(f"question requires at least one manifest file: {normalized_question}")
+            manifest_files: list[str] = []
+            for value in raw_files:
+                normalized_file = str(value).strip()
+                if not normalized_file.endswith(".json"):
+                    normalized_file = f"{normalized_file[:10]}.json"
                 try:
-                    normalized_date = date.fromisoformat(str(value)[:10]).isoformat()
+                    normalized_date = date.fromisoformat(normalized_file[:-5]).isoformat()
                 except (TypeError, ValueError):
-                    raise ValueError(f"invalid indexed date for question: {normalized_question}") from None
+                    raise ValueError(f"invalid manifest file for question: {normalized_question}") from None
+                canonical_file = f"{normalized_date}.json"
                 if available_dates and normalized_date not in available_dates:
                     raise ValueError(
-                        f"indexed date {normalized_date} was not returned by list_historical_sources"
+                        f"manifest file {canonical_file} was not returned by list_historical_sources"
                     )
-                if normalized_date not in indexed_dates:
-                    indexed_dates.append(normalized_date)
+                if canonical_file not in manifest_files:
+                    manifest_files.append(canonical_file)
             seen.add(key)
-            planned.append({"question": normalized_question, "indexedDates": sorted(indexed_dates)})
+            planned.append({"question": normalized_question, "manifestFiles": sorted(manifest_files)})
         if not planned:
             raise ValueError("questions must contain at least one non-empty question")
         status["questions"] = planned
@@ -385,6 +393,8 @@ def build_list_historical_sources_tool(
                 for key in ("sourceId", "kind", "date", "label", "detail", "url", "summary", "providerId")
                 if item.get(key) is not None
             })
+            if item.get("date"):
+                sources[-1]["manifestFile"] = f"{str(item['date'])[:10]}.json"
         next_page = normalized_page + 1 if start + len(page_items) < len(items) else None
         if pagination_state is not None:
             page_size = pagination_state.setdefault("pageSize", normalized_size)
