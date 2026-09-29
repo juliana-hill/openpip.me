@@ -1278,6 +1278,15 @@ async def _run_aggregate(
         _add_event(status, "Built coherent historical memories", f"Reviewed {len(source_index)} indexed source records")
         await _write_status(access_token, status)
 
+    # Migrate checkpoints written before question planning existed. The old
+    # broad-topic pass can contain completed zero-source topics, so treating it
+    # as final would preserve an incomplete memory set forever.
+    if agentic_memory_status.get("topics") and not agentic_memory_status.get("questions"):
+        agentic_memory_status["state"] = "pending"
+        agentic_memory_status["currentTopic"] = None
+        agentic_memory_status["topics"] = []
+        await _write_agentic_memory_status(access_token, agentic_memory_status)
+
     # A worker can disappear immediately after the final topic checkpoint is
     # written but before the aggregate manifest/status finalization below. Do
     # not send the model back through the entire topic loop in that case.
