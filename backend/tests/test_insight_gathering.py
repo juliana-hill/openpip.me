@@ -46,7 +46,11 @@ def test_start_is_idempotent_after_completion(monkeypatch) -> None:
         "progress": 100, "insightsWritten": 4, "events": [],
     }
 
-    async def fake_read(_token: str, _folder: str, _filename: str):
+    async def fake_read(_token: str, folder: str, filename: str):
+        if folder == insight_gathering._MANIFEST_FOLDER:
+            return {"aggregateStatus": "completed"}
+        if folder == insight_gathering._AGENTIC_MEMORY_FOLDER:
+            return {"state": "completed", "questions": []}
         return completed
 
     monkeypatch.setattr(insight_gathering, "read_json_file", fake_read)
@@ -56,6 +60,43 @@ def test_start_is_idempotent_after_completion(monkeypatch) -> None:
     assert result["state"] == "completed"
     assert result["runId"] == "run-1"
     assert not insight_gathering._jobs
+
+
+def test_login_status_reopens_completed_legacy_aggregate(monkeypatch) -> None:
+    completed = {
+        "state": "completed",
+        "runId": "run-1",
+        "stages": {"aggregate": {"status": "completed", "processed": 1366, "total": 1366}},
+        "progress": 100,
+        "events": [],
+    }
+
+    async def fake_read(_token: str, folder: str, filename: str):
+        if folder == insight_gathering._FOLDER and filename == insight_gathering._STATUS_FILE:
+            return completed
+        if folder == insight_gathering._MANIFEST_FOLDER:
+            return {"aggregateStatus": "completed"}
+        if folder == insight_gathering._AGENTIC_MEMORY_FOLDER:
+            return {
+                "state": "completed",
+                "topics": [{"topic": "Financial Documents", "status": "completed"}],
+            }
+        return {}
+
+    async def fake_count(_token: str):
+        return 1366
+
+    async def fake_write(_token: str, _status: dict):
+        return None
+
+    monkeypatch.setattr(insight_gathering, "read_json_file", fake_read)
+    monkeypatch.setattr(insight_gathering, "_count_manifest_dates", fake_count)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write)
+
+    result = asyncio.run(insight_gathering.get_insight_gathering_login_status("token"))
+
+    assert result["state"] == "paused"
+    assert result["statusMessage"] == "The historical review is ready to resume."
 
 
 def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> None:

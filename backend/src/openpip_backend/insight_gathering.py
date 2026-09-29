@@ -392,6 +392,45 @@ async def _write_status(access_token: str, status: dict[str, Any]) -> None:
     await write_json_file(access_token, _FOLDER, _STATUS_FILE, status)
 
 
+async def _reconcile_completed_status(access_token: str, status: dict[str, Any]) -> dict[str, Any]:
+    """Prevent a stale top-level completed flag from hiding an incomplete aggregate pass."""
+    if status.get("state") != "completed":
+        return status
+    aggregate_stage = (status.get("stages") or {}).get("aggregate")
+    if not isinstance(aggregate_stage, dict):
+        return status
+    try:
+        manifest = await read_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE)
+        if not isinstance(manifest, dict) or manifest.get("aggregateStatus") != "completed":
+            needs_resume = True
+        else:
+            agentic_status = await _read_agentic_memory_status(access_token)
+            topics = [item for item in agentic_status.get("topics", []) if isinstance(item, dict)]
+            has_incomplete_topics = bool(agentic_status.get("currentTopic")) or any(
+                item.get("status") != "completed" for item in topics
+            )
+            # A non-empty aggregate from the old topic-only workflow has no
+            # question plan. It may say completed while having explored only
+            # the first manifest page, so it must be offered for migration.
+            needs_question_migration = bool(int(aggregate_stage.get("total") or 0)) and not agentic_status.get("questions")
+            needs_resume = agentic_status.get("state") != "completed" or has_incomplete_topics or needs_question_migration
+    except Exception:
+        # A transient Drive failure should not turn a valid completed run into
+        # a false resume prompt. The normal status poll can retry the check.
+        return status
+    if needs_resume:
+        status.update({
+            "state": "paused",
+            "statusMessage": "The historical review is ready to resume.",
+            "error": None,
+        })
+        try:
+            await _write_status(access_token, status)
+        except Exception:
+            _logger.warning("historical insight gathering: unable to persist reconciled resume state", exc_info=True)
+    return status
+
+
 async def get_insight_gathering_status(
     access_token: str,
     *,
@@ -399,6 +438,7 @@ async def get_insight_gathering_status(
     token_resolver: TokenResolver | None = None,
 ) -> dict[str, Any]:
     status = await _read_status(access_token)
+    status = await _reconcile_completed_status(access_token, status)
     if status.get("datesIndexed") is None:
         dates_indexed = await _count_manifest_dates(access_token)
         if dates_indexed is not None:
@@ -431,6 +471,7 @@ async def get_insight_gathering_login_status(
     paused so the card can offer an explicit Resume button.
     """
     status = await _read_status(access_token)
+    status = await _reconcile_completed_status(access_token, status)
     dates_indexed = await _count_manifest_dates(access_token)
     if dates_indexed is not None:
         status["datesIndexed"] = dates_indexed
@@ -1457,6 +1498,7 @@ async def start_insight_gathering(
     lock = _start_locks.setdefault(owner, asyncio.Lock())
     async with lock:
         status = await _read_status(access_token)
+        status = await _reconcile_completed_status(access_token, status)
         if status.get("state") == "completed":
             return status
         active_id = _active_jobs.get(owner)
