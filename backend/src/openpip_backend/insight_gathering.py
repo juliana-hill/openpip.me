@@ -450,8 +450,9 @@ async def _reset_aggregate_for_history_resume(
     """Invalidate aggregate checkpoints when the chronological index is active.
 
     Aggregate memories are derived from the complete dated manifest. If the
-    history cursor is moving again, a completed aggregate checkpoint is stale
-    even when its old processed/total counts look complete. Durable insight
+    history cursor is moving again, any non-pending aggregate checkpoint is
+    stale, including an interrupted running checkpoint with old counts.
+    Durable insight
     files are intentionally left in place; only the resumable aggregate
     checkpoint is reset so the agent can reconcile them against the newer
     index.
@@ -459,11 +460,15 @@ async def _reset_aggregate_for_history_resume(
     history_stage = (status.get("stages") or {}).get("history") or {}
     aggregate_stage = (status.get("stages") or {}).get("aggregate") or {}
     history_active = history_stage.get("status") in {"queued", "running"}
-    aggregate_complete = (
-        aggregate_stage.get("status") == "completed"
-        or manifest.get("aggregateStatus") == "completed"
+    aggregate_status = str(aggregate_stage.get("status") or "pending")
+    manifest_aggregate_status = manifest.get("aggregateStatus")
+    aggregate_checkpoint_exists = (
+        aggregate_status != "pending"
+        or int(aggregate_stage.get("processed") or 0) > 0
+        or int(aggregate_stage.get("total") or 0) > 0
+        or manifest_aggregate_status not in {None, "pending"}
     )
-    if not history_active or not aggregate_complete:
+    if not history_active or not aggregate_checkpoint_exists:
         return False
 
     status["stages"]["aggregate"] = _stage()

@@ -145,6 +145,31 @@ def test_running_history_resets_completed_aggregate_checkpoint(monkeypatch) -> N
     assert result["progress"] < 100
 
 
+def test_running_history_resets_interrupted_aggregate_checkpoint(monkeypatch) -> None:
+    status = insight_gathering._default_status()
+    status["state"] = "running"
+    status["stages"]["history"] = {"status": "running", "processed": 477, "total": 0}
+    status["stages"]["aggregate"] = {"status": "running", "processed": 0, "total": 6121}
+    manifest = {"aggregateStatus": "in_progress", "currentDate": "2026-09-11"}
+
+    async def fake_memory_status(_token: str):
+        return {"state": "running", "questions": [], "currentTopic": None, "topics": []}
+
+    async def fake_write(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(insight_gathering, "_read_agentic_memory_status", fake_memory_status)
+    monkeypatch.setattr(insight_gathering, "_write_agentic_memory_status", fake_write)
+    monkeypatch.setattr(insight_gathering, "write_json_file", fake_write)
+    monkeypatch.setattr(insight_gathering, "_write_status", fake_write)
+
+    reset = asyncio.run(insight_gathering._reset_aggregate_for_history_resume("token", status, manifest))
+
+    assert reset is True
+    assert status["stages"]["aggregate"] == {"status": "pending", "processed": 0, "total": 0}
+    assert manifest["aggregateStatus"] == "pending"
+
+
 def test_status_requeues_a_persisted_run_after_worker_restart(monkeypatch) -> None:
     stale = {"state": "running", "runId": "run-1"}
     resumed = {**stale, "state": "queued", "statusMessage": "Resuming the historical review."}
