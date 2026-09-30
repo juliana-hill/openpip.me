@@ -29,7 +29,15 @@ except ImportError:  # pragma: no cover - keeps local tests importable
         return decorate(func) if func is not None else decorate
 
 
-def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] | None = None) -> Any:
+ActivityCallback = Callable[[str], Awaitable[None]]
+SearchMatchesCallback = Callable[[list[str]], Awaitable[None]]
+
+
+def build_lookup_insights_tool(
+    access_token: str,
+    lookup_state: dict[str, Any] | None = None,
+    on_activity: ActivityCallback | None = None,
+) -> Any:
     @tool(
         name="lookup_historical_insights",
         description=(
@@ -46,6 +54,8 @@ def build_lookup_insights_tool(access_token: str, lookup_state: dict[str, Any] |
             raise ValueError(
                 "lookup_historical_insights requires a focused query before saving a historical insight"
             )
+        if on_activity is not None:
+            await on_activity("Comparing existing memories before updating one.")
         insights = await insight_memory.lookup_insights(access_token, normalized_query) or []
         if not isinstance(insights, list):
             insights = []
@@ -69,6 +79,7 @@ def build_agentic_memory_status_tools(
     read_state: dict[str, Any] | None = None,
     catalog_state: dict[str, Any] | None = None,
     persist_question_plan: Callable[[list[dict[str, Any]]], Awaitable[None]] | None = None,
+    on_activity: ActivityCallback | None = None,
 ) -> list[Any]:
     """Track the aggregate agent's one-topic-at-a-time research loop."""
 
@@ -83,6 +94,8 @@ def build_agentic_memory_status_tools(
         ),
     )
     async def list_agentic_memory_topics() -> str:
+        if on_activity is not None:
+            await on_activity("Checking the saved memory-review checkpoint.")
         return json.dumps({
             "state": status.get("state", "pending"),
             "questions": status.get("questions", []),
@@ -104,6 +117,8 @@ def build_agentic_memory_status_tools(
         ),
     )
     async def plan_agentic_memory_questions(questions: list[dict[str, Any]]) -> str:
+        if on_activity is not None:
+            await on_activity("Writing the questions this historical review needs to answer.")
         if catalog_state is not None and not catalog_state.get("complete"):
             raise ValueError("list_historical_sources must be paged until nextPage is null before planning questions")
         available_dates = {
@@ -168,6 +183,8 @@ def build_agentic_memory_status_tools(
     )
     async def record_agentic_memory_question_scope(question: str, manifest_files: list[str]) -> str:
         normalized_question = " ".join(str(question or "").split())
+        if on_activity is not None:
+            await on_activity(f"Linking relevant manifest dates to: {normalized_question}")
         question_key = normalized_question.casefold()
         existing = next(
             (
@@ -215,6 +232,8 @@ def build_agentic_memory_status_tools(
         ),
     )
     async def plan_agentic_memory_topics(topics: list[str]) -> str:
+        if on_activity is not None:
+            await on_activity("Organizing the questions into memory topics.")
         if catalog_state is not None and not catalog_state.get("complete"):
             raise ValueError("list_historical_sources must be paged until nextPage is null before planning topics")
         questions = status.get("questions") or []
@@ -279,6 +298,8 @@ def build_agentic_memory_status_tools(
         normalized_topic = topic.strip()
         if not normalized_topic:
             raise ValueError("topic must not be empty")
+        if on_activity is not None:
+            await on_activity(f"Investigating: {normalized_topic}")
         now = datetime.now(UTC).isoformat()
         topics = status.setdefault("topics", [])
         existing = next(
@@ -323,6 +344,8 @@ def build_agentic_memory_status_tools(
     ) -> str:
         normalized_topic = topic.strip()
         key = topic_key(normalized_topic)
+        if on_activity is not None:
+            await on_activity(f"Finishing the evidence review for: {normalized_topic}")
         existing = next(
             (item for item in status.setdefault("topics", []) if isinstance(item, dict) and item.get("topicKey") == key),
             None,
@@ -369,6 +392,7 @@ def build_read_historical_source_tool(
     source_entries: dict[str, dict[str, Any]],
     read_state: dict[str, Any] | None = None,
     on_read: Callable[[str], Awaitable[None]] | None = None,
+    on_activity: ActivityCallback | None = None,
 ) -> Any:
     """Let the agent fetch exactly one source's full content on demand."""
     @tool(
@@ -388,6 +412,8 @@ def build_read_historical_source_tool(
         item = source_entries.get(source_id)
         if not isinstance(item, dict):
             raise ValueError(f"unknown source id: {source_id}")
+        if on_activity is not None:
+            await on_activity("Reading evidence selected for the current question.")
         kind = str(item.get("kind") or "")
         if kind == "email":
             message_id = source_id.removeprefix("email:").removeprefix("gmail_")
@@ -429,6 +455,7 @@ def build_list_historical_sources_tool(
     *,
     default_page_size: int = 50,
     pagination_state: dict[str, Any] | None = None,
+    on_activity: ActivityCallback | None = None,
 ) -> Any:
     """List the complete metadata-only manifest without reading source bodies."""
     @tool(
@@ -441,6 +468,8 @@ def build_list_historical_sources_tool(
         ),
     )
     async def list_historical_sources(page: int = 1, page_size: int = default_page_size) -> str:
+        if on_activity is not None:
+            await on_activity("Reviewing the indexed history catalog.")
         normalized_page = max(1, int(page))
         normalized_size = max(1, min(int(page_size), 100))
         items = list(source_index.values())
@@ -490,6 +519,8 @@ def build_search_historical_sources_tool(
     source_references: dict[str, dict[str, Any]],
     search_state: dict[str, Any] | None = None,
     source_index: dict[str, dict[str, Any]] | None = None,
+    on_activity: ActivityCallback | None = None,
+    on_matches: SearchMatchesCallback | None = None,
 ) -> Any:
     @tool(
         name="search_historical_sources",
@@ -504,6 +535,8 @@ def build_search_historical_sources_tool(
         terms = [term for term in query.strip().lower().split() if term]
         if not terms:
             return json.dumps({"sources": []})
+        if on_activity is not None:
+            await on_activity("Searching indexed evidence for the current question.")
         if search_state is not None:
             search_state["used"] = True
             search_state["available"] = int(search_state.get("available") or 0) + 1
@@ -550,7 +583,19 @@ def build_search_historical_sources_tool(
             compact_record = {key: value for key, value in record.items() if key not in {"body", "content", "values"}}
             matches.append({"record": compact_record, "reference": reference})
             if len(matches) >= max(1, min(limit, 50)):
+                if on_matches is not None:
+                    await on_matches([
+                        str(item.get("reference", {}).get("id"))
+                        for item in matches
+                        if item.get("reference", {}).get("id")
+                    ])
                 return json.dumps({"sources": matches})
+        if on_matches is not None:
+            await on_matches([
+                str(item.get("reference", {}).get("id"))
+                for item in matches
+                if item.get("reference", {}).get("id")
+            ])
         return json.dumps({"sources": matches})
 
     return search_historical_sources
@@ -563,6 +608,7 @@ def build_remember_insight_tool(
     search_state: dict[str, Any] | None = None,
     lookup_state: dict[str, Any] | None = None,
     read_state: dict[str, Any] | None = None,
+    on_activity: ActivityCallback | None = None,
 ) -> Any:
     @tool(
         name="remember_historical_insight",
@@ -618,6 +664,8 @@ def build_remember_insight_tool(
         source_ids: list[str],
         rationale: str = "",
     ) -> str:
+        if on_activity is not None:
+            await on_activity("Writing a durable memory from the selected evidence.")
         consumed_prerequisites = False
         try:
             if not source_ids:

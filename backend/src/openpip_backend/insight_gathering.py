@@ -60,8 +60,7 @@ _FETCH_WINDOW_DAYS = 90
 # This is the agent page size, deliberately much smaller than the manifest.
 # The agent sees one chronological page, never the complete history.
 _BATCH_SIZE = 10
-_WEIGHTS = {"history": 80, "aggregate": 20}
-_STAGES = tuple(_WEIGHTS)
+_STAGES = ("history", "aggregate")
 _COLLECTION_SOURCES = ("emails", "calendar", "contacts", "tasks", "documents")
 
 _jobs: dict[str, asyncio.Task[None]] = {}
@@ -126,41 +125,46 @@ def _add_event(status: dict[str, Any], title: str, detail: str | None = None) ->
 
 
 def _progress(status: dict[str, Any]) -> int:
-    def stage_fraction(name: str) -> float:
-        stage = (status.get("stages") or {}).get(name) or {}
-        if stage.get("status") == "completed":
-            return 1.0
-        total = int(stage.get("total") or 0)
-        processed = int(stage.get("processed") or 0)
-        return min(1.0, processed / total) if total else 0.0
+    stages = status.get("stages") or {}
+    history_stage = stages.get("history") or {}
+    aggregate_stage = stages.get("aggregate") or {}
 
-    history_fraction = stage_fraction("history")
-    oldest_values = [value for value in (status.get("oldestSourceDates") or {}).values() if value]
-    newest_values = [status.get("newestDate")] if status.get("newestDate") else []
-    if not newest_values:
-        newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
-    current_value = status.get("currentDate")
-    if current_value and oldest_values and newest_values and history_fraction < 1.0:
-        try:
-            oldest = min(date.fromisoformat(str(value)[:10]) for value in oldest_values)
-            newest = max(date.fromisoformat(str(value)[:10]) for value in newest_values)
-            current = date.fromisoformat(str(current_value)[:10])
-            total_days = max(1, (newest - oldest).days + 1)
-            completed_days = min(total_days, max(0, (current - oldest).days + 1))
-            history_fraction = completed_days / total_days
-        except (TypeError, ValueError):
-            # Fall back to record progress while a partially-written boundary
-            # checkpoint is being recovered.
-            pass
-    aggregate_fraction = stage_fraction("aggregate")
-    progress = round(
-        _WEIGHTS["history"] * min(1.0, history_fraction)
-        + _WEIGHTS["aggregate"] * aggregate_fraction
-    )
-    # A weighted percentage can round to 100 while a stage is still active.
+    if history_stage.get("status") == "completed":
+        # Aggregation is a fresh second phase. Its percentage starts at zero
+        # and is driven only by the number of indexed source records read.
+        if aggregate_stage.get("status") == "completed":
+            progress = 100
+        else:
+            total = int(aggregate_stage.get("total") or 0)
+            processed = int(aggregate_stage.get("processed") or 0)
+            progress = round(100 * min(1.0, processed / total)) if total else 0
+    else:
+        # History percentage is the cursor's position within the complete
+        # oldest-to-newest date span. The cursor points at the next date to
+        # process, so oldest is 0% and newest is 100%.
+        oldest_values = [value for value in (status.get("oldestSourceDates") or {}).values() if value]
+        newest_values = [status.get("newestDate")] if status.get("newestDate") else []
+        if not newest_values:
+            newest_values = [value for value in (status.get("newestSourceDates") or {}).values() if value]
+        current_value = status.get("currentDate")
+        progress = 0
+        if current_value and oldest_values and newest_values:
+            try:
+                oldest = min(date.fromisoformat(str(value)[:10]) for value in oldest_values)
+                newest = max(date.fromisoformat(str(value)[:10]) for value in newest_values)
+                current = date.fromisoformat(str(current_value)[:10])
+                span_days = (newest - oldest).days
+                if span_days > 0:
+                    completed_days = min(span_days, max(0, (current - oldest).days))
+                    progress = round(100 * completed_days / span_days)
+            except (TypeError, ValueError):
+                # A partially-written boundary checkpoint has no reliable
+                # date position yet, so leave the history percentage at zero.
+                progress = 0
+
     # Reserve 100 for the terminal pipeline state so the dashboard never says
-    # "100%" while the history cursor is still moving.
-    if status.get("state") != "completed" and any(
+    # "100%" while history or aggregation is still active.
+    if any(
         ((status.get("stages") or {}).get(name) or {}).get("status") != "completed"
         for name in _STAGES
     ):
@@ -228,7 +232,13 @@ async def _write_building_insights_checkpoint(
     now = datetime.now(UTC).isoformat()
     normalized_dates = sorted({str(value)[:10] for value in (indexed_dates or []) if value})
     planned_questions = []
-    for item in questions:
+    for raw_item in questions:
+        if isinstance(raw_item, str):
+            item = {"question": raw_item}
+        elif isinstance(raw_item, dict):
+            item = raw_item
+        else:
+            continue
         raw_files = item.get("manifestFiles") or item.get("manifest_files") or []
         if not raw_files:
             raw_files = [f"{str(value)[:10]}.json" for value in item.get("indexedDates", []) if value]
@@ -1348,6 +1358,9 @@ def _aggregate_prompt(total: int) -> str:
         _prompt("the complete indexed history", [])
         + "\n\n"
         + f"This is the sole agentic phase after deterministic indexing; the manifest contains {total} indexed materials. "
+        + "That catalog size is not the aggregate progress total: aggregate progress starts at zero while you form the question plan, "
+        + "then its total grows only from source records surfaced as candidate evidence for those questions, and processed grows only "
+        + "when you read the exact source records needed to answer them. "
         + "The daily crawl did not make any LLM calls and intentionally stored only dates, source metadata, and titles. "
         + "First call list_historical_sources repeatedly from page 1 until nextPage is null; do not plan anything until "
         + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
@@ -1438,6 +1451,25 @@ async def _run_aggregate(
     }
     agentic_memory_status = await _read_agentic_memory_status(access_token)
     saved = 0
+    read_state: dict[str, Any] = {}
+    candidate_source_ids: set[str] = set()
+    catalog_state: dict[str, Any] = {}
+    search_state: dict[str, Any] = {}
+    lookup_state: dict[str, Any] = {}
+
+    def checkpoint_source_ids() -> set[str]:
+        return {
+            str(source_id)
+            for item in agentic_memory_status.get("topics", [])
+            if isinstance(item, dict)
+            for source_id in (item.get("sourceIds") or [])
+            if source_id
+        }
+
+    def evidence_counts() -> tuple[int, int]:
+        processed_ids = checkpoint_source_ids() | set(read_state.get("sourceIds") or set())
+        selected_ids = candidate_source_ids | processed_ids
+        return len(processed_ids), len(selected_ids)
 
     def all_topics_completed() -> bool:
         topics = [item for item in agentic_memory_status.get("topics", []) if isinstance(item, dict)]
@@ -1446,7 +1478,8 @@ async def _run_aggregate(
         )
 
     async def finalize_aggregate() -> None:
-        stage.update({"status": "completed", "processed": len(source_index), "total": len(source_index)})
+        processed, total = evidence_counts()
+        stage.update({"status": "completed", "processed": processed, "total": total})
         manifest["aggregateStatus"] = "completed"
         status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
         question_plan = [
@@ -1486,6 +1519,29 @@ async def _run_aggregate(
     agentic_memory_status["state"] = "running"
     await _write_agentic_memory_status(access_token, agentic_memory_status)
 
+    stage.update({"status": "running", "processed": 0, "total": 0})
+    status.update({
+        "currentStage": "aggregate",
+        "currentDate": None,
+        "statusMessage": "Creating the questions for the historical review.",
+    })
+    manifest["aggregateStatus"] = "in_progress"
+    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+    await _write_building_insights_checkpoint(
+        access_token,
+        state="planning_questions",
+        questions=[
+            item for item in agentic_memory_status.get("questions", [])
+            if isinstance(item, (dict, str))
+        ],
+        indexed_dates=manifest.get("dates") or [],
+    )
+    await _write_status(access_token, status)
+
+    async def record_agent_activity(message: str) -> None:
+        status["statusMessage"] = message
+        await _write_status(access_token, status)
+
     async def persist_agentic_memory_status(current: dict[str, Any]) -> None:
         await _write_agentic_memory_status(access_token, current)
 
@@ -1496,24 +1552,27 @@ async def _run_aggregate(
             questions=questions,
             indexed_dates=sorted(catalog_state.get("dates") or set()),
         )
-
-    async def record_source_read(_source_id: str) -> None:
-        processed = len(read_state.get("sourceIds") or set())
-        stage["processed"] = min(len(source_index), processed)
         status["statusMessage"] = (
-            f"Reviewing indexed evidence: {stage['processed']} of {len(source_index)} source records read."
+            f"Question plan recorded: {len(questions)} questions; selecting the evidence that can answer them."
         )
         await _write_status(access_token, status)
 
-    stage.update({"status": "running", "processed": 0, "total": len(source_index)})
-    status.update({
-        "currentStage": "aggregate",
-        "currentDate": None,
-        "statusMessage": "Building coherent memories from the indexed history.",
-    })
-    manifest["aggregateStatus"] = "in_progress"
-    await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
-    await _write_status(access_token, status)
+    async def record_search_matches(source_ids: list[str]) -> None:
+        candidate_source_ids.update(str(source_id) for source_id in source_ids if source_id)
+        _processed, total = evidence_counts()
+        stage["total"] = total
+        status["statusMessage"] = (
+            f"Found {total} candidate evidence records for the current questions."
+        )
+        await _write_status(access_token, status)
+
+    async def record_source_read(_source_id: str) -> None:
+        processed, total = evidence_counts()
+        stage.update({"processed": processed, "total": total})
+        status["statusMessage"] = (
+            f"Reading answer evidence: {stage['processed']} of {stage['total']} records read."
+        )
+        await _write_status(access_token, status)
 
     if source_index:
         references = {source_id: _index_reference(item) for source_id, item in source_index.items()}
@@ -1522,29 +1581,43 @@ async def _run_aggregate(
             nonlocal saved
             saved += 1
 
-        search_state: dict[str, Any] = {}
-        lookup_state: dict[str, Any] = {}
-        read_state: dict[str, Any] = {}
-        catalog_state: dict[str, Any] = {}
         aggregate_agent = build_executive_assistant(
             context_block,
             agent_name=agent_name,
             extra_tools=[
-                build_list_historical_sources_tool(source_index, pagination_state=catalog_state),
+                build_list_historical_sources_tool(
+                    source_index,
+                    pagination_state=catalog_state,
+                    on_activity=record_agent_activity,
+                ),
                 *build_agentic_memory_status_tools(
                     agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
-                    persist_question_plan,
+                    persist_question_plan, record_agent_activity,
                 ),
-                build_lookup_insights_tool(access_token, lookup_state),
+                build_lookup_insights_tool(access_token, lookup_state, record_agent_activity),
                 build_read_historical_source_tool(
-                    access_token, source_index, read_state, on_read=record_source_read,
+                    access_token,
+                    source_index,
+                    read_state,
+                    on_read=record_source_read,
+                    on_activity=record_agent_activity,
                 ),
                 build_search_historical_sources_tool(
                     access_token, _MANIFEST_FOLDER, [],
-                    references, search_state, source_index,
+                    references,
+                    search_state,
+                    source_index,
+                    record_agent_activity,
+                    record_search_matches,
                 ),
                 build_remember_insight_tool(
-                    access_token, references, counted, search_state, lookup_state, read_state,
+                    access_token,
+                    references,
+                    counted,
+                    search_state,
+                    lookup_state,
+                    read_state,
+                    record_agent_activity,
                 ),
             ],
         )
