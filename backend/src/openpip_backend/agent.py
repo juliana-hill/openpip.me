@@ -214,7 +214,7 @@ def _system_prompt(agent_name: str) -> str:
     )
 
 
-def _executive_assistant_model():
+def _executive_assistant_model(*, tool_use_optimized: bool = False):
     """Use OpenPip's app-scoped Bedrock credentials when configured."""
     from strands.models import BedrockModel
 
@@ -225,14 +225,29 @@ def _executive_assistant_model():
     secret_key = os.environ.get("AWS_APP_SECRET_ACCESS_KEY") or os.environ.get(
         "AWS_SECRET_ACCESS_KEY"
     )
+    model_options: dict[str, Any] = {}
+    if tool_use_optimized:
+        model_options = {
+            "temperature": 0,
+            "max_tokens": 8192,
+            "additional_request_fields": {"inferenceConfig": {"topK": 1}},
+        }
     if access_key and secret_key:
         session = boto3.Session(
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,
             region_name=region,
         )
-        return BedrockModel(model_id=EXECUTIVE_ASSISTANT_MODEL_ID, boto_session=session)
-    return BedrockModel(model_id=EXECUTIVE_ASSISTANT_MODEL_ID, region_name=region)
+        return BedrockModel(
+            model_id=EXECUTIVE_ASSISTANT_MODEL_ID,
+            boto_session=session,
+            **model_options,
+        )
+    return BedrockModel(
+        model_id=EXECUTIVE_ASSISTANT_MODEL_ID,
+        region_name=region,
+        **model_options,
+    )
 
 
 def build_executive_assistant(
@@ -241,6 +256,7 @@ def build_executive_assistant(
     *,
     extra_tools: list[Any] | None = None,
     messages: list[dict[str, Any]] | None = None,
+    tool_use_optimized: bool = False,
 ):
     """Construct the Executive Assistant with on-demand tools.
 
@@ -274,7 +290,9 @@ def build_executive_assistant(
     system_prompt = f"{prompt}\n\n{context_block}" if context_block else prompt
     tools = [travel_agent, *(extra_tools or [])]
     return Agent(
-        system_prompt=system_prompt, tools=tools, model=_executive_assistant_model(),
+        system_prompt=system_prompt,
+        tools=tools,
+        model=_executive_assistant_model(tool_use_optimized=tool_use_optimized),
         messages=messages,
     )
 

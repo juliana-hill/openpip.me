@@ -257,7 +257,8 @@ function StudyMeCard({
   const running = status.state === "queued" || status.state === "running";
   const resumable = status.state === "paused" || status.state === "failed";
   const progress = Math.max(0, Math.min(100, status.progress ?? 0));
-  const progressLabel = running && !status.currentDate ? "Working\u2026" : `${progress}% complete`;
+  const historyComplete = status.stages?.history?.status === "completed";
+  const progressLabel = running && !historyComplete && !status.currentDate ? "Working\u2026" : `${progress}% complete`;
   const stage = status.currentStage ? status.currentStage.replace(/\b\w/g, (letter) => letter.toUpperCase()) : "your history";
   const statusMessage = status.statusMessage && (/^Gathering |^Reading Google Drive history|^Reading spreadsheet/.test(status.statusMessage) ? "Building your chronological history." : status.statusMessage);
   (0, import_react2.useEffect)(() => {

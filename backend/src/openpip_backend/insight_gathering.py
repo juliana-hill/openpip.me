@@ -1804,6 +1804,7 @@ async def _run_aggregate(
             page_agent = build_executive_assistant(
                 context_block,
                 agent_name=agent_name,
+                tool_use_optimized=True,
                 extra_tools=[
                     build_list_historical_sources_tool(
                         source_index,
@@ -1916,6 +1917,7 @@ async def _run_aggregate(
         aggregate_agent = build_executive_assistant(
             context_block,
             agent_name=agent_name,
+            tool_use_optimized=True,
             extra_tools=[
                 *build_agentic_memory_status_tools(
                     agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
