@@ -1703,49 +1703,73 @@ async def _run_aggregate(
         )
 
     async def run_catalog_page(page: int) -> None:
-        page_state: dict[str, Any] = {
-            "pageSize": _CATALOG_PAGE_SIZE,
-            "pages": set(),
-            "dates": set(),
-        }
-        status.update({
-            "currentStage": f"aggregate · catalog page {page} of {catalog_total_pages}",
-            "currentDate": None,
-            "statusMessage": f"Reading manifest page {page} of {catalog_total_pages}.",
-        })
-        await _write_status(access_token, status)
-        page_agent = build_executive_assistant(
-            context_block,
-            agent_name=agent_name,
-            extra_tools=[
-                build_list_historical_sources_tool(
-                    source_index,
-                    default_page_size=_CATALOG_PAGE_SIZE,
-                    pagination_state=page_state,
-                    on_activity=record_agent_activity,
-                    fixed_page=page,
+        last_error: Exception | None = None
+        for attempt in range(1, 4):
+            page_state: dict[str, Any] = {
+                "pageSize": _CATALOG_PAGE_SIZE,
+                "pages": set(),
+                "dates": set(),
+            }
+            status.update({
+                "currentStage": f"aggregate · catalog page {page} of {catalog_total_pages}",
+                "currentDate": None,
+                "statusMessage": (
+                    f"Retrying manifest page {page} of {catalog_total_pages} (attempt {attempt} of 3)."
+                    if attempt > 1
+                    else f"Reading manifest page {page} of {catalog_total_pages}."
                 ),
-                build_agentic_page_review_tool(
-                    agentic_memory_status,
-                    persist_agentic_memory_status,
-                    persist_page_review,
-                    record_agent_activity,
-                ),
-            ],
-        )
-        await _stream_agent_page(
-            page_agent,
-            _catalog_page_prompt(
-                page,
-                catalog_total_pages,
-                agentic_memory_status["questions"],
-                catalog_context,
-            ),
-            status,
-            access_token,
-        )
-        if page not in page_state.get("pages", set()) or int(agentic_memory_status.get("catalogPage") or 0) < page:
-            raise RuntimeError(f"catalog page {page} ended without a persisted page review")
+            })
+            await _write_status(access_token, status)
+            page_agent = build_executive_assistant(
+                context_block,
+                agent_name=agent_name,
+                extra_tools=[
+                    build_list_historical_sources_tool(
+                        source_index,
+                        default_page_size=_CATALOG_PAGE_SIZE,
+                        pagination_state=page_state,
+                        on_activity=record_agent_activity,
+                        fixed_page=page,
+                    ),
+                    build_agentic_page_review_tool(
+                        agentic_memory_status,
+                        persist_agentic_memory_status,
+                        persist_page_review,
+                        record_agent_activity,
+                    ),
+                ],
+            )
+            try:
+                await _stream_agent_page(
+                    page_agent,
+                    _catalog_page_prompt(
+                        page,
+                        catalog_total_pages,
+                        agentic_memory_status["questions"],
+                        catalog_context,
+                    ),
+                    status,
+                    access_token,
+                )
+            except Exception as error:  # noqa: BLE001 - retry the page with a fresh tool stream
+                last_error = error
+                _logger.warning(
+                    "historical insight gathering: catalog page %s attempt %s failed; retrying",
+                    page,
+                    attempt,
+                    exc_info=True,
+                )
+                if attempt < 3:
+                    continue
+                raise
+            if page in page_state.get("pages", set()) and int(agentic_memory_status.get("catalogPage") or 0) >= page:
+                return
+            last_error = RuntimeError(f"catalog page {page} ended without a persisted page review")
+            _logger.warning(
+                "historical insight gathering: %s; retrying",
+                last_error,
+            )
+        raise last_error or RuntimeError(f"catalog page {page} ended without a persisted page review")
 
     next_catalog_page = int(agentic_memory_status.get("catalogPage") or 0) + 1
     if agentic_memory_status.get("catalogStatus") != "completed":
