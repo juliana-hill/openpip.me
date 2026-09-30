@@ -45,7 +45,8 @@ def build_agentic_page_review_tool(
         description=(
             "After reading exactly one page from list_historical_sources, replace the working context and question queue "
             "with your concise updated understanding. `context` is agent-owned JSON and may contain any structure that helps "
-            "the investigation. `questions` is the current prompt-shaped research queue: update answers, evidence, status, "
+            "the investigation. `questions` is the current prompt-shaped research queue: update answers, status, and put the "
+            "relevant dated manifest filenames (for example, 2021-12-23.json) in each question's evidence list. "
             "and follow-up questions as needed. Do not copy raw page records or source bodies. This checkpoint is persisted "
             "to OpenPip/memory/insights_gathering/agentic_memory/notes.json and building_insights.json before the next page."
         ),

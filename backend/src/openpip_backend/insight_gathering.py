@@ -303,44 +303,42 @@ async def _write_building_insights_checkpoint(
     questions: list[dict[str, Any]],
     indexed_dates: list[str],
 ) -> None:
-    now = datetime.now(UTC).isoformat()
-    normalized_dates = sorted({str(value)[:10] for value in (indexed_dates or []) if value})
     planned_questions = []
     for raw_item in questions:
         if isinstance(raw_item, str):
-            item = {"prompt": raw_item, "status": "unanswered", "answer": None, "evidence": []}
+            source = {"prompt": raw_item}
         elif isinstance(raw_item, dict):
-            item = dict(raw_item)
+            source = raw_item
         else:
             continue
-        if not item.get("prompt") and item.get("question"):
-            item["prompt"] = item.get("question")
-        raw_files = item.get("manifestFiles") or item.get("manifest_files") or []
-        if not raw_files:
-            raw_files = [f"{str(value)[:10]}.json" for value in item.get("indexedDates", []) if value]
-        if raw_files:
-            manifest_files = sorted({
-                value if str(value).endswith(".json") else f"{str(value)[:10]}.json"
-                for value in raw_files
-                if value
-            })
-            item["manifestFiles"] = manifest_files
-            item.setdefault("indexedDates", sorted({str(value)[:-5] for value in manifest_files}))
+        prompt = source.get("prompt") or source.get("question")
+        if not prompt:
+            continue
+        raw_evidence = source.get("evidence")
+        if not isinstance(raw_evidence, list):
+            raw_evidence = source.get("manifestFiles") or source.get("indexedDates") or []
+        evidence = set()
+        for raw_value in raw_evidence:
+            if isinstance(raw_value, dict):
+                raw_value = raw_value.get("manifestFile") or raw_value.get("date")
+            value = str(raw_value or "").strip()
+            if value.endswith(".json"):
+                value = value[:-len(".json")]
+            try:
+                evidence.add(f"{date.fromisoformat(value[:10]).isoformat()}.json")
+            except ValueError:
+                continue
+        item = {
+            "prompt": prompt,
+            "status": source.get("status") or "unanswered",
+            "answer": source.get("answer"),
+            "evidence": sorted(evidence),
+        }
+        if source.get("id") is not None:
+            item = {"id": source["id"], **item}
         planned_questions.append(item)
-    unanswered = [
-        item for item in planned_questions
-        if str(item.get("status") or "unanswered").casefold() not in {"answered", "complete", "completed"}
-        or not item.get("answer")
-    ]
     await write_json_file(access_token, _FOLDER, _BUILDING_INSIGHTS_FILE, {
-        "version": 1,
-        "state": state,
-        "manifestFolder": _MANIFEST_FOLDER,
-        "indexedDates": normalized_dates,
-        "questions": planned_questions,
-        "unansweredQuestions": unanswered,
-        "createdAt": now,
-        "updatedAt": now,
+        "context": planned_questions,
     })
 
 
@@ -1529,7 +1527,8 @@ def _catalog_page_prompt(
         "The returned records are metadata only; do not fetch full source bodies during this catalog pass. "
         "Before the turn ends, call record_agentic_page_review exactly once. Replace the working context with a concise updated "
         "understanding of what this page adds, preserving useful prior context and removing stale or redundant material. "
-        "Update the prompt-shaped research queue: answer tasks when this page supports an answer, attach relevant manifest files or dates, "
+        "Update the prompt-shaped research queue: answer tasks when this page supports an answer, and put every relevant dated manifest filename "
+        "(for example, 2021-12-23.json) in that question's evidence list. "
         "mark tasks as unresolved when evidence is insufficient, and add follow-up prompts only when this page creates a real evidence gap "
         "or contradiction. Do not invent generic questions. The next page will receive only the context and queue you persist.\n\n"
         + "Current research queue:\n"
