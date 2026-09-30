@@ -57,9 +57,20 @@ def build_agentic_page_review_tool(
     ) -> str:
         if int(page) < 1:
             raise ValueError("page must be at least 1")
-        if not isinstance(context, (dict, list)):
-            raise ValueError("context must be a JSON object or array")
+        # Bedrock/Strands may provide an agent-owned JSON value as an encoded
+        # string even though the tool schema describes it as flexible JSON.
+        # Decode that representation when possible; plain text remains valid
+        # working context and must not make the page checkpoint fail.
+        if isinstance(context, str):
+            try:
+                context = json.loads(context)
+            except json.JSONDecodeError:
+                pass
         normalized_questions = [item for item in (questions or []) if isinstance(item, dict)]
+        if not normalized_questions:
+            normalized_questions = [
+                item for item in (status.get("questions") or []) if isinstance(item, dict)
+            ]
         if not normalized_questions:
             raise ValueError("questions must contain the current research queue")
         status["catalogPage"] = int(page)
