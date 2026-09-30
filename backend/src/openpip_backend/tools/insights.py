@@ -33,6 +33,57 @@ ActivityCallback = Callable[[str], Awaitable[None]]
 SearchMatchesCallback = Callable[[list[str]], Awaitable[None]]
 
 
+def build_agentic_page_review_tool(
+    status: dict[str, Any],
+    persist: Callable[[dict[str, Any]], Awaitable[None]],
+    persist_review: Callable[[int, Any, list[dict[str, Any]]], Awaitable[None]],
+    on_activity: ActivityCallback | None = None,
+) -> Any:
+    """Persist the agent-owned context and question queue after one page."""
+    @tool(
+        name="record_agentic_page_review",
+        description=(
+            "After reading exactly one page from list_historical_sources, replace the working context and question queue "
+            "with your concise updated understanding. `context` is agent-owned JSON and may contain any structure that helps "
+            "the investigation. `questions` is the current prompt-shaped research queue: update answers, evidence, status, "
+            "and follow-up questions as needed. Do not copy raw page records or source bodies. This checkpoint is persisted "
+            "to OpenPip/memory/insights_gathering/agentic_memory/notes.json and building_insights.json before the next page."
+        ),
+    )
+    async def record_agentic_page_review(
+        page: int,
+        context: Any,
+        questions: list[dict[str, Any]],
+    ) -> str:
+        if int(page) < 1:
+            raise ValueError("page must be at least 1")
+        if not isinstance(context, (dict, list)):
+            raise ValueError("context must be a JSON object or array")
+        normalized_questions = [item for item in (questions or []) if isinstance(item, dict)]
+        if not normalized_questions:
+            raise ValueError("questions must contain the current research queue")
+        status["catalogPage"] = int(page)
+        status["catalogStatus"] = (
+            "completed"
+            if int(status.get("catalogTotalPages") or 0) > 0
+            and int(page) >= int(status.get("catalogTotalPages") or 0)
+            else "in_progress"
+        )
+        status["questions"] = normalized_questions
+        await persist_review(int(page), context, normalized_questions)
+        await persist(status)
+        if on_activity is not None:
+            await on_activity(f"Updated the research context after manifest page {int(page)}.")
+        return json.dumps({
+            "status": "saved",
+            "page": int(page),
+            "catalogStatus": status["catalogStatus"],
+            "questionCount": len(normalized_questions),
+        })
+
+    return record_agentic_page_review
+
+
 def build_lookup_insights_tool(
     access_token: str,
     lookup_state: dict[str, Any] | None = None,
@@ -80,6 +131,7 @@ def build_agentic_memory_status_tools(
     catalog_state: dict[str, Any] | None = None,
     persist_question_plan: Callable[[list[dict[str, Any]]], Awaitable[None]] | None = None,
     on_activity: ActivityCallback | None = None,
+    include_question_tools: bool = True,
 ) -> list[Any]:
     """Track the aggregate agent's one-topic-at-a-time research loop."""
 
@@ -237,12 +289,9 @@ def build_agentic_memory_status_tools(
         if catalog_state is not None and not catalog_state.get("complete"):
             raise ValueError("list_historical_sources must be paged until nextPage is null before planning topics")
         questions = status.get("questions") or []
-        if not questions or any(
-            not isinstance(item, dict) or not item.get("manifestFiles")
-            for item in questions
-        ):
+        if not questions:
             raise ValueError(
-                "record_agentic_memory_question_scope must assign manifest files to every planned question before topics"
+                "the baseline research question queue must be persisted before planning topics"
             )
         planned: list[str] = []
         seen: set[str] = set()
@@ -377,14 +426,10 @@ def build_agentic_memory_status_tools(
         await persist(status)
         return json.dumps({"status": "completed", "topic": existing})
 
-    return [
-        list_agentic_memory_topics,
-        plan_agentic_memory_questions,
-        record_agentic_memory_question_scope,
-        plan_agentic_memory_topics,
-        record_agentic_memory_topic,
-        complete_agentic_memory_topic,
-    ]
+    tools = [list_agentic_memory_topics, plan_agentic_memory_topics, record_agentic_memory_topic, complete_agentic_memory_topic]
+    if include_question_tools:
+        tools[1:1] = [plan_agentic_memory_questions, record_agentic_memory_question_scope]
+    return tools
 
 
 def build_read_historical_source_tool(
@@ -456,6 +501,7 @@ def build_list_historical_sources_tool(
     default_page_size: int = 50,
     pagination_state: dict[str, Any] | None = None,
     on_activity: ActivityCallback | None = None,
+    fixed_page: int | None = None,
 ) -> Any:
     """List the complete metadata-only manifest without reading source bodies."""
     @tool(
@@ -470,8 +516,12 @@ def build_list_historical_sources_tool(
     async def list_historical_sources(page: int = 1, page_size: int = default_page_size) -> str:
         if on_activity is not None:
             await on_activity("Reviewing the indexed history catalog.")
-        normalized_page = max(1, int(page))
-        normalized_size = max(1, min(int(page_size), 100))
+        normalized_page = max(1, int(fixed_page if fixed_page is not None else page))
+        normalized_size = (
+            max(1, min(int(default_page_size), 100))
+            if fixed_page is not None
+            else max(1, min(int(page_size), 100))
+        )
         items = list(source_index.values())
         start = (normalized_page - 1) * normalized_size
         page_items = items[start:start + normalized_size]

@@ -36,6 +36,7 @@ from .google_workspace import (
 )
 from .tools import (
     build_agentic_memory_status_tools,
+    build_agentic_page_review_tool,
     build_list_historical_sources_tool,
     build_lookup_insights_tool,
     build_read_historical_source_tool,
@@ -50,6 +51,7 @@ _STATUS_FILE = "status.json"
 _MANIFEST_FILE = "metadata.json"
 _BUILDING_INSIGHTS_FILE = "building_insights.json"
 _AGENTIC_MEMORY_STATUS_FILE = "status.json"
+_AGENTIC_MEMORY_NOTES_FILE = "notes.json"
 # Five years is enough to recover durable relationships, providers, routines,
 # and commitments without turning onboarding into an archival export.
 _LOOKBACK_DAYS = 365 * 5
@@ -60,6 +62,7 @@ _FETCH_WINDOW_DAYS = 90
 # This is the agent page size, deliberately much smaller than the manifest.
 # The agent sees one chronological page, never the complete history.
 _BATCH_SIZE = 10
+_CATALOG_PAGE_SIZE = 100
 _STAGES = ("history", "aggregate")
 _COLLECTION_SOURCES = ("emails", "calendar", "contacts", "tasks", "documents")
 
@@ -72,6 +75,74 @@ TokenResolver = Callable[[], Awaitable[str | None]]
 
 
 _PUBLIC_COLLECTION_MESSAGE = "Building your chronological history."
+
+# These are deliberate research prompts, not an invitation for the model to
+# invent an arbitrary question list after seeing the first manifest page. The
+# page agent may refine them, answer them, or add evidence-driven follow-ups.
+_BASELINE_RESEARCH_QUESTIONS = (
+    {
+        "id": "identity_background",
+        "prompt": (
+            "Establish the user's durable identity and background. Identify stable facts supported by the history, "
+            "their time bounds, and any contradictions that require clarification."
+        ),
+    },
+    {
+        "id": "professional_history",
+        "prompt": (
+            "Establish the user's professional history. Identify employers, roles, projects, start and end dates, "
+            "and evidence that distinguishes employment from ownership or collaboration."
+        ),
+    },
+    {
+        "id": "education_learning",
+        "prompt": (
+            "Identify durable education, training, and learning themes. Connect institutions, programs, subjects, "
+            "and meaningful progress only when the indexed evidence supports them."
+        ),
+    },
+    {
+        "id": "projects_goals",
+        "prompt": (
+            "Identify the user's durable projects, initiatives, and goals. Reconstruct what they are trying to do, "
+            "why it matters, what changed over time, and the latest supported state."
+        ),
+    },
+    {
+        "id": "relationships",
+        "prompt": (
+            "Identify important relationships and recurring collaborators. Resolve each person's role and connection "
+            "to the user from explicit evidence rather than assuming ownership, management, or friendship."
+        ),
+    },
+    {
+        "id": "routines_preferences",
+        "prompt": (
+            "Identify durable routines and preferences that recur across dates or sources. Do not promote one-off "
+            "events, purchases, or calendar entries into a preference without repeated supporting evidence."
+        ),
+    },
+    {
+        "id": "commitments_finances",
+        "prompt": (
+            "Identify durable commitments, recurring financial or shopping patterns, and important obligations. "
+            "Use dates and repeated evidence, and avoid treating an isolated transaction as a lasting pattern."
+        ),
+    },
+)
+
+
+def _baseline_research_questions() -> list[dict[str, Any]]:
+    return [
+        {
+            **item,
+            "status": "unanswered",
+            "answer": None,
+            "evidence": [],
+            "manifestFiles": [],
+        }
+        for item in _BASELINE_RESEARCH_QUESTIONS
+    ]
 
 
 def _public_status_message(message: Any) -> str | None:
@@ -197,6 +268,9 @@ def _default_agentic_memory_status() -> dict[str, Any]:
     return {
         "version": 1,
         "state": "pending",
+        "catalogStatus": "pending",
+        "catalogPage": 0,
+        "catalogTotalPages": 0,
         "questions": [],
         "currentTopic": None,
         "topics": [],
@@ -234,34 +308,64 @@ async def _write_building_insights_checkpoint(
     planned_questions = []
     for raw_item in questions:
         if isinstance(raw_item, str):
-            item = {"question": raw_item}
+            item = {"prompt": raw_item, "status": "unanswered", "answer": None, "evidence": []}
         elif isinstance(raw_item, dict):
-            item = raw_item
+            item = dict(raw_item)
         else:
             continue
+        if not item.get("prompt") and item.get("question"):
+            item["prompt"] = item.get("question")
         raw_files = item.get("manifestFiles") or item.get("manifest_files") or []
         if not raw_files:
             raw_files = [f"{str(value)[:10]}.json" for value in item.get("indexedDates", []) if value]
-        manifest_files = sorted({
-            value if str(value).endswith(".json") else f"{str(value)[:10]}.json"
-            for value in raw_files
-            if value
-        })
-        associated_dates = sorted({str(value)[:-5] for value in manifest_files})
-        planned_questions.append({
-            "question": item.get("question"),
-            "manifestFiles": manifest_files,
-            "indexedDates": associated_dates,
-        })
+        if raw_files:
+            manifest_files = sorted({
+                value if str(value).endswith(".json") else f"{str(value)[:10]}.json"
+                for value in raw_files
+                if value
+            })
+            item["manifestFiles"] = manifest_files
+            item.setdefault("indexedDates", sorted({str(value)[:-5] for value in manifest_files}))
+        planned_questions.append(item)
+    unanswered = [
+        item for item in planned_questions
+        if str(item.get("status") or "unanswered").casefold() not in {"answered", "complete", "completed"}
+        or not item.get("answer")
+    ]
     await write_json_file(access_token, _FOLDER, _BUILDING_INSIGHTS_FILE, {
         "version": 1,
         "state": state,
         "manifestFolder": _MANIFEST_FOLDER,
         "indexedDates": normalized_dates,
         "questions": planned_questions,
+        "unansweredQuestions": unanswered,
         "createdAt": now,
         "updatedAt": now,
     })
+
+
+async def _read_agentic_catalog_notes(access_token: str) -> Any:
+    try:
+        stored = await read_json_file(access_token, _AGENTIC_MEMORY_FOLDER, _AGENTIC_MEMORY_NOTES_FILE)
+    except Exception:
+        return []
+    return stored.get("context") if isinstance(stored, dict) else {}
+
+
+async def _write_agentic_catalog_notes(
+    access_token: str,
+    context: Any,
+) -> None:
+    await write_json_file(
+        access_token,
+        _AGENTIC_MEMORY_FOLDER,
+        _AGENTIC_MEMORY_NOTES_FILE,
+        {
+            "version": 1,
+            "context": context,
+            "updatedAt": datetime.now(UTC).isoformat(),
+        },
+    )
 
 
 async def _read_status(access_token: str) -> dict[str, Any]:
@@ -1362,24 +1466,14 @@ def _aggregate_prompt(total: int) -> str:
         + "then its total grows only from source records surfaced as candidate evidence for those questions, and processed grows only "
         + "when you read the exact source records needed to answer them. "
         + "The daily crawl did not make any LLM calls and intentionally stored only dates, source metadata, and titles. "
-        + "First call list_historical_sources repeatedly from page 1 until nextPage is null; do not plan anything until "
-        + "the tool confirms the final page. Treat the complete catalog—not just page 1—as the scope of this pass, but "
-        + "do not read every source just because it is listed. After the final page, create a concise ordered list of "
-        + "user-centered questions the evidence should answer, using plan_agentic_memory_questions. Pass each question "
-        + "as an object with a `question` string and an initially empty `manifest_files` array. Then, for each question, "
-        + "search the catalog using focused terms and read the matching source metadata; decide which exact dated files "
-        + "such as `2022-02-11.json` are relevant, and call record_agentic_memory_question_scope with those filenames. "
-        + "Do not substitute source ids or let code assign the files. Questions should cover "
-        + "durable identity/background, work and education, projects and goals, important relationships, routines and "
-        + "preferences, commitments, purchases/finances, and other recurring patterns only when the catalog contains "
-        + "evidence for them. Use each question to choose one candidate topic, then call search_historical_sources across "
-        + "the manifest with several focused name, title, entity, and date queries; do not use a multi-word query that "
-        + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer "
-        + "that question. This is intentionally the only full-content phase; titles alone are not enough for ownership, employment, "
-        + "roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
-        + "The question plan is persisted in OpenPip/memory/insights_gathering/building_insights.json; update it through "
-        + "record_agentic_memory_question_scope as the investigation discovers relevant dated files. Use it as the explicit research "
-        + "queue rather than inventing an untracked checklist. Only after every question has an agent-selected file scope, call "
+        + "A separate bounded page-review pass has already read the catalog one page at a time. Do not page through the catalog again. "
+        + "The baseline research prompts and their evolving answers are persisted in OpenPip/memory/insights_gathering/building_insights.json; "
+        + "the agent-owned working context is in OpenPip/memory/insights_gathering/agentic_memory/notes.json. Treat that queue as the research agenda, "
+        + "not as permission to invent a random replacement list. Use focused searches and exact source reads to verify answered or partially "
+        + "answered prompts, resolve contradictions, and add only evidence-driven follow-up prompts. Do not use a multi-word query that "
+        + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer each prompt. "
+        + "Titles alone are not enough for ownership, employment, roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
+        + "Use the baseline question queue as the explicit research queue. Only after the answerable prompts have been investigated, call "
         + "plan_agentic_memory_topics with the ordered list of durable topics "
         + "that will answer those questions across the indexed dates. Do not begin topic-specific source reads until both "
         + "plans have been recorded. Then iterate through the "
@@ -1418,6 +1512,31 @@ def _aggregate_prompt(total: int) -> str:
     )
 
 
+def _catalog_page_prompt(
+    page: int,
+    total_pages: int,
+    questions: list[dict[str, Any]],
+    context: Any,
+) -> str:
+    context_text = json.dumps(context, ensure_ascii=False, default=str)
+    if len(context_text) > 30000:
+        raise RuntimeError("agentic catalog context is too large; compact it before reading another page")
+    return (
+        "You are reviewing exactly one page of a user's indexed historical manifest. "
+        f"This is page {page} of {total_pages}. Call list_historical_sources with page={page} and page_size={_CATALOG_PAGE_SIZE} exactly once. "
+        "The returned records are metadata only; do not fetch full source bodies during this catalog pass. "
+        "Before the turn ends, call record_agentic_page_review exactly once. Replace the working context with a concise updated "
+        "understanding of what this page adds, preserving useful prior context and removing stale or redundant material. "
+        "Update the prompt-shaped research queue: answer tasks when this page supports an answer, attach relevant manifest files or dates, "
+        "mark tasks as unresolved when evidence is insufficient, and add follow-up prompts only when this page creates a real evidence gap "
+        "or contradiction. Do not invent generic questions. The next page will receive only the context and queue you persist.\n\n"
+        + "Current research queue:\n"
+        + json.dumps(questions, ensure_ascii=False, default=str)
+        + "\n\nCurrent working context:\n"
+        + context_text
+    )
+
+
 def _index_reference(item: dict[str, Any]) -> dict[str, Any]:
     return {
         key: item.get(key)
@@ -1436,13 +1555,6 @@ async def _run_aggregate(
     """Run the only agentic phase over the complete metadata-only manifest."""
     stage = status["stages"]["aggregate"]
     history_stage = status["stages"]["history"]
-    if (
-        history_stage.get("status") == "completed"
-        and stage.get("status") == "completed"
-        and manifest.get("aggregateStatus") == "completed"
-    ):
-        return
-
     entries = await _read_manifest_entries(access_token)
     source_index = {
         str(item["sourceId"]): item
@@ -1450,12 +1562,29 @@ async def _run_aggregate(
         if item.get("sourceId")
     }
     agentic_memory_status = await _read_agentic_memory_status(access_token)
+    if (
+        history_stage.get("status") == "completed"
+        and stage.get("status") == "completed"
+        and manifest.get("aggregateStatus") == "completed"
+        and agentic_memory_status.get("state") == "completed"
+        and agentic_memory_status.get("catalogStatus") == "completed"
+    ):
+        return
     saved = 0
+    catalog_context = await _read_agentic_catalog_notes(access_token)
+    if catalog_context is None:
+        catalog_context = {}
     read_state: dict[str, Any] = {}
     candidate_source_ids: set[str] = set()
     catalog_state: dict[str, Any] = {}
     search_state: dict[str, Any] = {}
     lookup_state: dict[str, Any] = {}
+    catalog_total_pages = max(1, (len(source_index) + _CATALOG_PAGE_SIZE - 1) // _CATALOG_PAGE_SIZE)
+    catalog_dates = {
+        str(item.get("date"))[:10]
+        for item in source_index.values()
+        if item.get("date")
+    }
 
     def checkpoint_source_ids() -> set[str]:
         return {
@@ -1484,7 +1613,7 @@ async def _run_aggregate(
         status["insightsWritten"] = int(status.get("insightsWritten") or 0) + saved
         question_plan = [
             item for item in agentic_memory_status.get("questions", [])
-            if isinstance(item, dict) and item.get("question")
+            if isinstance(item, dict) and (item.get("prompt") or item.get("question"))
         ]
         if question_plan:
             await _write_building_insights_checkpoint(
@@ -1509,14 +1638,23 @@ async def _run_aggregate(
         agentic_memory_status["topics"] = []
         await _write_agentic_memory_status(access_token, agentic_memory_status)
 
+    if not any(
+        isinstance(item, dict) and (item.get("prompt") or item.get("question"))
+        for item in agentic_memory_status.get("questions", [])
+    ):
+        agentic_memory_status["questions"] = _baseline_research_questions()
+    agentic_memory_status["catalogTotalPages"] = catalog_total_pages
+
     # A worker can disappear immediately after the final topic checkpoint is
     # written but before the aggregate manifest/status finalization below. Do
     # not send the model back through the entire topic loop in that case.
-    if all_topics_completed():
+    if all_topics_completed() and agentic_memory_status.get("catalogStatus") == "completed":
         await finalize_aggregate()
         return
 
     agentic_memory_status["state"] = "running"
+    if agentic_memory_status.get("catalogStatus") != "completed":
+        agentic_memory_status["catalogStatus"] = "in_progress"
     await _write_agentic_memory_status(access_token, agentic_memory_status)
 
     stage.update({"status": "running", "processed": 0, "total": 0})
@@ -1529,13 +1667,14 @@ async def _run_aggregate(
     await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
     await _write_building_insights_checkpoint(
         access_token,
-        state="planning_questions",
+        state="cataloging",
         questions=[
             item for item in agentic_memory_status.get("questions", [])
             if isinstance(item, (dict, str))
         ],
         indexed_dates=manifest.get("dates") or [],
     )
+    await _write_agentic_catalog_notes(access_token, catalog_context)
     await _write_status(access_token, status)
 
     async def record_agent_activity(message: str) -> None:
@@ -1544,6 +1683,92 @@ async def _run_aggregate(
 
     async def persist_agentic_memory_status(current: dict[str, Any]) -> None:
         await _write_agentic_memory_status(access_token, current)
+
+    async def persist_page_review(
+        page: int,
+        context: Any,
+        questions: list[dict[str, Any]],
+    ) -> None:
+        nonlocal catalog_context
+        catalog_context = context
+        agentic_memory_status["questions"] = questions
+        await _write_agentic_catalog_notes(access_token, catalog_context)
+        await _write_building_insights_checkpoint(
+            access_token,
+            state="cataloging" if page < catalog_total_pages else "question_review",
+            questions=questions,
+            indexed_dates=sorted(catalog_dates),
+        )
+
+    async def run_catalog_page(page: int) -> None:
+        page_state: dict[str, Any] = {
+            "pageSize": _CATALOG_PAGE_SIZE,
+            "pages": set(),
+            "dates": set(),
+        }
+        status.update({
+            "currentStage": f"aggregate · catalog page {page} of {catalog_total_pages}",
+            "currentDate": None,
+            "statusMessage": f"Reading manifest page {page} of {catalog_total_pages}.",
+        })
+        await _write_status(access_token, status)
+        page_agent = build_executive_assistant(
+            context_block,
+            agent_name=agent_name,
+            extra_tools=[
+                build_list_historical_sources_tool(
+                    source_index,
+                    default_page_size=_CATALOG_PAGE_SIZE,
+                    pagination_state=page_state,
+                    on_activity=record_agent_activity,
+                    fixed_page=page,
+                ),
+                build_agentic_page_review_tool(
+                    agentic_memory_status,
+                    persist_agentic_memory_status,
+                    persist_page_review,
+                    record_agent_activity,
+                ),
+            ],
+        )
+        await _stream_agent_page(
+            page_agent,
+            _catalog_page_prompt(
+                page,
+                catalog_total_pages,
+                agentic_memory_status["questions"],
+                catalog_context,
+            ),
+            status,
+            access_token,
+        )
+        if page not in page_state.get("pages", set()) or int(agentic_memory_status.get("catalogPage") or 0) < page:
+            raise RuntimeError(f"catalog page {page} ended without a persisted page review")
+
+    next_catalog_page = int(agentic_memory_status.get("catalogPage") or 0) + 1
+    if agentic_memory_status.get("catalogStatus") != "completed":
+        for page in range(next_catalog_page, catalog_total_pages + 1):
+            await run_catalog_page(page)
+        agentic_memory_status["catalogPage"] = catalog_total_pages
+        agentic_memory_status["catalogStatus"] = "completed"
+        await _write_agentic_memory_status(access_token, agentic_memory_status)
+    catalog_state.update({
+        "complete": True,
+        "pageSize": _CATALOG_PAGE_SIZE,
+        "pages": set(range(1, catalog_total_pages + 1)),
+        "dates": set(catalog_dates),
+    })
+    status.update({
+        "currentStage": "aggregate · question review",
+        "statusMessage": "Reviewing the baseline research questions against the saved page context.",
+    })
+    await _write_building_insights_checkpoint(
+        access_token,
+        state="question_review",
+        questions=agentic_memory_status["questions"],
+        indexed_dates=sorted(catalog_dates),
+    )
+    await _write_status(access_token, status)
 
     async def persist_question_plan(questions: list[dict[str, Any]]) -> None:
         await _write_building_insights_checkpoint(
@@ -1585,14 +1810,9 @@ async def _run_aggregate(
             context_block,
             agent_name=agent_name,
             extra_tools=[
-                build_list_historical_sources_tool(
-                    source_index,
-                    pagination_state=catalog_state,
-                    on_activity=record_agent_activity,
-                ),
                 *build_agentic_memory_status_tools(
                     agentic_memory_status, persist_agentic_memory_status, read_state, catalog_state,
-                    persist_question_plan, record_agent_activity,
+                    persist_question_plan, record_agent_activity, include_question_tools=False,
                 ),
                 build_lookup_insights_tool(access_token, lookup_state, record_agent_activity),
                 build_read_historical_source_tool(
@@ -1658,6 +1878,7 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
         tool_name = tool_use.get("name") if isinstance(tool_use, dict) else None
         message = {
             "list_historical_sources": "Reviewing the indexed history catalog.",
+            "record_agentic_page_review": "Saving the updated research context and question queue.",
             "list_agentic_memory_topics": "Checking the saved memory-review checkpoint.",
             "plan_agentic_memory_questions": "Identifying the questions the indexed history should answer.",
             "record_agentic_memory_question_scope": "Assigning the relevant dated manifest files to this question.",
