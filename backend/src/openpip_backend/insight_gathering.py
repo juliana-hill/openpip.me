@@ -137,7 +137,7 @@ def _baseline_research_questions() -> list[dict[str, Any]]:
         {
             **item,
             "status": "unanswered",
-            "answer": None,
+            "answer": [],
             "evidence": [],
             "manifestFiles": [],
         }
@@ -314,9 +314,13 @@ async def _write_building_insights_checkpoint(
         prompt = source.get("prompt") or source.get("question")
         if not prompt:
             continue
-        raw_evidence = source.get("evidence")
-        if not isinstance(raw_evidence, list):
-            raw_evidence = source.get("manifestFiles") or source.get("indexedDates") or []
+        raw_evidence: list[Any] = []
+        for field in ("evidence", "manifestFiles", "manifest_files", "indexedDates", "indexed_dates"):
+            field_values = source.get(field)
+            if isinstance(field_values, str):
+                raw_evidence.append(field_values)
+            elif isinstance(field_values, list):
+                raw_evidence.extend(field_values)
         evidence = set()
         for raw_value in raw_evidence:
             if isinstance(raw_value, dict):
@@ -328,10 +332,20 @@ async def _write_building_insights_checkpoint(
                 evidence.add(f"{date.fromisoformat(value[:10]).isoformat()}.json")
             except ValueError:
                 continue
+        raw_answer = source.get("answer")
+        if isinstance(raw_answer, str):
+            answer = [raw_answer.strip()] if raw_answer.strip() else []
+        elif isinstance(raw_answer, list):
+            answer = list(dict.fromkeys(
+                value.strip() for value in raw_answer
+                if isinstance(value, str) and value.strip()
+            ))
+        else:
+            answer = []
         item = {
             "prompt": prompt,
             "status": source.get("status") or "unanswered",
-            "answer": source.get("answer"),
+            "answer": answer,
             "evidence": sorted(evidence),
         }
         if source.get("id") is not None:
@@ -1485,6 +1499,7 @@ def _aggregate_prompt(total: int) -> str:
     return (
         _prompt("the complete indexed history", [])
         + "\n\n"
+        + "Start by calling list_agentic_memory_topics to load the saved question queue and aggregate checkpoint. "
         + f"This is the sole agentic phase after deterministic indexing; the manifest contains {total} indexed materials. "
         + "That catalog size is not the aggregate progress total: aggregate progress starts at zero while you form the question plan, "
         + "then its total grows only from source records surfaced as candidate evidence for those questions, and processed grows only "
@@ -1497,10 +1512,13 @@ def _aggregate_prompt(total: int) -> str:
         + "answered prompts, resolve contradictions, and add only evidence-driven follow-up prompts. Do not use a multi-word query that "
         + "requires unrelated terms to occur in the same title. Read only the exact matching source ids needed to answer each prompt. "
         + "Titles alone are not enough for ownership, employment, roles, or relationships, but unrelated source bodies must not be fetched.\n\n"
-        + "Use the baseline question queue as the explicit research queue. Only after the answerable prompts have been investigated, call "
-        + "plan_agentic_memory_topics with the ordered list of durable topics "
-        + "that will answer those questions across the indexed dates. Do not begin topic-specific source reads until both "
-        + "plans have been recorded. Then iterate through the "
+        + "The question queue is already persisted; do not replace it with a different plan. After investigating each question, call "
+        + "record_agentic_memory_question_answer using its id, an answer array of strings, and the exact dated manifest filenames "
+        + "(YYYY-MM-DD.json) that support the answer. The tool replaces that question's current answer and evidence, so submit the complete "
+        + "current arrays. If the indexed records do not answer it, record empty answer and evidence arrays. Update a question again when "
+        + "later source reads change the answer or its supporting files. Only mark a question answered when it has both an answer and evidence.\n\n"
+        + "After investigating the question queue, call plan_agentic_memory_topics with the ordered list of durable topics "
+        + "that will answer those questions across the indexed dates. Then iterate through the "
         + "planned list one topic at a time: call record_agentic_memory_topic, investigate/refine it, and call "
         + "complete_agentic_memory_topic only after its relevant source IDs have all been fetched and its gap-filling "
         + "search is exhausted. If a topic is already in progress, continue it before starting another. These tools "
@@ -1551,10 +1569,12 @@ def _catalog_page_prompt(
         "The returned records are metadata only; do not fetch full source bodies during this catalog pass. "
         "Before the turn ends, call record_agentic_page_review exactly once. Replace the working context with a concise updated "
         "understanding of what this page adds, preserving useful prior context and removing stale or redundant material. "
-        "Update the prompt-shaped research queue: answer tasks when this page supports an answer, and put every relevant dated manifest filename "
-        "(for example, 2021-12-23.json) in that question's evidence list. "
-        "mark tasks as unresolved when evidence is insufficient, and add follow-up prompts only when this page creates a real evidence gap "
-        "or contradiction. Do not invent generic questions. The next page will receive only the context and queue you persist.\n\n"
+        "Update the prompt-shaped research queue. Each question's answer MUST be an array of concise strings, and evidence MUST be an array "
+        "of exact dated manifest filenames such as 2021-12-23.json. Add newly relevant filenames while preserving prior evidence. "
+        "Only mark a question answered when it has supporting filenames in evidence; otherwise keep answer as [] and status unanswered. "
+        "Do not claim a fact from titles alone when the metadata does not support it. Add follow-up prompts only when this page creates a real "
+        "evidence gap or contradiction. Do not invent generic questions. The next page will receive only the context and queue you persist.\n\n"
+        + "Use this question shape: {\"id\": \"...\", \"prompt\": \"...\", \"status\": \"unanswered\", \"answer\": [], \"evidence\": []}.\n\n"
         + "Current research queue:\n"
         + json.dumps(questions, ensure_ascii=False, default=str)
         + "\n\nCurrent working context:\n"
@@ -1798,6 +1818,7 @@ async def _run_aggregate(
                         persist_page_review,
                         record_agent_activity,
                         required_questions=_baseline_research_questions(),
+                        valid_evidence_files={f"{day}.json" for day in catalog_dates},
                     ),
                 ],
             )
@@ -1865,9 +1886,7 @@ async def _run_aggregate(
             questions=questions,
             indexed_dates=sorted(catalog_state.get("dates") or set()),
         )
-        status["statusMessage"] = (
-            f"Question plan recorded: {len(questions)} questions; selecting the evidence that can answer them."
-        )
+        status["statusMessage"] = "Saving updated answers and dated evidence for the research questions."
         await _write_status(access_token, status)
 
     async def record_search_matches(source_ids: list[str]) -> None:
@@ -1968,6 +1987,7 @@ async def _stream_agent_page(agent: Any, prompt: str, status: dict[str, Any], ac
             "list_historical_sources": "Reviewing the indexed history catalog.",
             "record_agentic_page_review": "Saving the updated research context and question queue.",
             "list_agentic_memory_topics": "Checking the saved memory-review checkpoint.",
+            "record_agentic_memory_question_answer": "Saving the answer and its dated manifest evidence.",
             "plan_agentic_memory_questions": "Identifying the questions the indexed history should answer.",
             "record_agentic_memory_question_scope": "Assigning the relevant dated manifest files to this question.",
             "plan_agentic_memory_topics": "Organizing the historical review into memory topics.",

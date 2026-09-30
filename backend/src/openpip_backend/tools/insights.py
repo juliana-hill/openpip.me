@@ -39,6 +39,7 @@ def build_agentic_page_review_tool(
     persist_review: Callable[[int, Any, list[dict[str, Any]]], Awaitable[None]],
     on_activity: ActivityCallback | None = None,
     required_questions: list[dict[str, Any]] | None = None,
+    valid_evidence_files: set[str] | None = None,
 ) -> Any:
     """Persist the agent-owned context and question queue after one page."""
     @tool(
@@ -47,8 +48,10 @@ def build_agentic_page_review_tool(
             "After reading exactly one page from list_historical_sources, replace the working context and question queue "
             "with your concise updated understanding. `context` is agent-owned JSON and may contain any structure that helps "
             "the investigation. `questions` is the current prompt-shaped research queue: update answers, status, and put the "
-            "relevant dated manifest filenames (for example, 2021-12-23.json) in each question's evidence list. "
-            "and follow-up questions as needed. Do not copy raw page records or source bodies. This checkpoint is persisted "
+            "answer as an array of strings and the relevant dated manifest filenames (for example, 2021-12-23.json) "
+            "in each question's evidence array. Preserve prior evidence and add newly relevant files as you find them. "
+            "Do not mark a question answered without evidence. Do not copy raw page records or source bodies. "
+            "This checkpoint is persisted "
             "to OpenPip/memory/insights_gathering/agentic_memory/notes.json and building_insights.json before the next page."
         ),
     )
@@ -75,9 +78,14 @@ def build_agentic_page_review_tool(
             ]
         if not normalized_questions:
             raise ValueError("questions must contain the current research queue")
-        existing_by_id = {
+        required_by_id = {
             str(item.get("id")): item
             for item in (required_questions or [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        previous_by_id = {
+            str(item.get("id")): item
+            for item in (status.get("questions") or [])
             if isinstance(item, dict) and item.get("id")
         }
         submitted_by_id = {
@@ -85,17 +93,66 @@ def build_agentic_page_review_tool(
             for item in normalized_questions
             if item.get("id")
         }
+
+        def answer_strings(value: Any) -> list[str]:
+            values = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+            return list(dict.fromkeys(
+                item.strip() for item in values
+                if isinstance(item, str) and item.strip()
+            ))
+
+        def evidence_files(*items: dict[str, Any] | None) -> list[str]:
+            files: set[str] = set()
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                for field in ("evidence", "manifestFiles", "manifest_files", "indexedDates", "indexed_dates"):
+                    values = item.get(field)
+                    if isinstance(values, str):
+                        values = [values]
+                    if not isinstance(values, list):
+                        continue
+                    for value in values:
+                        if isinstance(value, dict):
+                            value = value.get("manifestFile") or value.get("date")
+                        filename = str(value or "").strip()
+                        if filename.endswith(".json"):
+                            filename = filename[:-5]
+                        try:
+                            filename = f"{date.fromisoformat(filename[:10]).isoformat()}.json"
+                        except ValueError:
+                            continue
+                        if valid_evidence_files is None or filename in valid_evidence_files:
+                            files.add(filename)
+            return sorted(files)
+
         merged_questions = []
         for required in required_questions or []:
             if not isinstance(required, dict) or not required.get("id"):
                 continue
-            submitted = submitted_by_id.get(str(required["id"]))
-            merged_questions.append({**required, **(submitted or {})})
-        required_ids = set(existing_by_id)
-        merged_questions.extend(
-            item for item in normalized_questions
-            if str(item.get("id") or "") not in required_ids
-        )
+            question_id = str(required["id"])
+            previous = previous_by_id.get(question_id)
+            submitted = submitted_by_id.get(question_id)
+            merged = {**required, **(previous or {}), **(submitted or {})}
+            merged["answer"] = answer_strings(merged.get("answer"))
+            merged["evidence"] = evidence_files(required, previous, submitted)
+            if merged["answer"] and not merged["evidence"]:
+                merged["answer"] = []
+                merged["status"] = "unanswered"
+            merged_questions.append(merged)
+        required_ids = set(required_by_id)
+        for item in normalized_questions:
+            question_id = str(item.get("id") or "")
+            if question_id in required_ids:
+                continue
+            previous = previous_by_id.get(question_id)
+            merged = {**(previous or {}), **item}
+            merged["answer"] = answer_strings(merged.get("answer"))
+            merged["evidence"] = evidence_files(previous, item)
+            if merged["answer"] and not merged["evidence"]:
+                merged["answer"] = []
+                merged["status"] = "unanswered"
+            merged_questions.append(merged)
         normalized_questions = merged_questions
         status["catalogPage"] = int(page)
         status["catalogStatus"] = (
@@ -189,6 +246,80 @@ def build_agentic_memory_status_tools(
             "currentTopic": status.get("currentTopic"),
             "topics": status.get("topics", []),
         })
+
+    @tool(
+        name="record_agentic_memory_question_answer",
+        description=(
+            "Update one question in building_insights.json after investigating it. `answer` must be an array of concise "
+            "strings. `evidence` must be the exact dated manifest filenames (for example, 2021-12-23.json) supporting "
+            "those answers. Supply the complete current answer and evidence arrays so the agent can revise earlier "
+            "conclusions. An answer without at least one evidence file is rejected."
+        ),
+    )
+    async def record_agentic_memory_question_answer(
+        question_id: str,
+        answer: list[str],
+        evidence: list[str],
+    ) -> str:
+        normalized_id = str(question_id or "").strip()
+        question = next(
+            (
+                item for item in status.setdefault("questions", [])
+                if isinstance(item, dict) and str(item.get("id") or "") == normalized_id
+            ),
+            None,
+        )
+        if question is None:
+            raise ValueError(f"unknown research question id: {normalized_id}")
+        if isinstance(answer, str):
+            answer_items = [answer]
+        elif isinstance(answer, list):
+            answer_items = answer
+        else:
+            answer_items = []
+        answer_values = list(dict.fromkeys(
+            value.strip() for value in answer_items
+            if isinstance(value, str) and value.strip()
+        ))
+        available_dates = {
+            str(value)[:10]
+            for value in (catalog_state or {}).get("dates", set())
+            if value
+        }
+        evidence_files: list[str] = []
+        if isinstance(evidence, str):
+            evidence_items = [evidence]
+        elif isinstance(evidence, list):
+            evidence_items = evidence
+        else:
+            evidence_items = []
+        for value in evidence_items:
+            filename = str(value or "").strip()
+            if filename.endswith(".json"):
+                filename = filename[:-5]
+            try:
+                normalized_date = date.fromisoformat(filename[:10]).isoformat()
+            except ValueError:
+                raise ValueError(f"invalid dated manifest filename: {value}") from None
+            if available_dates and normalized_date not in available_dates:
+                raise ValueError(f"manifest file {normalized_date}.json was not found in the indexed catalog")
+            canonical_file = f"{normalized_date}.json"
+            if canonical_file not in evidence_files:
+                evidence_files.append(canonical_file)
+        if answer_values and not evidence_files:
+            raise ValueError("an answered research question must cite at least one dated manifest file")
+
+        question["answer"] = answer_values
+        question["evidence"] = sorted(evidence_files)
+        question["manifestFiles"] = sorted(evidence_files)
+        question["status"] = "answered" if answer_values and evidence_files else "unanswered"
+        if persist_question_plan is not None:
+            await persist_question_plan(status["questions"])
+        await persist(status)
+        if on_activity is not None:
+            label = question.get("prompt") or question.get("question") or normalized_id
+            await on_activity(f"Recorded the answer and dated evidence for: {label}.")
+        return json.dumps({"status": question["status"], "question": question})
 
     @tool(
         name="plan_agentic_memory_questions",
@@ -461,9 +592,15 @@ def build_agentic_memory_status_tools(
         await persist(status)
         return json.dumps({"status": "completed", "topic": existing})
 
-    tools = [list_agentic_memory_topics, plan_agentic_memory_topics, record_agentic_memory_topic, complete_agentic_memory_topic]
+    tools = [
+        list_agentic_memory_topics,
+        record_agentic_memory_question_answer,
+        plan_agentic_memory_topics,
+        record_agentic_memory_topic,
+        complete_agentic_memory_topic,
+    ]
     if include_question_tools:
-        tools[1:1] = [plan_agentic_memory_questions, record_agentic_memory_question_scope]
+        tools[2:2] = [plan_agentic_memory_questions, record_agentic_memory_question_scope]
     return tools
 
 
