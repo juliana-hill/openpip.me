@@ -509,6 +509,8 @@ def _synchronize_manifest_cursor(
         current = None
 
     desired: date | None = None
+    if _history_checkpoint_is_complete(manifest):
+        return changed
     if newest_manifest is not None and (current is None or current < newest_manifest):
         # The pointer is stale when Drive already contains a newer dated
         # manifest file. Jump directly to that date; the crawl loop checks the
