@@ -342,6 +342,24 @@ async def _write_building_insights_checkpoint(
     })
 
 
+async def _building_insights_checkpoint_exists(access_token: str) -> bool | None:
+    """Return whether the aggregate's question checkpoint is present.
+
+    ``False`` is the deliberate reset signal: the user deleted
+    ``building_insights.json``. ``None`` means Drive could not be checked, so
+    a transient API failure must not be mistaken for a user-requested reset.
+    """
+    try:
+        stored = await read_json_file(access_token, _FOLDER, _BUILDING_INSIGHTS_FILE)
+    except Exception:
+        _logger.warning(
+            "historical insight gathering: unable to check building_insights.json",
+            exc_info=True,
+        )
+        return None
+    return isinstance(stored, dict) and isinstance(stored.get("context"), list)
+
+
 async def _read_agentic_catalog_notes(access_token: str) -> Any:
     try:
         stored = await read_json_file(access_token, _AGENTIC_MEMORY_FOLDER, _AGENTIC_MEMORY_NOTES_FILE)
@@ -646,7 +664,13 @@ async def _reconcile_completed_status(access_token: str, status: dict[str, Any])
             # question plan. It may say completed while having explored only
             # the first manifest page, so it must be offered for migration.
             needs_question_migration = bool(int(aggregate_stage.get("total") or 0)) and not agentic_status.get("questions")
-            needs_resume = agentic_status.get("state") != "completed" or has_incomplete_topics or needs_question_migration
+            building_checkpoint_exists = await _building_insights_checkpoint_exists(access_token)
+            needs_resume = (
+                agentic_status.get("state") != "completed"
+                or has_incomplete_topics
+                or needs_question_migration
+                or building_checkpoint_exists is False
+            )
     except Exception:
         # A transient Drive failure should not turn a valid completed run into
         # a false resume prompt. The normal status poll can retry the check.
@@ -1556,13 +1580,32 @@ async def _run_aggregate(
     """Run the only agentic phase over the complete metadata-only manifest."""
     stage = status["stages"]["aggregate"]
     history_stage = status["stages"]["history"]
+    building_checkpoint_exists = await _building_insights_checkpoint_exists(access_token)
+    reset_from_missing_building_checkpoint = building_checkpoint_exists is False
+    agentic_memory_status = await _read_agentic_memory_status(access_token)
+    if reset_from_missing_building_checkpoint:
+        # The question file is the aggregate's user-visible checkpoint. Its
+        # deletion is an explicit request to restart aggregate from page 1;
+        # the completed history index remains untouched.
+        status["stages"]["aggregate"] = _stage()
+        stage = status["stages"]["aggregate"]
+        status["insightsWritten"] = 0
+        manifest["aggregateStatus"] = "pending"
+        agentic_memory_status = _default_agentic_memory_status()
+        await write_json_file(access_token, _MANIFEST_FOLDER, _MANIFEST_FILE, manifest)
+        await _write_agentic_memory_status(access_token, agentic_memory_status)
+        _add_event(
+            status,
+            "Reset historical aggregate",
+            "building_insights.json was deleted; restarting the aggregate from the first manifest page.",
+        )
+        await _write_status(access_token, status)
     entries = await _read_manifest_entries(access_token)
     source_index = {
         str(item["sourceId"]): item
         for item in entries
         if item.get("sourceId")
     }
-    agentic_memory_status = await _read_agentic_memory_status(access_token)
     if (
         history_stage.get("status") == "completed"
         and stage.get("status") == "completed"
@@ -1572,7 +1615,7 @@ async def _run_aggregate(
     ):
         return
     saved = 0
-    catalog_context = await _read_agentic_catalog_notes(access_token)
+    catalog_context = {} if reset_from_missing_building_checkpoint else await _read_agentic_catalog_notes(access_token)
     if catalog_context is None:
         catalog_context = {}
     read_state: dict[str, Any] = {}
@@ -1606,6 +1649,25 @@ async def _run_aggregate(
         return bool(topics) and not agentic_memory_status.get("currentTopic") and all(
             item.get("status") == "completed" for item in topics
         )
+
+    if agentic_memory_status.get("state") != "completed":
+        baseline_questions = _baseline_research_questions()
+        submitted_by_id = {
+            str(item.get("id")): item
+            for item in agentic_memory_status.get("questions", [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        merged_questions = [
+            {**question, **(submitted_by_id.get(str(question["id"])) or {})}
+            for question in baseline_questions
+        ]
+        baseline_ids = {str(question["id"]) for question in baseline_questions}
+        merged_questions.extend(
+            item for item in agentic_memory_status.get("questions", [])
+            if isinstance(item, dict) and str(item.get("id") or "") not in baseline_ids
+        )
+        agentic_memory_status["questions"] = merged_questions
+        await _write_agentic_memory_status(access_token, agentic_memory_status)
 
     async def finalize_aggregate() -> None:
         processed, total = evidence_counts()
@@ -1735,6 +1797,7 @@ async def _run_aggregate(
                         persist_agentic_memory_status,
                         persist_page_review,
                         record_agent_activity,
+                        required_questions=_baseline_research_questions(),
                     ),
                 ],
             )

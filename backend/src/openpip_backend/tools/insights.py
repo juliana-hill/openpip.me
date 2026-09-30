@@ -38,6 +38,7 @@ def build_agentic_page_review_tool(
     persist: Callable[[dict[str, Any]], Awaitable[None]],
     persist_review: Callable[[int, Any, list[dict[str, Any]]], Awaitable[None]],
     on_activity: ActivityCallback | None = None,
+    required_questions: list[dict[str, Any]] | None = None,
 ) -> Any:
     """Persist the agent-owned context and question queue after one page."""
     @tool(
@@ -74,6 +75,28 @@ def build_agentic_page_review_tool(
             ]
         if not normalized_questions:
             raise ValueError("questions must contain the current research queue")
+        existing_by_id = {
+            str(item.get("id")): item
+            for item in (required_questions or [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        submitted_by_id = {
+            str(item.get("id")): item
+            for item in normalized_questions
+            if item.get("id")
+        }
+        merged_questions = []
+        for required in required_questions or []:
+            if not isinstance(required, dict) or not required.get("id"):
+                continue
+            submitted = submitted_by_id.get(str(required["id"]))
+            merged_questions.append({**required, **(submitted or {})})
+        required_ids = set(existing_by_id)
+        merged_questions.extend(
+            item for item in normalized_questions
+            if str(item.get("id") or "") not in required_ids
+        )
+        normalized_questions = merged_questions
         status["catalogPage"] = int(page)
         status["catalogStatus"] = (
             "completed"
