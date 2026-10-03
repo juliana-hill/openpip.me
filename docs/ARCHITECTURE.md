@@ -52,6 +52,14 @@ step without a remote runtime handoff. The Firebase-hosted landing page and
 fictional `demo.openpip.me` walkthrough remain separate from the connected
 application.
 
+Both Cloud Run services run with min instances `0` and CPU allocated only
+during requests. The design consequence is that no work may depend on CPU
+after a response is sent: polling, crawling, and memory synthesis run inside
+a request, triggered by the user or by Cloud Scheduler calling an
+authenticated endpoint, and long-running work must checkpoint to Drive so a
+later request can resume it. The settings and the cost reasoning are in the
+"Cloud Run deployment" section of the README and are enforced by `deploy.sh`.
+
 AgentCore was evaluated but is intentionally not part of this deployment. Its
 separate runtime and identity boundaries are a poor fit for OpenPip's fully
 customizable hybrid pipeline, and they are not a suitable place to express the

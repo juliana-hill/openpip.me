@@ -78,6 +78,54 @@ express that entire custom control flow. It would require extra token and
 state handoffs, add latency, and make the pipeline less customizable. This is
 an application-fit and efficiency decision, not a limitation of Google Cloud.
 
+## Cloud Run deployment
+
+The connected application runs as two Cloud Run services, `openpip-backend`
+and `openpip-frontend`, in `travel-agent-cam-julie` (`us-west1`). Their
+runtime settings are enforced by `configure_cloud_run` in `deploy.sh` on every
+deploy and must not be changed in the console, because console changes are
+not visible in this repository and some of them survive deploys.
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| CPU allocation | Only during requests (`--cpu-throttling`) | Billing stops when the request ends. "CPU always allocated" bills the whole instance lifetime, including the roughly 15 idle minutes an instance stays warm after each request. |
+| Min instances | `0` | No idle instance is kept alive, so a quiet month costs nothing. |
+| Max instances | `5` | Hard cost ceiling if traffic spikes or a crawler loops. |
+| CPU / memory | `2` vCPU / `2Gi` | Per-instance size. Only billed while a request is running. |
+| Concurrency | `80` | Requests per instance before Cloud Run scales out. |
+
+Why this matters: in September 2026 both services were set to "CPU always
+allocated" (a console-side setting the deploy script did not override) with
+min instances at 0. Each service handled about 95,000 requests spread across
+the day, so an instance was warm almost continuously, and Cloud Run billed
+roughly 270 instance-hours for the month. That setting alone produced a bill
+that is normally under a dollar. Request-based CPU allocation with min 0 is
+the intended schema for every OpenPip service.
+
+Two consequences for application code:
+
+- Nothing may rely on CPU after the response is sent. Background work has to
+  run inside a request (for example a Cloud Scheduler call to an authenticated
+  endpoint) or be moved to a Cloud Run job.
+- The first request after an idle period pays a cold start. That is accepted
+  in exchange for scale-to-zero.
+
+To verify the live configuration matches this table:
+
+```sh
+gcloud run services describe openpip-backend --project=travel-agent-cam-julie --region=us-west1 \
+  --format="yaml(spec.template.metadata.annotations, spec.template.spec.containers[0].resources)"
+```
+
+`run.googleapis.com/cpu-throttling` must be `'true'` and
+`autoscaling.knative.dev/minScale` must be absent or `'0'`.
+
+To check how many billable instance-hours the services used this month, open
+Cloud Run in the console, pick the service, and read **Billable container
+instance time** on the Metrics tab. Anything above a few hours per day with
+min instances at 0 means something is calling the service continuously or CPU
+allocation has drifted back to "always allocated".
+
 ## Firebase deployments
 
 The marketing site and the fictional walkthrough are deployed as separate

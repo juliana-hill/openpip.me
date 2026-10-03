@@ -7,12 +7,19 @@ REGION="us-west1"
 SERVICES=("openpip-backend" "openpip-frontend")
 
 # Keep these limits explicit: Cloud Run defaults must never decide the cost
-# ceiling for either application service.
+# ceiling for either application service. See "Cloud Run deployment" in
+# README.md for what each setting costs and why it is set this way.
 CLOUD_RUN_CPU="2"
 CLOUD_RUN_MEMORY="2Gi"
 CLOUD_RUN_CONCURRENCY="80"
 CLOUD_RUN_MIN_INSTANCES="0"
 CLOUD_RUN_MAX_INSTANCES="5"
+# CPU is only allocated while a request is being handled (--cpu-throttling).
+# "CPU always allocated" bills the whole instance lifetime, including the
+# ~15 idle minutes after every request, and was the source of the September
+# 2026 bill. This flag must be passed on every update or the console setting
+# silently survives the deploy.
+CLOUD_RUN_CPU_ALLOCATION_FLAG="--cpu-throttling"
 
 configure_cloud_run() {
   for service in "${SERVICES[@]}"; do
@@ -25,7 +32,8 @@ configure_cloud_run() {
       --min="$CLOUD_RUN_MIN_INSTANCES" \
       --max="$CLOUD_RUN_MAX_INSTANCES" \
       --min-instances="$CLOUD_RUN_MIN_INSTANCES" \
-      --max-instances="$CLOUD_RUN_MAX_INSTANCES"
+      --max-instances="$CLOUD_RUN_MAX_INSTANCES" \
+      "$CLOUD_RUN_CPU_ALLOCATION_FLAG"
   done
 }
 
